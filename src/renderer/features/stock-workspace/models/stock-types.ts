@@ -1,6 +1,23 @@
 export type IntervalType = 'minute' | 'day' | 'week' | 'month'
 
-export type IndicatorName = 'boll' | 'volumeMa' | 'bsSignal'
+export type IndicatorName =
+  | 'boll'
+  | 'ma'
+  | 'ema'
+  | 'volumeMa'
+  | 'macd'
+  | 'kdj'
+  | 'rsi'
+  | 'bsSignal'
+
+export type IndicatorPane = 'main' | 'sub' | 'overlay'
+
+export interface IndicatorSettings {
+  enabled: boolean
+  params: number[]
+}
+
+export type IndicatorSettingsMap = Record<IndicatorName, IndicatorSettings>
 
 export type StockSourceId = 'eastmoney' | 'sina' | 'netease163' | 'tencent'
 

@@ -1,10 +1,17 @@
 import { describe, expect, it } from 'vitest'
 import { KLineChartsAdapter } from '../src/renderer/features/stock-workspace/adapters/KLineChartsAdapter'
-import type { EnrichedStockDataset, IndicatorName } from '../src/renderer/features/stock-workspace/models/stock-types'
+import { createDefaultIndicatorSettings } from '../src/renderer/features/stock-workspace/models/indicator-definitions'
+import type {
+  EnrichedStockDataset,
+  IndicatorName,
+  IndicatorSettings,
+  IndicatorSettingsMap
+} from '../src/renderer/features/stock-workspace/models/stock-types'
 
 interface ActiveIndicator {
   paneId: string
   name: string
+  calcParams: number[]
 }
 
 class FakeChart {
@@ -18,12 +25,12 @@ class FakeChart {
   }
 
   createIndicator(
-    value: { name: string; paneId?: string },
+    value: { name: string; paneId?: string; calcParams?: number[] },
     _isStack?: boolean,
     paneOptions?: { id?: string }
   ): string {
     const paneId = paneOptions?.id ?? value.paneId ?? `${value.name}-${this.nextIndicatorId++}`
-    this.indicators.push({ paneId, name: value.name })
+    this.indicators.push({ paneId, name: value.name, calcParams: value.calcParams ?? [] })
     return paneId
   }
 
@@ -74,15 +81,9 @@ describe('KLineChartsAdapter', () => {
     const { adapter, fakeChart } = createAdapterWithChart()
 
     adapter.setDataset(sampleDataset, {
-      boll: true,
-      volumeMa: true,
-      bsSignal: true
+      ...createDefaultIndicatorSettings()
     })
-    adapter.setDataset(sampleDataset, {
-      boll: false,
-      volumeMa: true,
-      bsSignal: true
-    })
+    adapter.setDataset(sampleDataset, createIndicatorSettings({ boll: { enabled: false } }))
 
     expect(fakeChart.indicators.filter((item) => item.name === 'BOLL')).toHaveLength(0)
     expect(fakeChart.indicators.filter((item) => item.name === 'VOL')).toHaveLength(1)
@@ -90,19 +91,26 @@ describe('KLineChartsAdapter', () => {
 
   it('does not create duplicate indicators or overlays when state is unchanged', () => {
     const { adapter, fakeChart } = createAdapterWithChart()
-    const enabled: Record<IndicatorName, boolean> = {
-      boll: true,
-      volumeMa: true,
-      bsSignal: true
-    }
+    const settings = createIndicatorSettings()
 
-    adapter.setDataset(sampleDataset, enabled)
-    adapter.setDataset(sampleDataset, enabled)
-    adapter.setDataset(sampleDataset, enabled)
+    adapter.setDataset(sampleDataset, settings)
+    adapter.setDataset(sampleDataset, settings)
+    adapter.setDataset(sampleDataset, settings)
 
     expect(fakeChart.indicators.filter((item) => item.name === 'BOLL')).toHaveLength(1)
     expect(fakeChart.indicators.filter((item) => item.name === 'VOL')).toHaveLength(1)
     expect(fakeChart.overlays).toHaveLength(1)
+  })
+
+  it('recreates indicators when calc params change', () => {
+    const { adapter, fakeChart } = createAdapterWithChart()
+
+    adapter.setDataset(sampleDataset, createIndicatorSettings())
+    adapter.setDataset(sampleDataset, createIndicatorSettings({ boll: { params: [30, 2] } }))
+
+    const bollIndicators = fakeChart.indicators.filter((item) => item.name === 'BOLL')
+    expect(bollIndicators).toHaveLength(1)
+    expect(bollIndicators[0].calcParams).toEqual([30, 2])
   })
 })
 
@@ -111,6 +119,21 @@ function createAdapterWithChart(): { adapter: KLineChartsAdapter; fakeChart: Fak
   const fakeChart = new FakeChart()
   ;(adapter as unknown as { chart: FakeChart }).chart = fakeChart
   return { adapter, fakeChart }
+}
+
+function createIndicatorSettings(
+  patch: Partial<Record<IndicatorName, Partial<IndicatorSettings>>> = {}
+): IndicatorSettingsMap {
+  const settings = createDefaultIndicatorSettings()
+  Object.entries(patch).forEach(([name, value]) => {
+    const indicatorName = name as IndicatorName
+    settings[indicatorName] = {
+      ...settings[indicatorName],
+      ...value,
+      params: value.params ? [...value.params] : [...settings[indicatorName].params]
+    }
+  })
+  return settings
 }
 
 const sampleDataset: EnrichedStockDataset = {

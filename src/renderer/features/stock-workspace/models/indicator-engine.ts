@@ -3,10 +3,12 @@ import type {
   BsSignal,
   EnrichedStockCandle,
   EnrichedStockDataset,
+  IndicatorSettingsMap,
   StockCandle,
   StockDataset,
   VolumeMaValue
 } from './stock-types'
+import { createDefaultIndicatorSettings } from './indicator-definitions'
 
 export interface IndicatorConfig {
   bollPeriod: number
@@ -16,25 +18,22 @@ export interface IndicatorConfig {
   slowSignalPeriod: number
 }
 
-export const defaultIndicatorConfig: IndicatorConfig = {
-  bollPeriod: 20,
-  bollDeviation: 2,
-  volumeMaPeriods: [5, 10, 20],
-  fastSignalPeriod: 5,
-  slowSignalPeriod: 20
-}
+export const defaultIndicatorConfig: IndicatorConfig = indicatorConfigFromSettings(
+  createDefaultIndicatorSettings()
+)
 
 export function enrichStockDataset(
   dataset: StockDataset,
-  config: IndicatorConfig = defaultIndicatorConfig
+  config: IndicatorConfig | IndicatorSettingsMap = defaultIndicatorConfig
 ): EnrichedStockDataset {
+  const resolvedConfig = resolveIndicatorConfig(config)
   const closes = dataset.candles.map((item) => item.close)
   const volumes = dataset.candles.map((item) => item.volume)
   const typicalPrices = dataset.candles.map((item) => (item.close + item.high + item.low) / 3)
 
-  const bollValues = calculateBoll(closes, config.bollPeriod, config.bollDeviation)
-  const volumeMas = calculateVolumeMas(volumes, config.volumeMaPeriods)
-  const signals = calculateBsSignals(dataset.candles, typicalPrices, config)
+  const bollValues = calculateBoll(closes, resolvedConfig.bollPeriod, resolvedConfig.bollDeviation)
+  const volumeMas = calculateVolumeMas(volumes, resolvedConfig.volumeMaPeriods)
+  const signals = calculateBsSignals(dataset.candles, typicalPrices, resolvedConfig)
 
   return {
     ...dataset,
@@ -44,6 +43,19 @@ export function enrichStockDataset(
       volumeMa: volumeMas[index],
       bsSignal: signals[index]
     }))
+  }
+}
+
+export function indicatorConfigFromSettings(settings: IndicatorSettingsMap): IndicatorConfig {
+  const bollParams = settings.boll.params
+  const volumeParams = settings.volumeMa.params
+  const signalParams = settings.bsSignal.params
+  return {
+    bollPeriod: bollParams[0],
+    bollDeviation: bollParams[1],
+    volumeMaPeriods: [...volumeParams],
+    fastSignalPeriod: signalParams[0],
+    slowSignalPeriod: signalParams[1]
   }
 }
 
@@ -146,6 +158,10 @@ function calculateBsSignals(
   }
 
   return signals
+}
+
+function resolveIndicatorConfig(config: IndicatorConfig | IndicatorSettingsMap): IndicatorConfig {
+  return 'bollPeriod' in config ? config : indicatorConfigFromSettings(config)
 }
 
 export function getLatestCandle(dataset: EnrichedStockDataset | null): EnrichedStockCandle | null {

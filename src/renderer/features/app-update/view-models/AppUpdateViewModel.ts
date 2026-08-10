@@ -1,5 +1,6 @@
 import { makeAutoObservable, runInAction } from 'mobx'
 import type { AppSettings, StockApi } from '../../../../preload/stock-api'
+import { createDefaultIndicatorSettings } from '../../stock-workspace/models/indicator-definitions'
 import type { AppUpdateEvent, AppUpdateState } from '../models/update-types'
 
 export class AppUpdateViewModel {
@@ -116,11 +117,7 @@ function createDefaultAppSettings(): AppSettings {
         startDate: formatDateKey(startDate),
         endDate: formatDateKey(endDate)
       },
-      enabledIndicators: {
-        boll: true,
-        volumeMa: true,
-        bsSignal: true
-      }
+      indicatorSettings: createDefaultIndicatorSettings()
     }
   }
 }

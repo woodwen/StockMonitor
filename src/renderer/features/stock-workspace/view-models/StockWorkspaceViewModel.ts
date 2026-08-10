@@ -1,6 +1,7 @@
 import { makeAutoObservable, runInAction } from 'mobx'
 import type { NetworkProxySettings, WorkspaceSettings } from '../../../../preload/stock-api'
 import { enrichStockDataset, getLatestCandle } from '../models/indicator-engine'
+import { cloneIndicatorSettings } from '../models/indicator-definitions'
 import type {
   IndicatorName,
   StockAdjust,
@@ -95,7 +96,7 @@ export class StockWorkspaceViewModel {
 
   private async loadQuery(query: StockQuery): Promise<void> {
     const dataset = await this.dataAdapter.fetchStockDataset(query)
-    const enriched = enrichStockDataset(dataset)
+    const enriched = enrichStockDataset(dataset, this.chart.indicatorSettings)
     runInAction(() => {
       this.query = query
       this.chart.setDataset(enriched)
@@ -153,7 +154,27 @@ export class StockWorkspaceViewModel {
   }
 
   toggleIndicator(name: IndicatorName, enabled: boolean): void {
+    const previousRevision = this.chart.revision
     this.chart.setIndicator(name, enabled)
+    if (this.chart.revision !== previousRevision) {
+      this.reenrichCurrentDataset()
+      this.saveWorkspaceSettingsNow()
+    }
+  }
+
+  openIndicatorDialog(): void {
+    this.chart.openIndicatorDialog()
+  }
+
+  closeIndicatorDialog(): void {
+    this.chart.closeIndicatorDialog()
+  }
+
+  applyIndicatorSettingsDraft(): void {
+    if (!this.chart.applyIndicatorDraft()) {
+      return
+    }
+    this.reenrichCurrentDataset()
     this.saveWorkspaceSettingsNow()
   }
 
@@ -291,7 +312,10 @@ export class StockWorkspaceViewModel {
         this.networkProxy = settings.networkProxy
         this.proxyDraft = { ...settings.networkProxy }
         this.query = this.normalizeQueryForSource(settings.workspace.query)
-        this.chart.setIndicators(settings.workspace.enabledIndicators)
+        this.chart.setIndicatorSettings(
+          settings.workspace.indicatorSettings,
+          settings.workspace.enabledIndicators
+        )
       })
     } catch (error) {
       console.warn('Failed to load workspace settings', error)
@@ -408,8 +432,15 @@ export class StockWorkspaceViewModel {
   private getWorkspaceSettings(): WorkspaceSettings {
     return {
       query: this.normalizeQueryForSource(this.query),
-      enabledIndicators: { ...this.chart.enabledIndicators }
+      indicatorSettings: cloneIndicatorSettings(this.chart.indicatorSettings)
     }
+  }
+
+  private reenrichCurrentDataset(): void {
+    if (!this.chart.dataset) {
+      return
+    }
+    this.chart.setDataset(enrichStockDataset(this.chart.dataset, this.chart.indicatorSettings))
   }
 }
 

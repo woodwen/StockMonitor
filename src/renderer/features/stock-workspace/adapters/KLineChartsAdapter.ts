@@ -1,5 +1,6 @@
 import { dispose, init, registerOverlay } from 'klinecharts'
-import type { EnrichedStockDataset, IndicatorName } from '../models/stock-types'
+import { indicatorDefinitions } from '../models/indicator-definitions'
+import type { EnrichedStockDataset, IndicatorName, IndicatorSettingsMap } from '../models/stock-types'
 
 const CANDLE_PANE_ID = 'candle_pane'
 const BS_SIGNAL_GROUP_ID = 'bs-signal'
@@ -7,10 +8,18 @@ const BS_SIGNAL_OVERLAY_NAME = 'stockMonitorBsSignal'
 
 let signalOverlayRegistered = false
 
+type ChartIndicatorName = Exclude<IndicatorName, 'bsSignal'>
+
+interface ActiveIndicator {
+  paneId: string
+  name: string
+  paramsSignature: string
+}
+
 export class KLineChartsAdapter {
   private chart: any = null
   private container: HTMLElement | null = null
-  private readonly indicatorPaneIds = new Map<Exclude<IndicatorName, 'bsSignal'>, string>()
+  private readonly indicatorStates = new Map<ChartIndicatorName, ActiveIndicator>()
   private overlayIds: string[] = []
   private currentDataset: EnrichedStockDataset | null = null
 
@@ -67,7 +76,7 @@ export class KLineChartsAdapter {
     } as any)
   }
 
-  setDataset(dataset: EnrichedStockDataset, enabledIndicators: Record<IndicatorName, boolean>): void {
+  setDataset(dataset: EnrichedStockDataset, indicatorSettings: IndicatorSettingsMap): void {
     if (!this.chart) {
       return
     }
@@ -86,8 +95,8 @@ export class KLineChartsAdapter {
       })),
       true
     )
-    this.syncIndicators(enabledIndicators)
-    this.syncSignalOverlays(dataset, enabledIndicators.bsSignal, datasetChanged)
+    this.syncIndicators(indicatorSettings)
+    this.syncSignalOverlays(dataset, indicatorSettings.bsSignal.enabled, datasetChanged)
   }
 
   resize(): void {
@@ -100,28 +109,30 @@ export class KLineChartsAdapter {
     }
     this.chart = null
     this.container = null
-    this.indicatorPaneIds.clear()
+    this.indicatorStates.clear()
     this.overlayIds = []
     this.currentDataset = null
   }
 
-  private syncIndicators(enabledIndicators: Record<IndicatorName, boolean>): void {
-    this.syncIndicator('boll', enabledIndicators.boll, {
-      name: 'BOLL',
-      calcParams: [20, 2],
-      isStack: true,
-      paneOptions: { id: CANDLE_PANE_ID }
-    })
-
-    this.syncIndicator('volumeMa', enabledIndicators.volumeMa, {
-      name: 'VOL',
-      calcParams: [5, 10, 20],
-      isStack: false
-    })
+  private syncIndicators(indicatorSettings: IndicatorSettingsMap): void {
+    indicatorDefinitions
+      .filter((definition) => definition.pane !== 'overlay')
+      .forEach((definition) => {
+        const chartName = definition.chartName
+        if (!chartName) {
+          return
+        }
+        this.syncIndicator(definition.name as ChartIndicatorName, indicatorSettings[definition.name].enabled, {
+          name: chartName,
+          calcParams: indicatorSettings[definition.name].params,
+          isStack: definition.pane === 'main',
+          paneOptions: definition.pane === 'main' ? { id: CANDLE_PANE_ID } : undefined
+        })
+      })
   }
 
   private syncIndicator(
-    key: Exclude<IndicatorName, 'bsSignal'>,
+    key: ChartIndicatorName,
     enabled: boolean,
     options: {
       name: string
@@ -130,31 +141,41 @@ export class KLineChartsAdapter {
       paneOptions?: { id: string }
     }
   ): void {
-    const paneId = this.indicatorPaneIds.get(key)
+    const activeIndicator = this.indicatorStates.get(key)
+    const paramsSignature = options.calcParams.join(',')
 
     if (!enabled) {
-      if (paneId) {
-        this.chart.removeIndicator?.(paneId, options.name)
-        this.indicatorPaneIds.delete(key)
+      if (activeIndicator) {
+        this.chart.removeIndicator?.(activeIndicator.paneId, activeIndicator.name)
+        this.indicatorStates.delete(key)
       }
       return
     }
 
-    if (paneId) {
+    if (activeIndicator?.paramsSignature === paramsSignature) {
       return
+    }
+
+    if (activeIndicator) {
+      this.chart.removeIndicator?.(activeIndicator.paneId, activeIndicator.name)
+      this.indicatorStates.delete(key)
     }
 
     const createdPaneId = this.chart.createIndicator?.(
       {
         name: options.name,
-        calcParams: options.calcParams
+        calcParams: [...options.calcParams]
       },
       options.isStack,
       options.paneOptions
     )
 
     if (createdPaneId) {
-      this.indicatorPaneIds.set(key, createdPaneId)
+      this.indicatorStates.set(key, {
+        paneId: createdPaneId,
+        name: options.name,
+        paramsSignature
+      })
     }
   }
 

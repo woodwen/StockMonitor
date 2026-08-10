@@ -32,8 +32,8 @@ export const KLineChartView = observer(({ viewModel, loading }: KLineChartViewPr
     if (!viewModel.dataset) {
       return
     }
-    adapter.setDataset(viewModel.dataset, viewModel.enabledIndicators)
-  }, [adapter, viewModel.dataset, viewModel.enabledIndicators, viewModel.revision])
+    adapter.setDataset(viewModel.dataset, viewModel.indicatorSettings)
+  }, [adapter, viewModel.dataset, viewModel.indicatorSettings, viewModel.revision])
 
   return (
     <div className="chart-shell">

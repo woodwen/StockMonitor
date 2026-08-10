@@ -198,3 +198,83 @@ body {
 .proxy-grid .ant-input-number {
   width: 100%;
 }
+
+.indicator-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.indicator-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.indicator-group-title {
+  color: #d7e0ea;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.indicator-group-hint {
+  color: #95a3b8;
+  font-size: 12px;
+}
+
+.indicator-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.indicator-row {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr) 74px;
+  gap: 10px;
+  align-items: center;
+  min-height: 42px;
+  padding: 8px 0;
+  border-bottom: 1px solid #263241;
+}
+
+.indicator-row-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.indicator-name {
+  overflow: hidden;
+  color: #d7e0ea;
+  font-size: 13px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.indicator-param-list {
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.indicator-param {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #95a3b8;
+  font-size: 12px;
+}
+
+.indicator-param .ant-input-number {
+  width: 72px;
+}
+
+.indicator-error {
+  grid-column: 2 / 4;
+  min-height: 16px;
+  color: #ff7875;
+  font-size: 12px;
+  line-height: 16px;
+}

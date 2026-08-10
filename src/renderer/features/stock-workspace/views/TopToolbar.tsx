@@ -1,15 +1,15 @@
 import { observer } from 'mobx-react-lite'
-import { Button, Checkbox, Divider, Input, Select, Space, Switch, Tooltip } from 'antd'
+import { Button, Divider, Input, Select, Space, Switch, Tooltip } from 'antd'
 import {
   ApiOutlined,
   BarChartOutlined,
   CloudDownloadOutlined,
   GlobalOutlined,
+  LineChartOutlined,
   ReloadOutlined,
   SearchOutlined
 } from '@ant-design/icons'
-import type { CheckboxChangeEvent } from 'antd/es/checkbox'
-import type { IndicatorName, StockAdjust, StockPeriod } from '../models/stock-types'
+import type { StockAdjust, StockPeriod } from '../models/stock-types'
 import type { StockWorkspaceViewModel } from '../view-models/StockWorkspaceViewModel'
 import type { AppUpdateViewModel } from '../../app-update/view-models/AppUpdateViewModel'
 
@@ -18,17 +18,7 @@ interface TopToolbarProps {
   updates: AppUpdateViewModel
 }
 
-const indicatorLabels: Array<{ name: IndicatorName; label: string }> = [
-  { name: 'boll', label: 'BOLL' },
-  { name: 'volumeMa', label: 'VOL MA' },
-  { name: 'bsSignal', label: 'B/S' }
-]
-
 export const TopToolbar = observer(({ stock, updates }: TopToolbarProps) => {
-  const handleIndicatorChange = (name: IndicatorName) => (event: CheckboxChangeEvent): void => {
-    stock.toggleIndicator(name, event.target.checked)
-  }
-
   return (
     <div className="top-toolbar">
       <Space size={8}>
@@ -98,16 +88,12 @@ export const TopToolbar = observer(({ stock, updates }: TopToolbarProps) => {
 
       <Divider type="vertical" />
 
-      <Space size={12}>
-        {indicatorLabels.map((item) => (
-          <Checkbox
-            key={item.name}
-            checked={stock.chart.enabledIndicators[item.name]}
-            onChange={handleIndicatorChange(item.name)}
-          >
-            {item.label}
-          </Checkbox>
-        ))}
+      <Space size={8}>
+        <Tooltip title="管理指标开关和参数">
+          <Button icon={<LineChartOutlined />} onClick={stock.openIndicatorDialog}>
+            指标
+          </Button>
+        </Tooltip>
       </Space>
 
       <div className="toolbar-spacer" />

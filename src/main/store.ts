@@ -1,12 +1,15 @@
 import Store from 'electron-store'
 import type { AppSettings, NetworkProxySettings, WorkspaceSettings } from '../preload/stock-api'
 import type {
-  IndicatorName,
   StockAdjust,
   StockPeriod,
   StockQuery,
   StockSourceId
 } from '../renderer/features/stock-workspace/models/stock-types'
+import {
+  createDefaultIndicatorSettings,
+  normalizeIndicatorSettings
+} from '../renderer/features/stock-workspace/models/indicator-definitions'
 import { logger } from './logger'
 
 interface AppStoreSchema {
@@ -105,7 +108,7 @@ function normalizeWorkspaceSettings(workspace: Partial<WorkspaceSettings> | unde
   const defaults = getDefaultWorkspaceSettings()
   return {
     query: normalizeStockQuery(workspace?.query, defaults.query),
-    enabledIndicators: normalizeEnabledIndicators(workspace?.enabledIndicators, defaults.enabledIndicators)
+    indicatorSettings: normalizeIndicatorSettings(workspace?.indicatorSettings, workspace?.enabledIndicators)
   }
 }
 
@@ -117,17 +120,6 @@ function normalizeStockQuery(query: Partial<StockQuery> | undefined, defaults: S
     adjust: isStockAdjust(query?.adjust) ? query.adjust : defaults.adjust,
     startDate: normalizeDateKey(query?.startDate, defaults.startDate),
     endDate: normalizeDateKey(query?.endDate, defaults.endDate)
-  }
-}
-
-function normalizeEnabledIndicators(
-  indicators: Partial<Record<IndicatorName, boolean>> | undefined,
-  defaults: Record<IndicatorName, boolean>
-): Record<IndicatorName, boolean> {
-  return {
-    boll: indicators?.boll ?? defaults.boll,
-    volumeMa: indicators?.volumeMa ?? defaults.volumeMa,
-    bsSignal: indicators?.bsSignal ?? defaults.bsSignal
   }
 }
 
@@ -145,11 +137,7 @@ function getDefaultWorkspaceSettings(): WorkspaceSettings {
       startDate: formatDateKey(startDate),
       endDate: formatDateKey(endDate)
     },
-    enabledIndicators: {
-      boll: true,
-      volumeMa: true,
-      bsSignal: true
-    }
+    indicatorSettings: createDefaultIndicatorSettings()
   }
 }
 

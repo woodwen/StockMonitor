@@ -4,6 +4,7 @@ import { resolve } from 'node:path'
 import iconv from 'iconv-lite'
 import type { AppSettings, NetworkProxySettings, WorkspaceSettings } from '../src/preload/stock-api'
 import type { StockDataAdapter } from '../src/renderer/features/stock-workspace/adapters/ElectronStockDataAdapter'
+import { createDefaultIndicatorSettings } from '../src/renderer/features/stock-workspace/models/indicator-definitions'
 import { parseLegacyStockText } from '../src/renderer/features/stock-workspace/models/legacy-stock-parser'
 import type {
   StockDataSourceMeta,
@@ -188,11 +189,10 @@ describe('StockWorkspaceViewModel', () => {
       startDate: '20250101',
       endDate: '20251231'
     })
-    expect(viewModel.chart.enabledIndicators).toEqual({
-      boll: false,
-      volumeMa: true,
-      bsSignal: false
-    })
+    expect(viewModel.chart.indicatorSettings.boll.enabled).toBe(false)
+    expect(viewModel.chart.indicatorSettings.volumeMa.enabled).toBe(true)
+    expect(viewModel.chart.indicatorSettings.bsSignal.enabled).toBe(false)
+    expect(viewModel.chart.indicatorSettings.macd.enabled).toBe(false)
   })
 
   it('saves workspace settings when users change controls', async () => {
@@ -208,8 +208,10 @@ describe('StockWorkspaceViewModel', () => {
       query: {
         period: 'week'
       },
-      enabledIndicators: {
-        boll: false
+      indicatorSettings: {
+        boll: {
+          enabled: false
+        }
       }
     })
   })
@@ -257,7 +259,35 @@ describe('StockWorkspaceViewModel', () => {
 
     viewModel.toggleIndicator('boll', false)
 
-    expect(viewModel.chart.enabledIndicators.boll).toBe(false)
+    expect(viewModel.chart.indicatorSettings.boll.enabled).toBe(false)
+  })
+
+  it('applies indicator dialog drafts and saves indicator params', async () => {
+    const adapter = new FakeDataAdapter()
+    const viewModel = new StockWorkspaceViewModel(adapter)
+
+    await viewModel.initialize()
+    viewModel.openIndicatorDialog()
+    viewModel.chart.setIndicatorDraftParam('boll', 0, 30)
+    viewModel.chart.setIndicatorDraftEnabled('macd', true)
+    viewModel.applyIndicatorSettingsDraft()
+
+    expect(viewModel.chart.indicatorDialogOpen).toBe(false)
+    expect(viewModel.chart.indicatorSettings.boll.params).toEqual([30, 2])
+    expect(viewModel.chart.indicatorSettings.macd.enabled).toBe(true)
+    expect(adapter.savedWorkspaceSettings.at(-1)?.indicatorSettings?.boll.params).toEqual([30, 2])
+  })
+
+  it('prevents enabling more than three sub indicators in the draft', () => {
+    const viewModel = new StockWorkspaceViewModel(new FakeDataAdapter())
+
+    viewModel.openIndicatorDialog()
+    viewModel.chart.setIndicatorDraftEnabled('macd', true)
+    viewModel.chart.setIndicatorDraftEnabled('kdj', true)
+    viewModel.chart.setIndicatorDraftEnabled('rsi', true)
+
+    expect(viewModel.chart.draftEnabledSubIndicatorCount).toBe(3)
+    expect(viewModel.chart.indicatorDraft.rsi.enabled).toBe(false)
   })
 })
 
@@ -279,11 +309,7 @@ function createDefaultSettings(): AppSettings {
         startDate: '20240101',
         endDate: '20260101'
       },
-      enabledIndicators: {
-        boll: true,
-        volumeMa: true,
-        bsSignal: true
-      }
+      indicatorSettings: createDefaultIndicatorSettings()
     }
   }
 }

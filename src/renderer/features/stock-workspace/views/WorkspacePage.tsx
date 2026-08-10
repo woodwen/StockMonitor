@@ -3,6 +3,7 @@ import { observer } from 'mobx-react-lite'
 import type { RootViewModel } from '../../../app/RootViewModel'
 import { UpdateStatusView } from '../../app-update/views/UpdateStatusView'
 import { DataSourceStatusModal } from './DataSourceStatusModal'
+import { IndicatorSettingsModal } from './IndicatorSettingsModal'
 import { KLineChartView } from './KLineChartView'
 import { NetworkProxyModal } from './NetworkProxyModal'
 import { StatusBar } from './StatusBar'
@@ -29,6 +30,7 @@ export const WorkspacePage = observer(({ root }: WorkspacePageProps) => {
       <Layout.Footer className="workspace-footer">
         <StatusBar stock={stock} updates={root.appUpdate} />
       </Layout.Footer>
+      <IndicatorSettingsModal stock={stock} />
       <DataSourceStatusModal stock={stock} />
       <NetworkProxyModal stock={stock} />
       <UpdateStatusView viewModel={root.appUpdate} />

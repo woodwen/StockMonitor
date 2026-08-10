@@ -1,6 +1,7 @@
 import type { AppUpdateEvent } from '../renderer/features/app-update/models/update-types'
 import type {
   IndicatorName,
+  IndicatorSettingsMap,
   StockDataSourceMeta,
   StockDataset,
   StockQuery
@@ -23,7 +24,8 @@ export interface NetworkProxySettings {
 
 export interface WorkspaceSettings {
   query: StockQuery
-  enabledIndicators: Record<IndicatorName, boolean>
+  indicatorSettings?: IndicatorSettingsMap
+  enabledIndicators?: Partial<Record<IndicatorName, boolean>>
 }
 
 export type MenuCommand = 'refresh-stock' | 'check-update'
