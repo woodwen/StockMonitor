@@ -1,5 +1,5 @@
 import { makeAutoObservable, runInAction } from 'mobx'
-import type { NetworkProxySettings } from '../../../../preload/stock-api'
+import type { NetworkProxySettings, WorkspaceSettings } from '../../../../preload/stock-api'
 import { enrichStockDataset, getLatestCandle } from '../models/indicator-engine'
 import type {
   IndicatorName,
@@ -25,6 +25,8 @@ export interface SourceTestResult {
   recordCount?: number
 }
 
+const WORKSPACE_SAVE_DEBOUNCE_MS = 500
+
 export class StockWorkspaceViewModel {
   readonly chart = new KLineChartViewModel()
 
@@ -39,9 +41,14 @@ export class StockWorkspaceViewModel {
   status: RemoteLoadStatus = 'idle'
   initialized = false
   error = ''
+  private workspaceSaveTimer?: ReturnType<typeof setTimeout>
 
   constructor(private readonly dataAdapter: StockDataAdapter) {
-    makeAutoObservable<this, 'dataAdapter'>(this, { dataAdapter: false }, { autoBind: true })
+    makeAutoObservable<this, 'dataAdapter' | 'workspaceSaveTimer'>(
+      this,
+      { dataAdapter: false, workspaceSaveTimer: false },
+      { autoBind: true }
+    )
   }
 
   async initialize(): Promise<void> {
@@ -52,6 +59,15 @@ export class StockWorkspaceViewModel {
     await this.loadSources()
     await this.loadSettings()
     await this.refreshStock({ allowStartupFallback: true })
+  }
+
+  dispose(): void {
+    if (!this.workspaceSaveTimer) {
+      return
+    }
+    clearTimeout(this.workspaceSaveTimer)
+    this.workspaceSaveTimer = undefined
+    this.persistWorkspaceSettings()
   }
 
   async refreshStock(options: { allowStartupFallback?: boolean } = {}): Promise<void> {
@@ -93,6 +109,7 @@ export class StockWorkspaceViewModel {
       ...this.query,
       symbol
     }
+    this.queueWorkspaceSettingsSave()
   }
 
   setSourceId(sourceId: StockSourceId): void {
@@ -100,6 +117,7 @@ export class StockWorkspaceViewModel {
       ...this.query,
       sourceId
     })
+    this.saveWorkspaceSettingsNow()
   }
 
   setPeriod(period: StockPeriod): void {
@@ -107,6 +125,7 @@ export class StockWorkspaceViewModel {
       ...this.query,
       period
     })
+    this.saveWorkspaceSettingsNow()
   }
 
   setAdjust(adjust: StockAdjust): void {
@@ -114,6 +133,7 @@ export class StockWorkspaceViewModel {
       ...this.query,
       adjust
     })
+    this.saveWorkspaceSettingsNow()
   }
 
   setStartDate(startDate: string): void {
@@ -121,6 +141,7 @@ export class StockWorkspaceViewModel {
       ...this.query,
       startDate: normalizeDateInput(startDate)
     }
+    this.queueWorkspaceSettingsSave()
   }
 
   setEndDate(endDate: string): void {
@@ -128,10 +149,12 @@ export class StockWorkspaceViewModel {
       ...this.query,
       endDate: normalizeDateInput(endDate)
     }
+    this.queueWorkspaceSettingsSave()
   }
 
   toggleIndicator(name: IndicatorName, enabled: boolean): void {
     this.chart.setIndicator(name, enabled)
+    this.saveWorkspaceSettingsNow()
   }
 
   openSourceTestDialog(): void {
@@ -262,11 +285,17 @@ export class StockWorkspaceViewModel {
   }
 
   private async loadSettings(): Promise<void> {
-    const settings = await this.dataAdapter.getSettings()
-    runInAction(() => {
-      this.networkProxy = settings.networkProxy
-      this.proxyDraft = { ...settings.networkProxy }
-    })
+    try {
+      const settings = await this.dataAdapter.getSettings()
+      runInAction(() => {
+        this.networkProxy = settings.networkProxy
+        this.proxyDraft = { ...settings.networkProxy }
+        this.query = this.normalizeQueryForSource(settings.workspace.query)
+        this.chart.setIndicators(settings.workspace.enabledIndicators)
+      })
+    } catch (error) {
+      console.warn('Failed to load workspace settings', error)
+    }
   }
 
   private normalizeQueryForSource(query: StockQuery): StockQuery {
@@ -350,6 +379,37 @@ export class StockWorkspaceViewModel {
       this.status = 'error'
       this.error = message
     })
+  }
+
+  private queueWorkspaceSettingsSave(): void {
+    if (this.workspaceSaveTimer) {
+      clearTimeout(this.workspaceSaveTimer)
+    }
+    this.workspaceSaveTimer = setTimeout(() => {
+      this.workspaceSaveTimer = undefined
+      this.persistWorkspaceSettings()
+    }, WORKSPACE_SAVE_DEBOUNCE_MS)
+  }
+
+  private saveWorkspaceSettingsNow(): void {
+    if (this.workspaceSaveTimer) {
+      clearTimeout(this.workspaceSaveTimer)
+      this.workspaceSaveTimer = undefined
+    }
+    this.persistWorkspaceSettings()
+  }
+
+  private persistWorkspaceSettings(): void {
+    void this.dataAdapter.setWorkspaceSettings(this.getWorkspaceSettings()).catch((error) => {
+      console.warn('Failed to save workspace settings', error)
+    })
+  }
+
+  private getWorkspaceSettings(): WorkspaceSettings {
+    return {
+      query: this.normalizeQueryForSource(this.query),
+      enabledIndicators: { ...this.chart.enabledIndicators }
+    }
   }
 }
 

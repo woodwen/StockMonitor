@@ -24,6 +24,11 @@ export class KLineChartViewModel {
     this.revision += 1
   }
 
+  setIndicators(enabledIndicators: Record<IndicatorName, boolean>): void {
+    this.enabledIndicators = { ...enabledIndicators }
+    this.revision += 1
+  }
+
   get hasDataset(): boolean {
     return this.dataset !== null && this.dataset.candles.length > 0
   }

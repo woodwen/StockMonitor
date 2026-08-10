@@ -1,7 +1,7 @@
 import { BrowserWindow, ipcMain } from 'electron'
-import type { AppSettings, NetworkProxySettings } from '../preload/stock-api'
+import type { AppSettings, NetworkProxySettings, WorkspaceSettings } from '../preload/stock-api'
 import type { StockQuery } from '../renderer/features/stock-workspace/models/stock-types'
-import { getSettings, setCheckUpdatesOnStartup, setNetworkProxy } from './store'
+import { getSettings, setCheckUpdatesOnStartup, setNetworkProxy, setWorkspaceSettings } from './store'
 import { checkForUpdates, downloadUpdate, quitAndInstallUpdate } from './update-manager'
 import { logger } from './logger'
 import { fetchRemoteStockDataset, getStockDataSourceMetas } from './remote-stock-sources'
@@ -19,6 +19,9 @@ export function registerIpcHandlers(_window: BrowserWindow): void {
   })
   ipcMain.handle('settings:setNetworkProxy', (_event, proxy: NetworkProxySettings): AppSettings => {
     return setNetworkProxy(proxy)
+  })
+  ipcMain.handle('settings:setWorkspaceSettings', (_event, workspace: WorkspaceSettings): AppSettings => {
+    return setWorkspaceSettings(workspace)
   })
   ipcMain.handle('update:check', () => checkForUpdates())
   ipcMain.handle('update:download', () => downloadUpdate())

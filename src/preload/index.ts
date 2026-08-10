@@ -9,6 +9,7 @@ const stockApi: StockApi = {
   setCheckUpdatesOnStartup: (enabled) =>
     ipcRenderer.invoke('settings:setCheckUpdatesOnStartup', enabled),
   setNetworkProxy: (proxy) => ipcRenderer.invoke('settings:setNetworkProxy', proxy),
+  setWorkspaceSettings: (workspace) => ipcRenderer.invoke('settings:setWorkspaceSettings', workspace),
   checkForUpdates: () => ipcRenderer.invoke('update:check'),
   downloadUpdate: () => ipcRenderer.invoke('update:download'),
   quitAndInstallUpdate: () => ipcRenderer.invoke('update:quitAndInstall'),

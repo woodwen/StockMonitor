@@ -6,15 +6,7 @@ export class AppUpdateViewModel {
   state: AppUpdateState = {
     status: 'idle'
   }
-  settings: AppSettings = {
-    checkUpdatesOnStartup: true,
-    networkProxy: {
-      enabled: false,
-      protocol: 'socks5',
-      host: '127.0.0.1',
-      port: 7890
-    }
-  }
+  settings: AppSettings = createDefaultAppSettings()
   private removeUpdateListener?: () => void
 
   constructor(private readonly stockApi: StockApi = window.stockApi) {
@@ -22,7 +14,11 @@ export class AppUpdateViewModel {
   }
 
   async initialize(): Promise<void> {
-    this.settings = await this.stockApi.getSettings()
+    try {
+      this.settings = await this.stockApi.getSettings()
+    } catch (error) {
+      console.warn('Failed to load app update settings', error)
+    }
     this.removeUpdateListener = this.stockApi.onUpdateEvent(this.handleUpdateEvent)
   }
 
@@ -96,4 +92,42 @@ export class AppUpdateViewModel {
       }
     })
   }
+}
+
+function createDefaultAppSettings(): AppSettings {
+  const endDate = new Date()
+  const startDate = new Date(endDate)
+  startDate.setFullYear(startDate.getFullYear() - 2)
+
+  return {
+    checkUpdatesOnStartup: true,
+    networkProxy: {
+      enabled: false,
+      protocol: 'socks5',
+      host: '127.0.0.1',
+      port: 7890
+    },
+    workspace: {
+      query: {
+        sourceId: 'eastmoney',
+        symbol: 'sh000001',
+        period: 'day',
+        adjust: 'qfq',
+        startDate: formatDateKey(startDate),
+        endDate: formatDateKey(endDate)
+      },
+      enabledIndicators: {
+        boll: true,
+        volumeMa: true,
+        bsSignal: true
+      }
+    }
+  }
+}
+
+function formatDateKey(date: Date): string {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}${month}${day}`
 }

@@ -1,4 +1,4 @@
-import type { AppSettings, NetworkProxySettings } from '../../../../preload/stock-api'
+import type { AppSettings, NetworkProxySettings, WorkspaceSettings } from '../../../../preload/stock-api'
 import type { StockDataSourceMeta, StockDataset, StockQuery } from '../models/stock-types'
 
 export interface StockDataAdapter {
@@ -6,6 +6,7 @@ export interface StockDataAdapter {
   fetchStockDataset(query: StockQuery): Promise<StockDataset>
   getSettings(): Promise<AppSettings>
   setNetworkProxy(proxy: NetworkProxySettings): Promise<AppSettings>
+  setWorkspaceSettings(workspace: WorkspaceSettings): Promise<AppSettings>
 }
 
 export class ElectronStockDataAdapter implements StockDataAdapter {
@@ -23,5 +24,9 @@ export class ElectronStockDataAdapter implements StockDataAdapter {
 
   setNetworkProxy(proxy: NetworkProxySettings): Promise<AppSettings> {
     return window.stockApi.setNetworkProxy(proxy)
+  }
+
+  setWorkspaceSettings(workspace: WorkspaceSettings): Promise<AppSettings> {
+    return window.stockApi.setWorkspaceSettings(workspace)
   }
 }

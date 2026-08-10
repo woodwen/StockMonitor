@@ -20,6 +20,7 @@ export class RootViewModel {
 
   dispose(): void {
     this.removeMenuListener?.()
+    this.stockWorkspace.dispose()
     this.appUpdate.dispose()
   }
 
