@@ -1,4 +1,5 @@
 import { app, BrowserWindow, shell } from 'electron'
+import { existsSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createApplicationMenu } from './menu'
@@ -12,7 +13,17 @@ const __dirname = path.dirname(__filename)
 
 let mainWindow: BrowserWindow | null = null
 
+function getAppIconPath(): string | undefined {
+  const iconPath = app.isPackaged
+    ? path.join(process.resourcesPath, 'icon.png')
+    : path.join(__dirname, '../../build/icon.png')
+
+  return existsSync(iconPath) ? iconPath : undefined
+}
+
 function createWindow(): BrowserWindow {
+  const iconPath = getAppIconPath()
+
   const window = new BrowserWindow({
     width: 1440,
     height: 900,
@@ -20,6 +31,7 @@ function createWindow(): BrowserWindow {
     minHeight: 700,
     title: 'Stock Monitor',
     show: false,
+    ...(process.platform === 'darwin' || !iconPath ? {} : { icon: iconPath }),
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.mjs'),
       contextIsolation: true,
@@ -53,6 +65,11 @@ function createWindow(): BrowserWindow {
 
 app.whenReady().then(() => {
   logger.info('Starting Stock Monitor', app.getVersion())
+  const iconPath = getAppIconPath()
+  if (process.platform === 'darwin' && iconPath) {
+    app.dock?.setIcon(iconPath)
+  }
+
   createWindow()
 
   if (getSettings().checkUpdatesOnStartup) {

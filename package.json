@@ -7,6 +7,7 @@
   "packageManager": "yarn@1.22.22",
   "author": "woodmax",
   "license": "MIT",
+  "homepage": "https://github.com/woodwen/StockMonitor#readme",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/woodwen/StockMonitor.git"
@@ -62,6 +63,12 @@
     "directories": {
       "output": "release"
     },
+    "extraResources": [
+      {
+        "from": "build/icon.png",
+        "to": "icon.png"
+      }
+    ],
     "files": [
       "out/**/*",
       "package.json"
@@ -78,19 +85,23 @@
       "target": [
         "dmg"
       ],
+      "icon": "build/icon.icns",
       "category": "public.app-category.finance",
       "identity": null
     },
     "win": {
       "target": [
         "nsis"
-      ]
+      ],
+      "icon": "build/icon.ico"
     },
     "linux": {
       "target": [
         "AppImage"
       ],
-      "category": "Finance"
+      "icon": "build/icon.png",
+      "category": "Finance",
+      "executableName": "stock-monitor"
     },
     "toolsets": {
       "appimage": "1.0.3"
