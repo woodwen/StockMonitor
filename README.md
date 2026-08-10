@@ -269,8 +269,9 @@ K 线数据源返回后会归一化为 `StockDataset`，再进入 `enrichStockDa
 
 默认策略：
 
-- 发布源：`generic`
-- 占位地址：`https://updates.example.com/stock-monitor/`
+- 发布源：GitHub Releases
+- 发布地址：`https://github.com/woodwen/StockMonitor/releases`
+- 更新元数据：由 `electron-builder` 随桌面安装包生成，并作为 Release assets 上传
 - 启动后延迟 5 秒检查更新
 - 菜单入口：`帮助 -> 检查更新`
 - 工具栏入口：`检查更新`
@@ -279,7 +280,7 @@ K 线数据源返回后会归一化为 `StockDataset`，再进入 `enrichStockDa
 - 下载完成后提示重启安装
 - 开发环境不真实更新，只走日志和状态流
 
-正式发布前需要替换更新地址，并准备 macOS/Windows 签名。
+`package.json` 的 `build.publish` 已配置为 GitHub provider：`woodwen/StockMonitor`，正式发布时仍需准备 macOS/Windows 签名。
 
 ## 打包
 

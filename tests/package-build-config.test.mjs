@@ -30,4 +30,15 @@ describe('package build config', () => {
       expect(existsSync(new URL(`../${iconPath}`, import.meta.url))).toBe(true)
     }
   })
+
+  it('uses GitHub Releases as the desktop auto-update source', () => {
+    expect(packageJson.build.publish).toEqual([
+      {
+        provider: 'github',
+        owner: 'woodwen',
+        repo: 'StockMonitor',
+        releaseType: 'release'
+      }
+    ])
+  })
 })
