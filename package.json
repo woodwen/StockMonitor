@@ -1,0 +1,82 @@
+{
+  "name": "stock-monitor-electron",
+  "version": "0.1.0",
+  "description": "Cross-platform K-line stock monitor desktop app.",
+  "main": "out/main/index.js",
+  "type": "module",
+  "author": "Stock Monitor",
+  "license": "MIT",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "dist": "yarn build && electron-builder"
+  },
+  "dependencies": {
+    "@ant-design/icons": "^6.0.0",
+    "antd": "^5.27.0",
+    "electron-log": "^5.4.0",
+    "electron-store": "^10.0.0",
+    "electron-updater": "^6.8.9",
+    "iconv-lite": "^0.6.3",
+    "klinecharts": "9.8.10",
+    "mobx": "^6.13.7",
+    "mobx-react-lite": "^4.1.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.1.0",
+    "@types/react": "^19.1.8",
+    "@types/react-dom": "^19.1.6",
+    "@vitejs/plugin-react": "^5.0.0",
+    "electron": "^43.2.0",
+    "electron-builder": "^26.15.7",
+    "electron-vite": "^5.0.0",
+    "typescript": "^5.9.2",
+    "vite": "^7.0.6",
+    "vitest": "^3.2.4"
+  },
+  "build": {
+    "appId": "com.stockmonitor.desktop",
+    "productName": "Stock Monitor",
+    "asar": true,
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "out/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "fixtures",
+        "to": "fixtures"
+      }
+    ],
+    "publish": [
+      {
+        "provider": "generic",
+        "url": "https://updates.example.com/stock-monitor/"
+      }
+    ],
+    "mac": {
+      "target": [
+        "dmg"
+      ],
+      "category": "public.app-category.finance"
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ]
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "category": "Finance"
+    }
+  }
+}

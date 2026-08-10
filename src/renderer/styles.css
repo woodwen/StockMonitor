@@ -1,0 +1,135 @@
+:root {
+  color: #d7e0ea;
+  background: #101722;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  overflow: hidden;
+}
+
+.workspace-layout {
+  height: 100vh;
+  background: #101722;
+}
+
+.workspace-header {
+  height: 56px;
+  padding: 0 16px;
+  background: #151f2c;
+  border-bottom: 1px solid #263241;
+}
+
+.top-toolbar {
+  display: flex;
+  align-items: center;
+  height: 56px;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.toolbar-spacer {
+  flex: 1;
+  min-width: 12px;
+}
+
+.subtle-text {
+  color: #95a3b8;
+  font-size: 12px;
+}
+
+.workspace-content {
+  position: relative;
+  min-height: 0;
+  padding: 12px;
+  background: #101722;
+}
+
+.workspace-alert {
+  position: absolute;
+  top: 18px;
+  left: 24px;
+  right: 24px;
+  z-index: 3;
+}
+
+.chart-shell {
+  position: relative;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid #263241;
+  border-radius: 6px;
+  background: #0d131d;
+}
+
+.chart-title {
+  position: absolute;
+  top: 10px;
+  left: 12px;
+  z-index: 2;
+  color: #d7e0ea;
+  font-size: 13px;
+  font-weight: 600;
+  pointer-events: none;
+}
+
+.kline-chart {
+  width: 100%;
+  height: 100%;
+}
+
+.chart-empty,
+.chart-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgb(13 19 29 / 72%);
+  z-index: 4;
+}
+
+.workspace-footer {
+  height: 36px;
+  padding: 0 14px;
+  background: #151f2c;
+  border-top: 1px solid #263241;
+}
+
+.status-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 36px;
+  gap: 12px;
+  color: #95a3b8;
+  font-size: 12px;
+}
+
+.status-bar > .ant-space:first-child {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.status-bar span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.status-separator {
+  color: #42526b;
+}
