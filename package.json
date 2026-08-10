@@ -91,6 +91,9 @@
         "AppImage"
       ],
       "category": "Finance"
+    },
+    "toolsets": {
+      "appimage": "1.0.3"
     }
   }
 }
