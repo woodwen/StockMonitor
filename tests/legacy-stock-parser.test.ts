@@ -1,13 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
-import iconv from 'iconv-lite'
 import { parseLegacyStockText } from '../src/renderer/features/stock-workspace/models/legacy-stock-parser'
 
 describe('parseLegacyStockText', () => {
-  it('parses the bundled GBK legacy sample and sorts candles ascending', () => {
-    const buffer = readFileSync(resolve(process.cwd(), 'fixtures/legacy/000002.txt'))
-    const text = iconv.decode(buffer, 'gbk')
+  it('parses legacy text and sorts candles ascending', () => {
+    const text = createLegacySampleText()
     const dataset = parseLegacyStockText(text, {
       sourcePath: 'fixtures/legacy/000002.txt',
       encoding: 'gbk'
@@ -32,3 +28,23 @@ describe('parseLegacyStockText', () => {
     ).toThrow('暂不支持的周期类型')
   })
 })
+
+function createLegacySampleText(): string {
+  const rows = [
+    '日线\t000001\t上证指数',
+    '时间\t开盘价\t最高价\t最低价\t收盘价\t成交量\t成交额',
+    ...Array.from({ length: 120 }, (_, index) => {
+      const date = new Date(2024, 0, index + 1)
+      const value = 3000 + index
+      return `${formatDateKey(date)}\t${value}\t${value + 10}\t${value - 10}\t${value + 2}\t${1000 + index}\t${2000 + index}`
+    })
+  ]
+  return rows.join('\n')
+}
+
+function formatDateKey(date: Date): string {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}${month}${day}`
+}

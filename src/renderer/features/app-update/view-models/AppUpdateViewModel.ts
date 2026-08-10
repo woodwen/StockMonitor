@@ -109,6 +109,8 @@ function createDefaultAppSettings(): AppSettings {
       port: 7890
     },
     workspace: {
+      viewMode: 'timeshare',
+      timeshareSourceId: 'eastmoney',
       query: {
         sourceId: 'eastmoney',
         symbol: 'sh000001',

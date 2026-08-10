@@ -7,6 +7,7 @@ import { IndicatorSettingsModal } from './IndicatorSettingsModal'
 import { KLineChartView } from './KLineChartView'
 import { NetworkProxyModal } from './NetworkProxyModal'
 import { StatusBar } from './StatusBar'
+import { TimeshareChartView } from './TimeshareChartView'
 import { TopToolbar } from './TopToolbar'
 
 interface WorkspacePageProps {
@@ -25,7 +26,11 @@ export const WorkspacePage = observer(({ root }: WorkspacePageProps) => {
         {stock.error ? (
           <Alert className="workspace-alert" type="error" showIcon message={stock.error} />
         ) : null}
-        <KLineChartView viewModel={stock.chart} loading={stock.loading} />
+        {stock.viewMode === 'timeshare' ? (
+          <TimeshareChartView viewModel={stock.timeshare} loading={stock.loading} />
+        ) : (
+          <KLineChartView viewModel={stock.chart} loading={stock.loading} />
+        )}
       </Layout.Content>
       <Layout.Footer className="workspace-footer">
         <StatusBar stock={stock} updates={root.appUpdate} />

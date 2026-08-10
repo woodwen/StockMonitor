@@ -14,11 +14,14 @@ export const StatusBar = observer(({ stock, updates }: StatusBarProps) => {
   return (
     <div className="status-bar">
       <Space split={<span className="status-separator">|</span>} size={8}>
-        <span>{stock.selectedSourceName}</span>
+        <span>{stock.activeSourceName}</span>
         <span>{stock.query.symbol}</span>
-        <span>{stock.recordCount.toLocaleString('zh-CN')} 条记录</span>
+        <span>
+          {stock.recordCount.toLocaleString('zh-CN')}
+          {stock.viewMode === 'timeshare' ? ' 个点' : ' 条记录'}
+        </span>
         <span>{stock.latestSummary}</span>
-        <span title={stock.chart.sourceLabel}>{stock.chart.sourceLabel}</span>
+        <span title={stock.activeSourceLabel}>{stock.activeSourceLabel}</span>
       </Space>
       <Space size={8}>
         {stock.status === 'success' ? <Tag color="success">加载完成</Tag> : null}

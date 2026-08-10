@@ -4,7 +4,10 @@ import type {
   IndicatorSettingsMap,
   StockDataSourceMeta,
   StockDataset,
-  StockQuery
+  StockQuery,
+  StockTimeshareDataset,
+  StockTimeshareQuery,
+  WorkspaceViewMode
 } from '../renderer/features/stock-workspace/models/stock-types'
 
 export interface AppSettings {
@@ -24,6 +27,8 @@ export interface NetworkProxySettings {
 
 export interface WorkspaceSettings {
   query: StockQuery
+  timeshareSourceId?: StockQuery['sourceId']
+  viewMode?: WorkspaceViewMode
   indicatorSettings?: IndicatorSettingsMap
   enabledIndicators?: Partial<Record<IndicatorName, boolean>>
 }
@@ -33,6 +38,7 @@ export type MenuCommand = 'refresh-stock' | 'check-update'
 export interface StockApi {
   getStockDataSources(): Promise<StockDataSourceMeta[]>
   fetchStockDataset(query: StockQuery): Promise<StockDataset>
+  fetchStockTimeshareDataset(query: StockTimeshareQuery): Promise<StockTimeshareDataset>
   getSettings(): Promise<AppSettings>
   setCheckUpdatesOnStartup(enabled: boolean): Promise<AppSettings>
   setNetworkProxy(proxy: NetworkProxySettings): Promise<AppSettings>

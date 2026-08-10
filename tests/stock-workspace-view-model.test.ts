@@ -1,24 +1,20 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
-import iconv from 'iconv-lite'
 import type { AppSettings, NetworkProxySettings, WorkspaceSettings } from '../src/preload/stock-api'
 import type { StockDataAdapter } from '../src/renderer/features/stock-workspace/adapters/ElectronStockDataAdapter'
 import { createDefaultIndicatorSettings } from '../src/renderer/features/stock-workspace/models/indicator-definitions'
-import { parseLegacyStockText } from '../src/renderer/features/stock-workspace/models/legacy-stock-parser'
 import type {
+  StockDataset,
   StockDataSourceMeta,
-  StockQuery
+  StockQuery,
+  StockTimeshareQuery
 } from '../src/renderer/features/stock-workspace/models/stock-types'
 import { StockWorkspaceViewModel } from '../src/renderer/features/stock-workspace/view-models/StockWorkspaceViewModel'
 
 class FakeDataAdapter implements StockDataAdapter {
-  private readonly text = iconv.decode(
-    readFileSync(resolve(process.cwd(), 'fixtures/legacy/000002.txt')),
-    'gbk'
-  )
   private settings: AppSettings = createDefaultSettings()
   savedWorkspaceSettings: WorkspaceSettings[] = []
+  stockQueries: StockQuery[] = []
+  timeshareQueries: StockTimeshareQuery[] = []
 
   constructor(private readonly failingSourceIds: string[] = [], settings?: AppSettings) {
     if (settings) {
@@ -34,7 +30,8 @@ class FakeDataAdapter implements StockDataAdapter {
         capabilities: {
           periods: ['day', 'week', 'month', '5', '15', '30', '60'],
           adjusts: ['none', 'qfq', 'hfq'],
-          markets: ['stock', 'etf', 'index']
+          markets: ['stock', 'etf', 'index'],
+          timeshare: true
         }
       },
       {
@@ -43,7 +40,8 @@ class FakeDataAdapter implements StockDataAdapter {
         capabilities: {
           periods: ['day', 'week', 'month'],
           adjusts: ['none', 'qfq', 'hfq'],
-          markets: ['stock', 'etf', 'index']
+          markets: ['stock', 'etf', 'index'],
+          timeshare: true
         }
       },
       {
@@ -52,23 +50,71 @@ class FakeDataAdapter implements StockDataAdapter {
         capabilities: {
           periods: ['day', 'week'],
           adjusts: ['none'],
-          markets: ['stock', 'etf', 'index']
+          markets: ['stock', 'etf', 'index'],
+          timeshare: false
+        }
+      },
+      {
+        id: 'netease163',
+        name: '网易财经 163',
+        capabilities: {
+          periods: ['day'],
+          adjusts: ['none'],
+          markets: ['stock'],
+          timeshare: false
         }
       }
     ]
   }
 
   async fetchStockDataset(query: StockQuery) {
+    this.stockQueries.push(query)
     if (this.failingSourceIds.includes(query.sourceId)) {
       throw new Error(`${query.sourceId} failed`)
     }
 
-    const dataset = parseLegacyStockText(this.text)
     return {
-      ...dataset,
+      ...createSampleStockDataset(),
       sourceId: query.sourceId,
       sourceName: sourceNameById[query.sourceId],
       adjust: query.adjust
+    }
+  }
+
+  async fetchStockTimeshareDataset(query: StockTimeshareQuery) {
+    this.timeshareQueries.push(query)
+    if (this.failingSourceIds.includes(query.sourceId)) {
+      throw new Error(`${query.sourceId} failed`)
+    }
+
+    return {
+      meta: {
+        lineType: '分时',
+        symbol: query.symbol,
+        name: '上证指数'
+      },
+      previousClose: 10,
+      points: [
+        {
+          timeKey: '202608100930',
+          timestamp: new Date(2026, 7, 10, 9, 30).getTime(),
+          price: 10.1,
+          avgPrice: 10.05,
+          volume: 100,
+          turnover: 1000
+        },
+        {
+          timeKey: '202608100931',
+          timestamp: new Date(2026, 7, 10, 9, 31).getTime(),
+          price: 10.2,
+          avgPrice: 10.08,
+          volume: 120,
+          turnover: 1224
+        }
+      ],
+      sourceId: query.sourceId,
+      sourceName: sourceNameById[query.sourceId],
+      sourceUrl: 'https://example.com/timeshare'
     }
   }
 
@@ -106,19 +152,22 @@ afterEach(() => {
 })
 
 describe('StockWorkspaceViewModel', () => {
-  it('loads default remote data into chart state', async () => {
+  it('loads default timeshare data into timeshare state', async () => {
     const viewModel = new StockWorkspaceViewModel(new FakeDataAdapter())
 
     await viewModel.initialize()
 
-    expect(viewModel.chart.dataset?.meta.name).toBe('上证指数')
-    expect(viewModel.recordCount).toBeGreaterThan(100)
+    expect(viewModel.viewMode).toBe('timeshare')
+    expect(viewModel.timeshare.dataset?.meta.name).toBe('上证指数')
+    expect(viewModel.recordCount).toBe(2)
     expect(viewModel.status).toBe('success')
     expect(viewModel.selectedSourceName).toBe('东方财富')
   })
 
   it('falls back to Tencent during startup when Eastmoney fails', async () => {
-    const viewModel = new StockWorkspaceViewModel(new FakeDataAdapter(['eastmoney']))
+    const viewModel = new StockWorkspaceViewModel(
+      new FakeDataAdapter(['eastmoney'], createKlineSettings())
+    )
 
     await viewModel.initialize()
 
@@ -128,7 +177,9 @@ describe('StockWorkspaceViewModel', () => {
   })
 
   it('tests all data sources and records request status', async () => {
-    const viewModel = new StockWorkspaceViewModel(new FakeDataAdapter(['eastmoney']))
+    const viewModel = new StockWorkspaceViewModel(
+      new FakeDataAdapter(['eastmoney'], createKlineSettings())
+    )
 
     await viewModel.initialize()
     await viewModel.testDataSources()
@@ -136,7 +187,7 @@ describe('StockWorkspaceViewModel', () => {
 
     expect(viewModel.sourceTestOpen).toBe(true)
     expect(viewModel.sourceTestRunning).toBe(false)
-    expect(viewModel.sourceTestResults).toHaveLength(3)
+    expect(viewModel.sourceTestResults).toHaveLength(4)
     expect(viewModel.sourceTestResults.find((result) => result.sourceId === 'eastmoney')).toMatchObject({
       status: 'error',
       message: 'eastmoney failed'
@@ -148,7 +199,7 @@ describe('StockWorkspaceViewModel', () => {
   })
 
   it('normalizes query options when switching data sources', async () => {
-    const viewModel = new StockWorkspaceViewModel(new FakeDataAdapter())
+    const viewModel = new StockWorkspaceViewModel(new FakeDataAdapter([], createKlineSettings()))
 
     await viewModel.initialize()
     viewModel.setSourceId('sina')
@@ -170,6 +221,7 @@ describe('StockWorkspaceViewModel', () => {
             startDate: '20250101',
             endDate: '20251231'
           },
+          viewMode: 'kline',
           enabledIndicators: {
             boll: false,
             volumeMa: true,
@@ -193,10 +245,281 @@ describe('StockWorkspaceViewModel', () => {
     expect(viewModel.chart.indicatorSettings.volumeMa.enabled).toBe(true)
     expect(viewModel.chart.indicatorSettings.bsSignal.enabled).toBe(false)
     expect(viewModel.chart.indicatorSettings.macd.enabled).toBe(false)
+    expect(viewModel.timeshareSourceId).toBe('eastmoney')
+  })
+
+  it('restores timeshare mode and loads timeshare data on startup', async () => {
+    const viewModel = new StockWorkspaceViewModel(
+      new FakeDataAdapter([], {
+        ...createDefaultSettings(),
+        workspace: {
+          ...createDefaultSettings().workspace,
+          viewMode: 'timeshare'
+        }
+      })
+    )
+
+    await viewModel.initialize()
+
+    expect(viewModel.viewMode).toBe('timeshare')
+    expect(viewModel.timeshare.dataset?.meta.lineType).toBe('分时')
+    expect(viewModel.recordCount).toBe(2)
+    expect(viewModel.latestSummary).toContain('价 10.20')
+  })
+
+  it('restores cached Tencent timeshare source on startup', async () => {
+    const viewModel = new StockWorkspaceViewModel(
+      new FakeDataAdapter([], {
+        ...createDefaultSettings(),
+        workspace: {
+          ...createDefaultSettings().workspace,
+          viewMode: 'timeshare',
+          timeshareSourceId: 'tencent'
+        }
+      })
+    )
+
+    await viewModel.initialize()
+
+    expect(viewModel.timeshareSourceId).toBe('tencent')
+    expect(viewModel.timeshare.dataset?.sourceId).toBe('tencent')
+  })
+
+  it('does not reuse a legacy kline source as the default timeshare source', async () => {
+    const adapter = new FakeDataAdapter([], {
+      ...createDefaultSettings(),
+      workspace: {
+        ...createDefaultSettings().workspace,
+        viewMode: 'timeshare',
+        timeshareSourceId: undefined,
+        query: {
+          ...createDefaultSettings().workspace.query,
+          sourceId: 'tencent'
+        }
+      }
+    })
+    const viewModel = new StockWorkspaceViewModel(adapter)
+
+    await viewModel.initialize()
+
+    expect(viewModel.query.sourceId).toBe('tencent')
+    expect(viewModel.timeshareSourceId).toBe('eastmoney')
+    expect(adapter.timeshareQueries.at(-1)?.sourceId).toBe('eastmoney')
+  })
+
+  it('falls back unsupported cached timeshare source without changing the kline source', async () => {
+    const adapter = new FakeDataAdapter([], {
+      ...createDefaultSettings(),
+      workspace: {
+        ...createDefaultSettings().workspace,
+        viewMode: 'timeshare',
+        timeshareSourceId: 'sina',
+        query: {
+          ...createDefaultSettings().workspace.query,
+          sourceId: 'sina'
+        }
+      }
+    })
+    const viewModel = new StockWorkspaceViewModel(adapter)
+
+    await viewModel.initialize()
+
+    expect(viewModel.query.sourceId).toBe('sina')
+    expect(viewModel.timeshareSourceId).toBe('eastmoney')
+    expect(adapter.timeshareQueries.at(-1)?.sourceId).toBe('eastmoney')
+  })
+
+  it('tests timeshare-capable sources in timeshare mode', async () => {
+    const viewModel = new StockWorkspaceViewModel(
+      new FakeDataAdapter([], {
+        ...createDefaultSettings(),
+        workspace: {
+          ...createDefaultSettings().workspace,
+          viewMode: 'timeshare'
+        }
+      })
+    )
+
+    await viewModel.initialize()
+    await viewModel.testDataSources()
+
+    expect(viewModel.sourceTestResults.find((result) => result.sourceId === 'eastmoney')).toMatchObject({
+      status: 'success',
+      recordCount: 2,
+      requestLabel: 'sh000001 分时'
+    })
+    expect(viewModel.sourceTestResults.find((result) => result.sourceId === 'tencent')).toMatchObject({
+      status: 'success',
+      recordCount: 2,
+      requestLabel: 'sh000001 分时'
+    })
+    expect(viewModel.sourceTestResults.find((result) => result.sourceId === 'sina')).toMatchObject({
+      status: 'error',
+      message: '不支持分时'
+    })
+    expect(viewModel.sourceTestResults.find((result) => result.sourceId === 'netease163')).toMatchObject({
+      status: 'error',
+      message: '不支持分时'
+    })
+  })
+
+  it('keeps kline source and timeshare source independent when refreshing timeshare', async () => {
+    const adapter = new FakeDataAdapter([], {
+      ...createDefaultSettings(),
+      workspace: {
+        ...createDefaultSettings().workspace,
+        viewMode: 'timeshare',
+        timeshareSourceId: 'eastmoney',
+        query: {
+          ...createDefaultSettings().workspace.query,
+          sourceId: 'tencent'
+        }
+      }
+    })
+    const viewModel = new StockWorkspaceViewModel(adapter)
+
+    await viewModel.initialize()
+
+    expect(viewModel.query.sourceId).toBe('tencent')
+    expect(viewModel.timeshareSourceId).toBe('eastmoney')
+    expect(adapter.timeshareQueries.at(-1)?.sourceId).toBe('eastmoney')
+    expect(viewModel.activeSourceName).toBe('东方财富')
+  })
+
+  it('keeps Tencent timeshare source independent while refreshing Sina kline data', async () => {
+    const adapter = new FakeDataAdapter([], {
+      ...createDefaultSettings(),
+      workspace: {
+        ...createDefaultSettings().workspace,
+        viewMode: 'kline',
+        timeshareSourceId: 'tencent',
+        query: {
+          ...createDefaultSettings().workspace.query,
+          sourceId: 'sina'
+        }
+      }
+    })
+    const viewModel = new StockWorkspaceViewModel(adapter)
+
+    await viewModel.initialize()
+
+    expect(adapter.stockQueries.at(-1)?.sourceId).toBe('sina')
+    expect(adapter.timeshareQueries).toHaveLength(0)
+    expect(viewModel.query.sourceId).toBe('sina')
+    expect(viewModel.timeshareSourceId).toBe('tencent')
+    expect(viewModel.activeSourceName).toBe('新浪财经')
+  })
+
+  it('keeps Netease kline source independent while refreshing Tencent timeshare data', async () => {
+    const adapter = new FakeDataAdapter([], {
+      ...createDefaultSettings(),
+      workspace: {
+        ...createDefaultSettings().workspace,
+        viewMode: 'timeshare',
+        timeshareSourceId: 'tencent',
+        query: {
+          ...createDefaultSettings().workspace.query,
+          sourceId: 'netease163',
+          symbol: 'sh600519'
+        }
+      }
+    })
+    const viewModel = new StockWorkspaceViewModel(adapter)
+
+    await viewModel.initialize()
+
+    expect(adapter.stockQueries).toHaveLength(0)
+    expect(adapter.timeshareQueries.at(-1)).toMatchObject({
+      sourceId: 'tencent',
+      symbol: 'sh600519'
+    })
+    expect(viewModel.query.sourceId).toBe('netease163')
+    expect(viewModel.query.period).toBe('day')
+    expect(viewModel.query.adjust).toBe('none')
+    expect(viewModel.timeshareSourceId).toBe('tencent')
+    expect(viewModel.activeSourceName).toBe('腾讯/QQ 财经')
+  })
+
+  it('uses the current view mode when marking the active source', async () => {
+    const viewModel = new StockWorkspaceViewModel(
+      new FakeDataAdapter([], {
+        ...createDefaultSettings(),
+        workspace: {
+          ...createDefaultSettings().workspace,
+          viewMode: 'kline',
+          timeshareSourceId: 'tencent',
+          query: {
+            ...createDefaultSettings().workspace.query,
+            sourceId: 'sina'
+          }
+        }
+      })
+    )
+
+    await viewModel.initialize()
+
+    expect(viewModel.isSourceActiveForCurrentMode('sina')).toBe(true)
+    expect(viewModel.isSourceActiveForCurrentMode('tencent')).toBe(false)
+    expect(viewModel.selectedKlineSourceName).toBe('新浪财经')
+    expect(viewModel.selectedTimeshareSourceName).toBe('腾讯/QQ 财经')
+    expect(viewModel.activeSourceName).toBe('新浪财经')
+  })
+
+  it('switches only the kline source in kline mode', async () => {
+    const adapter = new FakeDataAdapter([], createKlineSettings())
+    const viewModel = new StockWorkspaceViewModel(adapter)
+
+    await viewModel.initialize()
+    viewModel.setSourceId('netease163')
+
+    expect(viewModel.query.sourceId).toBe('netease163')
+    expect(viewModel.query.period).toBe('day')
+    expect(viewModel.query.adjust).toBe('none')
+    expect(viewModel.timeshareSourceId).toBe('eastmoney')
+    expect(adapter.savedWorkspaceSettings.at(-1)).toMatchObject({
+      query: {
+        sourceId: 'netease163',
+        period: 'day',
+        adjust: 'none'
+      },
+      timeshareSourceId: 'eastmoney'
+    })
+  })
+
+  it('switches only the timeshare source in timeshare mode and rejects unsupported sources', async () => {
+    const adapter = new FakeDataAdapter([], {
+      ...createDefaultSettings(),
+      workspace: {
+        ...createDefaultSettings().workspace,
+        viewMode: 'timeshare',
+        query: {
+          ...createDefaultSettings().workspace.query,
+          sourceId: 'tencent'
+        }
+      }
+    })
+    const viewModel = new StockWorkspaceViewModel(adapter)
+
+    await viewModel.initialize()
+    viewModel.setSourceId('tencent')
+
+    expect(viewModel.query.sourceId).toBe('tencent')
+    expect(viewModel.timeshareSourceId).toBe('tencent')
+
+    viewModel.setSourceId('sina')
+
+    expect(viewModel.query.sourceId).toBe('tencent')
+    expect(viewModel.timeshareSourceId).toBe('tencent')
+    expect(adapter.savedWorkspaceSettings.at(-1)).toMatchObject({
+      query: {
+        sourceId: 'tencent'
+      },
+      timeshareSourceId: 'tencent'
+    })
   })
 
   it('saves workspace settings when users change controls', async () => {
-    const adapter = new FakeDataAdapter()
+    const adapter = new FakeDataAdapter([], createKlineSettings())
     const viewModel = new StockWorkspaceViewModel(adapter)
 
     await viewModel.initialize()
@@ -218,7 +541,7 @@ describe('StockWorkspaceViewModel', () => {
 
   it('debounces workspace saves for text inputs', async () => {
     vi.useFakeTimers()
-    const adapter = new FakeDataAdapter()
+    const adapter = new FakeDataAdapter([], createKlineSettings())
     const viewModel = new StockWorkspaceViewModel(adapter)
 
     await viewModel.initialize()
@@ -235,7 +558,7 @@ describe('StockWorkspaceViewModel', () => {
   })
 
   it('saves proxy settings from the workspace state', async () => {
-    const viewModel = new StockWorkspaceViewModel(new FakeDataAdapter())
+    const viewModel = new StockWorkspaceViewModel(new FakeDataAdapter([], createKlineSettings()))
 
     await viewModel.initialize()
     viewModel.openProxyDialog()
@@ -263,7 +586,7 @@ describe('StockWorkspaceViewModel', () => {
   })
 
   it('applies indicator dialog drafts and saves indicator params', async () => {
-    const adapter = new FakeDataAdapter()
+    const adapter = new FakeDataAdapter([], createKlineSettings())
     const viewModel = new StockWorkspaceViewModel(adapter)
 
     await viewModel.initialize()
@@ -301,6 +624,8 @@ function createDefaultSettings(): AppSettings {
       port: 7890
     },
     workspace: {
+      viewMode: 'timeshare',
+      timeshareSourceId: 'eastmoney',
       query: {
         sourceId: 'eastmoney',
         symbol: 'sh000001',
@@ -312,4 +637,47 @@ function createDefaultSettings(): AppSettings {
       indicatorSettings: createDefaultIndicatorSettings()
     }
   }
+}
+
+function createKlineSettings(): AppSettings {
+  return {
+    ...createDefaultSettings(),
+    workspace: {
+      ...createDefaultSettings().workspace,
+      viewMode: 'kline'
+    }
+  }
+}
+
+function createSampleStockDataset(): StockDataset {
+  return {
+    meta: {
+      lineType: '日线',
+      symbol: '000001',
+      name: '上证指数'
+    },
+    interval: 'day',
+    columns: ['时间', '开盘价', '最高价', '最低价', '收盘价', '成交量', '成交额'],
+    candles: Array.from({ length: 130 }, (_, index) => {
+      const date = new Date(2024, 0, index + 1)
+      const value = 3000 + index
+      return {
+        timeKey: formatDateKey(date),
+        timestamp: date.getTime(),
+        open: value,
+        high: value + 10,
+        low: value - 10,
+        close: value + 2,
+        volume: 1000 + index,
+        turnover: 2000 + index
+      }
+    })
+  }
+}
+
+function formatDateKey(date: Date): string {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}${month}${day}`
 }

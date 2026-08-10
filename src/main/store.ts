@@ -4,7 +4,8 @@ import type {
   StockAdjust,
   StockPeriod,
   StockQuery,
-  StockSourceId
+  StockSourceId,
+  WorkspaceViewMode
 } from '../renderer/features/stock-workspace/models/stock-types'
 import {
   createDefaultIndicatorSettings,
@@ -107,6 +108,8 @@ function persistSettings(settings: AppSettings): void {
 function normalizeWorkspaceSettings(workspace: Partial<WorkspaceSettings> | undefined): WorkspaceSettings {
   const defaults = getDefaultWorkspaceSettings()
   return {
+    viewMode: isWorkspaceViewMode(workspace?.viewMode) ? workspace.viewMode : defaults.viewMode,
+    timeshareSourceId: normalizeTimeshareSourceId(workspace?.timeshareSourceId),
     query: normalizeStockQuery(workspace?.query, defaults.query),
     indicatorSettings: normalizeIndicatorSettings(workspace?.indicatorSettings, workspace?.enabledIndicators)
   }
@@ -129,6 +132,8 @@ function getDefaultWorkspaceSettings(): WorkspaceSettings {
   startDate.setFullYear(startDate.getFullYear() - 2)
 
   return {
+    viewMode: 'timeshare',
+    timeshareSourceId: 'eastmoney',
     query: {
       sourceId: 'eastmoney',
       symbol: 'sh000001',
@@ -142,11 +147,17 @@ function getDefaultWorkspaceSettings(): WorkspaceSettings {
 }
 
 const stockSourceIds: StockSourceId[] = ['eastmoney', 'sina', 'netease163', 'tencent']
+const timeshareSourceIds: StockSourceId[] = ['eastmoney', 'tencent']
 const stockPeriods: StockPeriod[] = ['day', 'week', 'month', '5', '15', '30', '60']
 const stockAdjusts: StockAdjust[] = ['none', 'qfq', 'hfq']
+const workspaceViewModes: WorkspaceViewMode[] = ['kline', 'timeshare']
 
 function isStockSourceId(value: unknown): value is StockSourceId {
   return stockSourceIds.includes(value as StockSourceId)
+}
+
+function normalizeTimeshareSourceId(value: unknown): StockSourceId {
+  return timeshareSourceIds.includes(value as StockSourceId) ? (value as StockSourceId) : 'eastmoney'
 }
 
 function isStockPeriod(value: unknown): value is StockPeriod {
@@ -155,6 +166,10 @@ function isStockPeriod(value: unknown): value is StockPeriod {
 
 function isStockAdjust(value: unknown): value is StockAdjust {
   return stockAdjusts.includes(value as StockAdjust)
+}
+
+function isWorkspaceViewMode(value: unknown): value is WorkspaceViewMode {
+  return workspaceViewModes.includes(value as WorkspaceViewMode)
 }
 
 function normalizeDateKey(value: unknown, fallback: string): string {

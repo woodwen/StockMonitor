@@ -1,9 +1,16 @@
 import type { AppSettings, NetworkProxySettings, WorkspaceSettings } from '../../../../preload/stock-api'
-import type { StockDataSourceMeta, StockDataset, StockQuery } from '../models/stock-types'
+import type {
+  StockDataSourceMeta,
+  StockDataset,
+  StockQuery,
+  StockTimeshareDataset,
+  StockTimeshareQuery
+} from '../models/stock-types'
 
 export interface StockDataAdapter {
   getStockDataSources(): Promise<StockDataSourceMeta[]>
   fetchStockDataset(query: StockQuery): Promise<StockDataset>
+  fetchStockTimeshareDataset(query: StockTimeshareQuery): Promise<StockTimeshareDataset>
   getSettings(): Promise<AppSettings>
   setNetworkProxy(proxy: NetworkProxySettings): Promise<AppSettings>
   setWorkspaceSettings(workspace: WorkspaceSettings): Promise<AppSettings>
@@ -16,6 +23,10 @@ export class ElectronStockDataAdapter implements StockDataAdapter {
 
   fetchStockDataset(query: StockQuery): Promise<StockDataset> {
     return window.stockApi.fetchStockDataset(query)
+  }
+
+  fetchStockTimeshareDataset(query: StockTimeshareQuery): Promise<StockTimeshareDataset> {
+    return window.stockApi.fetchStockTimeshareDataset(query)
   }
 
   getSettings(): Promise<AppSettings> {

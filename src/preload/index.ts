@@ -5,6 +5,7 @@ import type { StockApi, MenuCommand } from './stock-api'
 const stockApi: StockApi = {
   getStockDataSources: () => ipcRenderer.invoke('stock:getDataSources'),
   fetchStockDataset: (query) => ipcRenderer.invoke('stock:fetchDataset', query),
+  fetchStockTimeshareDataset: (query) => ipcRenderer.invoke('stock:fetchTimeshareDataset', query),
   getSettings: () => ipcRenderer.invoke('settings:get'),
   setCheckUpdatesOnStartup: (enabled) =>
     ipcRenderer.invoke('settings:setCheckUpdatesOnStartup', enabled),
