@@ -4,7 +4,7 @@
   "description": "Cross-platform K-line stock monitor desktop app.",
   "main": "out/main/index.js",
   "type": "module",
-  "author": "Stock Monitor",
+  "author": "woodmax",
   "license": "MIT",
   "scripts": {
     "dev": "electron-vite dev",

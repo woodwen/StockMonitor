@@ -48,6 +48,9 @@ export const TopToolbar = observer(({ stock, updates }: TopToolbarProps) => {
             示例
           </Button>
         </Tooltip>
+        <div className="toolbar-symbol-title" title={stock.chart.title}>
+          {stock.chart.title}
+        </div>
         <Tooltip title="检查应用更新">
           <Button icon={<ReloadOutlined />} onClick={updates.checkForUpdates}>
             检查更新

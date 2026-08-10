@@ -37,7 +37,6 @@ export const KLineChartView = observer(({ viewModel, loading }: KLineChartViewPr
 
   return (
     <div className="chart-shell">
-      <div className="chart-title">{viewModel.title}</div>
       <div ref={containerRef} className="kline-chart" />
       {!viewModel.hasDataset && !loading ? (
         <div className="chart-empty">

@@ -46,6 +46,18 @@ body {
   min-width: 12px;
 }
 
+.toolbar-symbol-title {
+  max-width: 300px;
+  min-width: 120px;
+  overflow: hidden;
+  color: #d7e0ea;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 32px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .subtle-text {
   color: #95a3b8;
   font-size: 12px;
@@ -74,17 +86,6 @@ body {
   border: 1px solid #263241;
   border-radius: 6px;
   background: #0d131d;
-}
-
-.chart-title {
-  position: absolute;
-  top: 10px;
-  left: 12px;
-  z-index: 2;
-  color: #d7e0ea;
-  font-size: 13px;
-  font-weight: 600;
-  pointer-events: none;
 }
 
 .kline-chart {

@@ -10,6 +10,9 @@ let signalOverlayRegistered = false
 export class KLineChartsAdapter {
   private chart: any = null
   private container: HTMLElement | null = null
+  private readonly indicatorPaneIds = new Map<Exclude<IndicatorName, 'bsSignal'>, string>()
+  private overlayIds: string[] = []
+  private currentDataset: EnrichedStockDataset | null = null
 
   mount(container: HTMLElement): void {
     this.container = container
@@ -68,6 +71,8 @@ export class KLineChartsAdapter {
     if (!this.chart) {
       return
     }
+    const datasetChanged = this.currentDataset !== dataset
+    this.currentDataset = dataset
 
     this.chart.applyNewData(
       dataset.candles.map((item) => ({
@@ -82,7 +87,7 @@ export class KLineChartsAdapter {
       true
     )
     this.syncIndicators(enabledIndicators)
-    this.syncSignalOverlays(dataset, enabledIndicators.bsSignal)
+    this.syncSignalOverlays(dataset, enabledIndicators.bsSignal, datasetChanged)
   }
 
   resize(): void {
@@ -95,44 +100,85 @@ export class KLineChartsAdapter {
     }
     this.chart = null
     this.container = null
+    this.indicatorPaneIds.clear()
+    this.overlayIds = []
+    this.currentDataset = null
   }
 
   private syncIndicators(enabledIndicators: Record<IndicatorName, boolean>): void {
-    this.chart.removeIndicator?.({ paneId: CANDLE_PANE_ID, name: 'BOLL' })
-    this.chart.removeIndicator?.({ name: 'VOL' })
+    this.syncIndicator('boll', enabledIndicators.boll, {
+      name: 'BOLL',
+      calcParams: [20, 2],
+      isStack: true,
+      paneOptions: { id: CANDLE_PANE_ID }
+    })
 
-    if (enabledIndicators.boll) {
-      this.chart.createIndicator?.(
-        {
-          name: 'BOLL',
-          paneId: CANDLE_PANE_ID,
-          calcParams: [20, 2]
-        },
-        true
-      )
+    this.syncIndicator('volumeMa', enabledIndicators.volumeMa, {
+      name: 'VOL',
+      calcParams: [5, 10, 20],
+      isStack: false
+    })
+  }
+
+  private syncIndicator(
+    key: Exclude<IndicatorName, 'bsSignal'>,
+    enabled: boolean,
+    options: {
+      name: string
+      calcParams: number[]
+      isStack: boolean
+      paneOptions?: { id: string }
+    }
+  ): void {
+    const paneId = this.indicatorPaneIds.get(key)
+
+    if (!enabled) {
+      if (paneId) {
+        this.chart.removeIndicator?.(paneId, options.name)
+        this.indicatorPaneIds.delete(key)
+      }
+      return
     }
 
-    if (enabledIndicators.volumeMa) {
-      this.chart.createIndicator?.({
-        name: 'VOL',
-        calcParams: [5, 10, 20]
-      })
+    if (paneId) {
+      return
+    }
+
+    const createdPaneId = this.chart.createIndicator?.(
+      {
+        name: options.name,
+        calcParams: options.calcParams
+      },
+      options.isStack,
+      options.paneOptions
+    )
+
+    if (createdPaneId) {
+      this.indicatorPaneIds.set(key, createdPaneId)
     }
   }
 
-  private syncSignalOverlays(dataset: EnrichedStockDataset, enabled: boolean): void {
-    this.chart.removeOverlay?.({ groupId: BS_SIGNAL_GROUP_ID })
-
+  private syncSignalOverlays(
+    dataset: EnrichedStockDataset,
+    enabled: boolean,
+    datasetChanged: boolean
+  ): void {
     if (!enabled) {
+      this.removeSignalOverlays()
       return
     }
+
+    if (this.overlayIds.length > 0 && !datasetChanged) {
+      return
+    }
+
+    this.removeSignalOverlays()
 
     const overlays = dataset.candles
       .filter((item) => item.bsSignal)
       .map((item) => ({
         name: BS_SIGNAL_OVERLAY_NAME,
         groupId: BS_SIGNAL_GROUP_ID,
-        paneId: CANDLE_PANE_ID,
         lock: true,
         needDefaultPointFigure: false,
         needDefaultXAxisFigure: false,
@@ -148,9 +194,26 @@ export class KLineChartsAdapter {
         }
       }))
 
-    if (overlays.length > 0) {
-      this.chart.createOverlay?.(overlays)
+    if (overlays.length === 0) {
+      return
     }
+
+    const createdIds = this.chart.createOverlay?.(overlays, CANDLE_PANE_ID)
+    this.overlayIds = Array.isArray(createdIds)
+      ? createdIds.filter((id): id is string => typeof id === 'string')
+      : typeof createdIds === 'string'
+        ? [createdIds]
+        : []
+  }
+
+  private removeSignalOverlays(): void {
+    if (this.overlayIds.length === 0) {
+      this.chart.removeOverlay?.({ groupId: BS_SIGNAL_GROUP_ID })
+      return
+    }
+
+    this.overlayIds.forEach((id) => this.chart.removeOverlay?.(id))
+    this.overlayIds = []
   }
 }
 
