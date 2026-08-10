@@ -61,6 +61,9 @@ jobs:
       - name: Test
         run: yarn test --reporter=verbose
 
+      - name: Validate changelog release notes
+        run: node scripts/extract-changelog-release-notes.mjs --check
+
       - name: Build renderer and main bundles
         run: yarn build
 
@@ -161,6 +164,9 @@ jobs:
           merge-multiple: true
           path: release-artifacts
 
+      - name: Generate release notes
+        run: node scripts/extract-changelog-release-notes.mjs --output release-notes.md
+
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -176,7 +182,7 @@ jobs:
           gh release create "$RELEASE_TAG" "${files[@]}" \
             --target "$GITHUB_SHA" \
             --title "Stock Monitor v$RELEASE_VERSION" \
-            --notes "Automated release for $RELEASE_TAG."
+            --notes-file release-notes.md
 
       - name: Publish GitHub Package
         run: npm publish
