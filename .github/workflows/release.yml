@@ -36,8 +36,38 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
 
-  build:
+  validate:
     needs: check-version
+    if: needs.check-version.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+
+      - name: Typecheck
+        run: yarn typecheck
+
+      - name: Test
+        run: yarn test --reporter=verbose
+
+      - name: Build renderer and main bundles
+        run: yarn build
+
+  build:
+    needs:
+      - check-version
+      - validate
     if: needs.check-version.outputs.should_release == 'true'
     strategy:
       fail-fast: false
@@ -70,14 +100,14 @@ jobs:
       - name: Install dependencies
         run: yarn install --frozen-lockfile
 
-      - name: Typecheck
-        run: yarn typecheck
-
-      - name: Test
-        run: yarn test
-
       - name: Build renderer and main bundles
         run: yarn build
+
+      - name: Install Linux packaging dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libfuse2t64 || sudo apt-get install -y libfuse2
 
       - name: Package ${{ matrix.platform }}
         run: yarn electron-builder --${{ matrix.builder_target }} --publish never
