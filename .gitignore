@@ -5,4 +5,5 @@ dist/
 .vite/
 *.log
 .DS_Store
+.tmp/
 docs/spec/
