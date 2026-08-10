@@ -25,12 +25,15 @@ export type StockAdjust = 'none' | 'qfq' | 'hfq'
 
 export type StockPeriod = 'day' | 'week' | 'month' | '5' | '15' | '30' | '60'
 
+export type WorkspaceViewMode = 'kline' | 'timeshare'
+
 export type StockMarketScope = 'stock' | 'etf' | 'index'
 
 export interface SourceCapabilities {
   periods: StockPeriod[]
   adjusts: StockAdjust[]
   markets: StockMarketScope[]
+  timeshare: boolean
 }
 
 export interface StockDataSourceMeta {
@@ -63,6 +66,30 @@ export interface StockCandle {
   close: number
   volume: number
   turnover: number
+}
+
+export interface StockTimeshareQuery {
+  sourceId: StockSourceId
+  symbol: string
+  tradeDate?: string
+}
+
+export interface StockTimesharePoint {
+  timeKey: string
+  timestamp: number
+  price: number
+  avgPrice: number
+  volume: number
+  turnover: number
+}
+
+export interface StockTimeshareDataset {
+  meta: StockMeta
+  previousClose: number
+  points: StockTimesharePoint[]
+  sourceId?: StockSourceId
+  sourceName?: string
+  sourceUrl?: string
 }
 
 export interface BollValue {

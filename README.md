@@ -1,8 +1,8 @@
 # Stock Monitor
 
-Stock Monitor 是一个跨平台 K 线桌面应用，用 Electron + React + MobX MVVM 实现远端行情查询、多源切换和 K 线展示。
+Stock Monitor 是一个跨平台行情桌面应用，用 Electron + React + MobX MVVM 实现远端行情查询、多源切换、当日分时和 K 线展示。
 
-一期目标是支持沪深京股票、ETF、指数的远端 K 线查询。默认数据源为东方财富，用户可以手动切换到新浪财经、网易财经 163、腾讯/QQ 财经，并可在应用内检测数据源状态、配置网络代理和管理图表指标。
+当前默认进入分时视图，默认分时数据源为东方财富；K 线数据源和分时数据源已经拆分保存，用户可以分别在对应视图下切换东方财富、腾讯/QQ 财经、新浪财经、网易财经 163 的可用能力，并可在应用内检测数据源状态、配置网络代理和管理图表指标。
 
 ## 技术栈
 
@@ -12,6 +12,7 @@ Stock Monitor 是一个跨平台 K 线桌面应用，用 Electron + React + MobX
 - MVVM 状态：`MobX + mobx-react-lite`
 - UI 框架：`Ant Design`
 - K 线图表：`klinecharts`
+- 分时图表：`Canvas`
 - 文本编码：`iconv-lite`
 - 本地配置：`electron-store`
 - 日志：`electron-log`
@@ -40,10 +41,16 @@ yarn dev
 
 ```ts
 {
-  sourceId: 'eastmoney',
-  symbol: 'sh000001',
-  period: 'day',
-  adjust: 'qfq'
+  viewMode: 'timeshare',
+  timeshareSourceId: 'eastmoney',
+  query: {
+    sourceId: 'eastmoney',
+    symbol: 'sh000001',
+    period: 'day',
+    adjust: 'qfq',
+    startDate: 'YYYYMMDD', // 启动日往前 2 年
+    endDate: 'YYYYMMDD' // 启动日
+  }
 }
 ```
 
@@ -59,30 +66,42 @@ yarn dist        # 构建安装包
 
 ## 功能范围
 
+- 视图：默认分时，可切换到 K 线；顶部切换顺序为“分时 / K线”
 - 数据源：东方财富、腾讯/QQ 财经、新浪财经、网易财经 163
 - 市场范围：沪深京股票、ETF、指数
-- 默认查询：东方财富、`sh000001`、日线、前复权、近 2 年
-- 首次加载：先请求东方财富；如果当前网络下东财不可用，会自动尝试腾讯/QQ 财经、新浪财经、网易财经 163
-- 数据源管理：弹窗中可测试所有数据源的请求状态、耗时和返回记录数，并一键切换当前数据源
+- 默认查询：分时视图、东方财富分时源、`sh000001`；K 线保留东方财富、日线、前复权、近 2 年
+- 数据源拆分：K 线使用 `workspace.query.sourceId`，分时使用 `workspace.timeshareSourceId`，两者共享证券代码但互不覆盖
+- 分时：价格线、均价线、昨收参考线、右侧涨跌幅轴、成交量柱、十字线、tooltip，并压缩午间休市空档
+- 分时刷新：分时视图在窗口可见且处于 A 股交易时段时每 15 秒自动静默刷新；K 线仍由用户手动刷新
+- 首次加载：K 线首次加载支持跨源 fallback；分时不做跨源自动 fallback，东方财富分时会在同一数据源内从 `push2.eastmoney.com` fallback 到 `push2delay.eastmoney.com`
+- 数据源管理：弹窗按当前视图测试数据源请求状态、耗时和返回记录数，并展示分时能力；分时视图只允许切换到支持分时的数据源
 - 周期：日线、周线、月线、5/15/30/60 分钟
 - 复权：不复权、前复权、后复权；不支持复权的数据源会自动收敛到不复权
 - 主图：K 线、BOLL、MA、EMA、B/S 信号
 - 副图：成交量、VOL、MACD、KDJ、RSI，最多同时开启 3 个副图指标
 - 交互：缩放、拖拽、十字线、tooltip
-- 顶部工具栏：证券代码、周期、复权、日期范围、刷新、数据源、代理、指标、检查更新、启动检查更新开关
-- 状态栏：数据源、证券代码、记录数、最新行情、加载状态、更新状态
+- 顶部工具栏：证券代码、分时/K线、周期、复权、日期范围、刷新、数据源、代理、指标、检查更新、启动检查更新开关；分时视图隐藏 K 线专属控件
+- 状态栏：当前视图的数据源、证券代码、记录数或分时点数、最新行情、加载状态、更新状态
 - 本地持久化：查询条件、指标开关与参数、网络代理、启动检查更新配置会保存到 `electron-store`
 
 ## 数据源能力
 
-| 数据源 | 周期 | 复权 | 市场 | 备注 |
-|---|---|---|---|---|
-| 东方财富 | 日/周/月/5/15/30/60 分钟 | 不复权/前复权/后复权 | 股票/ETF/指数 | 默认主源 |
-| 腾讯/QQ 财经 | 日/周/月 | 不复权/前复权/后复权 | 股票/ETF/指数 | K 线备用源 |
-| 新浪财经 | 日/周/月/5/15/30/60 分钟 | 不复权 | 股票/ETF/指数 | 分钟线备用源 |
-| 网易财经 163 | 日线 | 不复权 | 股票 | 当前只作为日线股票备用源 |
+| 数据源 | K 线周期 | 复权 | 市场 | 分时 | 备注 |
+|---|---|---|---|---|---|
+| 东方财富 | 日/周/月/5/15/30/60 分钟 | 不复权/前复权/后复权 | 股票/ETF/指数 | 支持 | 默认主源；分时主机支持 `push2` -> `push2delay` 同源 fallback |
+| 腾讯/QQ 财经 | 日/周/月 | 不复权/前复权/后复权 | 股票/ETF/指数 | 支持 | K 线和分时备用源 |
+| 新浪财经 | 日/周/月/5/15/30/60 分钟 | 不复权 | 股票/ETF/指数 | 不支持 | 可作为 K 线分钟线备用源 |
+| 网易财经 163 | 日线 | 不复权 | 股票 | 不支持 | 当前只作为 K 线日线股票备用源 |
 
-免费网页接口不提供稳定 SLA。每个源都封装在 main process 的数据源 adapter 里，后续替换正式数据服务时不需要改图表和指标层。
+免费网页接口不提供稳定 SLA。每个源都封装在 main process 的数据源 adapter 里，K 线和分时分别归一化为 `StockDataset`、`StockTimeshareDataset`，后续替换正式数据服务时不需要改图表和指标层。
+
+## 分时数据
+
+- 东方财富分时使用 `trends2/get` 接口，启动失败场景下会保留当前分时源，只在东方财富内部切换延迟主机重试。
+- 腾讯/QQ 财经分时使用 minute query 接口，按累积成交量和成交额换算单分钟增量，并读取昨收用于涨跌幅轴。
+- 新浪财经当前没有接入标准分时源；其 1 分钟 K 线接口可作为后续降级分时方案评估。
+- 网易财经 163 当前没有接入分时能力。
+- 分时自动刷新只按工作日交易时间判断，暂未接入节假日交易日历。
 
 ## 架构说明
 
@@ -91,7 +110,7 @@ yarn dist        # 构建安装包
 ```text
 Electron Main
   ├─ 窗口、菜单
-  ├─ 远端数据源 clients
+  ├─ 远端 K 线/分时数据源 clients
   ├─ 数据源注册表
   ├─ 本地配置、网络代理、日志
   ├─ 自动更新
@@ -103,8 +122,8 @@ Preload
 Renderer
   ├─ View: React + Ant Design
   ├─ ViewModel: MobX class
-  ├─ Model: 行情数据、指标计算
-  └─ Adapter: Electron 数据桥、klinecharts、自动更新状态
+  ├─ Model: K 线/分时行情数据、指标计算
+  └─ Adapter: Electron 数据桥、klinecharts、Canvas 分时图、自动更新状态
 ```
 
 MVVM 约束：
@@ -113,7 +132,7 @@ MVVM 约束：
 - ViewModel 负责状态、查询条件和流程编排。
 - Model 负责纯业务逻辑，例如指标计算和行情类型。
 - Adapter 负责外部依赖，例如 Electron IPC、远端行情源、klinecharts。
-- Renderer 不直接访问远端行情接口，只通过 preload 暴露的 `window.stockApi`。
+- Renderer 不直接访问远端行情接口，只通过 preload 暴露的 `window.stockApi`，其中 K 线和分时分别走 `fetchStockDataset`、`fetchStockTimeshareDataset`。
 
 ## 目录结构
 
@@ -139,10 +158,10 @@ src/
 
     features/
       stock-workspace/
-        models/               # 行情类型、指标定义、指标计算
-        view-models/          # MobX ViewModel
-        adapters/             # Electron 数据桥和 klinecharts 适配
-        views/                # React + Ant Design 界面
+        models/               # K 线/分时类型、指标定义、指标计算
+        view-models/          # MobX ViewModel、K 线和分时图状态
+        adapters/             # Electron 数据桥、klinecharts 和 Canvas 分时图适配
+        views/                # React + Ant Design 界面、K 线和分时图视图
 
       app-update/
         models/
@@ -156,11 +175,12 @@ tests/
   legacy-stock-parser.test.ts
   stock-workspace-view-model.test.ts
   klinecharts-adapter.test.ts
+  timeshare-chart.test.ts
 ```
 
-## 查询格式
+## 查询与工作区设置
 
-前端统一使用 `StockQuery`：
+K 线查询使用 `StockQuery`：
 
 ```ts
 interface StockQuery {
@@ -173,11 +193,33 @@ interface StockQuery {
 }
 ```
 
+分时查询使用独立的 `StockTimeshareQuery`：
+
+```ts
+interface StockTimeshareQuery {
+  sourceId: 'eastmoney' | 'sina' | 'netease163' | 'tencent'
+  symbol: string
+  tradeDate?: string
+}
+```
+
+工作区配置会同时保存当前视图和两类数据源：
+
+```ts
+interface WorkspaceSettings {
+  viewMode?: 'kline' | 'timeshare'
+  timeshareSourceId?: StockQuery['sourceId']
+  query: StockQuery
+  indicatorSettings?: IndicatorSettingsMap
+  enabledIndicators?: Partial<Record<IndicatorName, boolean>>
+}
+```
+
 证券代码支持 `sh/sz/bj` 前缀，例如 `sh000001`、`sz399001`、`sh600519`、`sz159915`。不带前缀时会按代码段推断市场；指数代码建议显式输入前缀，避免 `000001` 同时代表上证指数和平安银行。
 
-各数据源返回后都会归一化为现有 `StockDataset`，再进入 `enrichStockDataset` 计算指标并渲染图表。
+K 线数据源返回后会归一化为 `StockDataset`，再进入 `enrichStockDataset` 计算指标并渲染图表。分时数据源返回后会归一化为 `StockTimeshareDataset`，由分时 ViewModel 和 Canvas adapter 渲染。
 
-切换数据源、周期或复权时，ViewModel 会按当前数据源能力自动收敛不支持的选项。例如新浪财经不支持复权，会自动改为不复权；网易财经 163 只支持日线股票。
+切换 K 线数据源、周期或复权时，ViewModel 会按当前数据源能力自动收敛不支持的选项。例如新浪财经不支持复权，会自动改为不复权；网易财经 163 只支持日线股票。切换分时数据源时，ViewModel 会拒绝新浪财经、网易财经 163 这类未声明分时能力的数据源，避免把 K 线源误用成分时源。
 
 ## 指标说明
 
@@ -214,7 +256,9 @@ interface StockQuery {
 
 - `checkUpdatesOnStartup`：是否在启动后检查更新
 - `networkProxy`：代理开关、协议、地址、端口
-- `workspace.query`：当前数据源、证券代码、周期、复权和日期范围
+- `workspace.viewMode`：当前视图，默认 `timeshare`
+- `workspace.timeshareSourceId`：分时数据源，默认 `eastmoney`
+- `workspace.query`：K 线数据源、证券代码、周期、复权和日期范围
 - `workspace.indicatorSettings`：指标开关和参数
 
 网络代理默认关闭，关闭时行情请求不读取 `HTTP_PROXY`、`HTTPS_PROXY` 或 `ALL_PROXY` 环境变量。代理支持 `SOCKS5` 和 `HTTP`，默认草稿配置为 `127.0.0.1:7890`。
@@ -265,16 +309,19 @@ yarn build
 
 当前测试覆盖：
 
-- 远端数据源元信息、请求归一化、能力校验和网络错误透传
+- 远端数据源元信息、K 线/分时请求归一化、能力校验和网络错误透传
+- 东方财富分时解析、分时同源主机 fallback、腾讯/QQ 财经分时解析、未支持分时源拦截
 - 旧版行情文件解析
 - 指标定义、参数校验、旧配置迁移、副图指标数量限制
 - 指标计算
-- StockWorkspace ViewModel 远端查询、启动 fallback、数据源测试、配置持久化、代理保存
+- StockWorkspace ViewModel 远端查询、K 线启动 fallback、默认分时启动、分时/K 线源独立、数据源测试、配置持久化、代理保存
+- TimeshareChart ViewModel 分时摘要、点数和 revision 更新
 - klinecharts Adapter 指标开关、参数变更和 B/S overlay 不重复累加
 
 ## 设计取舍
 
 - 远端请求统一放在 Electron main process，renderer 只通过 typed preload bridge 调用。
-- 多源差异集中在 `remote-stock-sources.ts`，图表和指标层只接收统一 `StockDataset`。
-- 一期只在首次加载时做有限 fallback；日常查询由用户在数据源弹窗里手动切源，避免不同数据源结果不一致时难以排查。
+- 多源差异集中在 `remote-stock-sources.ts`，图表和指标层只接收统一后的 `StockDataset` 或 `StockTimeshareDataset`。
+- K 线和分时数据源拆开保存，避免某个平台只支持其中一种行情时污染另一种视图的选择。
+- K 线只在首次加载时做有限跨源 fallback；分时不做跨源自动 fallback，日常切源由用户在数据源弹窗里手动完成，避免不同数据源结果不一致时难以排查。
 - 代理默认直连且不隐式读取环境变量，避免开发机代理配置污染行情请求结果。

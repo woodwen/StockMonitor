@@ -10,12 +10,19 @@ import type {
   StockDataset,
   StockPeriod,
   StockQuery,
-  StockSourceId
+  StockSourceId,
+  StockTimeshareDataset,
+  StockTimesharePoint,
+  StockTimeshareQuery
 } from '../renderer/features/stock-workspace/models/stock-types'
 
 interface StockDataSource {
   meta: StockDataSourceMeta
   fetchDataset(query: StockQuery, context: StockRequestContext): Promise<StockDataset>
+  fetchTimeshare?(
+    query: StockTimeshareQuery,
+    context: StockRequestContext
+  ): Promise<StockTimeshareDataset>
 }
 
 interface StockHttpResponse {
@@ -41,6 +48,7 @@ interface SecurityCode {
 }
 
 const DEFAULT_COLUMNS = ['时间', '开盘价', '最高价', '最低价', '收盘价', '成交量', '成交额']
+const EASTMONEY_TIMESHARE_HOSTS = ['push2.eastmoney.com', 'push2delay.eastmoney.com'] as const
 const USER_AGENT =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126 Safari/537.36'
 
@@ -50,7 +58,8 @@ const EASTMONEY_META: StockDataSourceMeta = {
   capabilities: {
     periods: ['day', 'week', 'month', '5', '15', '30', '60'],
     adjusts: ['none', 'qfq', 'hfq'],
-    markets: ['stock', 'etf', 'index']
+    markets: ['stock', 'etf', 'index'],
+    timeshare: true
   }
 }
 
@@ -60,7 +69,8 @@ const SINA_META: StockDataSourceMeta = {
   capabilities: {
     periods: ['day', 'week', 'month', '5', '15', '30', '60'],
     adjusts: ['none'],
-    markets: ['stock', 'etf', 'index']
+    markets: ['stock', 'etf', 'index'],
+    timeshare: false
   }
 }
 
@@ -70,7 +80,8 @@ const NETEASE_META: StockDataSourceMeta = {
   capabilities: {
     periods: ['day'],
     adjusts: ['none'],
-    markets: ['stock']
+    markets: ['stock'],
+    timeshare: false
   }
 }
 
@@ -80,14 +91,16 @@ const TENCENT_META: StockDataSourceMeta = {
   capabilities: {
     periods: ['day', 'week', 'month'],
     adjusts: ['none', 'qfq', 'hfq'],
-    markets: ['stock', 'etf', 'index']
+    markets: ['stock', 'etf', 'index'],
+    timeshare: true
   }
 }
 
 const sources: Record<StockSourceId, StockDataSource> = {
   eastmoney: {
     meta: EASTMONEY_META,
-    fetchDataset: fetchEastmoneyDataset
+    fetchDataset: fetchEastmoneyDataset,
+    fetchTimeshare: fetchEastmoneyTimeshareDataset
   },
   sina: {
     meta: SINA_META,
@@ -99,7 +112,8 @@ const sources: Record<StockSourceId, StockDataSource> = {
   },
   tencent: {
     meta: TENCENT_META,
-    fetchDataset: fetchTencentDataset
+    fetchDataset: fetchTencentDataset,
+    fetchTimeshare: fetchTencentTimeshareDataset
   }
 }
 
@@ -125,6 +139,22 @@ export async function fetchRemoteStockDataset(
 
   validateQuery(source.meta, query)
   return source.fetchDataset(query, context)
+}
+
+export async function fetchRemoteStockTimeshareDataset(
+  query: StockTimeshareQuery,
+  context: StockRequestContext = { proxy: DIRECT_PROXY }
+): Promise<StockTimeshareDataset> {
+  const source = sources[query.sourceId]
+  if (!source) {
+    throw new Error(`未知数据源：${query.sourceId}`)
+  }
+
+  validateTimeshareQuery(source.meta, query)
+  if (!source.fetchTimeshare) {
+    throw new Error(`${source.meta.name} 暂不支持分时`)
+  }
+  return source.fetchTimeshare(query, context)
 }
 
 async function fetchEastmoneyDataset(
@@ -174,6 +204,73 @@ async function fetchEastmoneyDataset(
   })
 }
 
+async function fetchEastmoneyTimeshareDataset(
+  query: StockTimeshareQuery,
+  context: StockRequestContext
+): Promise<StockTimeshareDataset> {
+  const source = EASTMONEY_META
+  const security = normalizeSecurityCode(query.symbol)
+  const errors: string[] = []
+
+  for (const host of EASTMONEY_TIMESHARE_HOSTS) {
+    const url = createEastmoneyTimeshareUrl(host, security)
+    try {
+      const json = await requestJson<EastmoneyTimeshareResponse>(url, source.name, context, {
+        Referer: 'https://quote.eastmoney.com/'
+      })
+      return buildEastmoneyTimeshareDataset(source, security, url, json.data)
+    } catch (error) {
+      errors.push(`${host}：${formatErrorMessage(error)}`)
+    }
+  }
+
+  throw new Error(`${source.name} 分时请求失败：${errors.join('；')}`)
+}
+
+function createEastmoneyTimeshareUrl(host: string, security: SecurityCode): URL {
+  const url = new URL(`https://${host}/api/qt/stock/trends2/get`)
+  url.searchParams.set('fields1', 'f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11,f12,f13')
+  url.searchParams.set('fields2', 'f51,f52,f53,f54,f55,f56,f57,f58')
+  url.searchParams.set('ut', 'fa5fd1943c7b386f172d6893dbfba10b')
+  url.searchParams.set('ndays', '1')
+  url.searchParams.set('iscr', '0')
+  url.searchParams.set('iscca', '0')
+  url.searchParams.set('secid', security.secid)
+  url.searchParams.set('_', String(Date.now()))
+  return url
+}
+
+function buildEastmoneyTimeshareDataset(
+  source: StockDataSourceMeta,
+  security: SecurityCode,
+  sourceUrl: URL,
+  data: EastmoneyTimeshareResponse['data']
+): StockTimeshareDataset {
+  const points = (data?.trends ?? [])
+    .map(parseEastmoneyTimesharePoint)
+    .filter((point): point is StockTimesharePoint => point !== null)
+    .sort((left, right) => left.timestamp - right.timestamp)
+
+  if (points.length === 0) {
+    throw new Error('没有返回有效分时数据')
+  }
+
+  const previousClose = getEastmoneyPreviousClose(data, points)
+
+  return {
+    meta: {
+      lineType: '分时',
+      symbol: security.prefixed,
+      name: data?.name || security.prefixed
+    },
+    previousClose,
+    points,
+    sourceId: source.id,
+    sourceName: source.name,
+    sourceUrl: sourceUrl.toString()
+  }
+}
+
 async function fetchTencentDataset(
   query: StockQuery,
   context: StockRequestContext
@@ -218,6 +315,48 @@ async function fetchTencentDataset(
     name,
     candles
   })
+}
+
+async function fetchTencentTimeshareDataset(
+  query: StockTimeshareQuery,
+  context: StockRequestContext
+): Promise<StockTimeshareDataset> {
+  const source = TENCENT_META
+  const security = normalizeSecurityCode(query.symbol)
+  const url = new URL('https://web.ifzq.gtimg.cn/appstock/app/minute/query')
+  url.searchParams.set('code', security.prefixed)
+
+  const json = await requestJson<TencentTimeshareResponse>(url, source.name, context, {
+    Referer: 'https://gu.qq.com/'
+  })
+  const data = json.data?.[security.prefixed]
+  const quote = data?.qt?.[security.prefixed]
+  const tradeDate = normalizeTencentTimeshareDate(data?.data?.date, query.tradeDate)
+  const points = parseTencentTimesharePoints(data?.data?.data ?? [], tradeDate).sort(
+    (left, right) => left.timestamp - right.timestamp
+  )
+
+  if (points.length === 0) {
+    throw new Error(`${source.name} 没有返回有效分时数据`)
+  }
+
+  const previousClose = parseNullableNumber(quote?.[4])
+  if (!previousClose || previousClose <= 0) {
+    throw new Error(`${source.name} 没有返回昨收价`)
+  }
+
+  return {
+    meta: {
+      lineType: '分时',
+      symbol: security.prefixed,
+      name: quote?.[1] || security.prefixed
+    },
+    previousClose,
+    points,
+    sourceId: source.id,
+    sourceName: source.name,
+    sourceUrl: url.toString()
+  }
 }
 
 async function fetchSinaDataset(
@@ -363,6 +502,23 @@ function validateQuery(source: StockDataSourceMeta, query: StockQuery): void {
   }
 }
 
+function validateTimeshareQuery(source: StockDataSourceMeta, query: StockTimeshareQuery): void {
+  if (!source.capabilities.timeshare) {
+    throw new Error(`${source.name} 暂不支持分时`)
+  }
+  if (query.tradeDate && !/^\d{8}$/.test(query.tradeDate)) {
+    throw new Error('交易日期格式应为 YYYYMMDD')
+  }
+  if (query.tradeDate && query.tradeDate !== formatDateKey(new Date())) {
+    throw new Error('第一版仅支持当日分时')
+  }
+  const security = normalizeSecurityCode(query.symbol)
+  const marketScope = inferMarketScope(security)
+  if (!source.capabilities.markets.includes(marketScope)) {
+    throw new Error(`${source.name} 暂不支持${marketScopeLabel(marketScope)}`)
+  }
+}
+
 function normalizeSecurityCode(symbol: string): SecurityCode {
   const trimmed = symbol.trim().toLowerCase()
   const prefixedMatch = /^(sh|sz|bj)(\d{6})$/.exec(trimmed)
@@ -453,6 +609,148 @@ function parseSinaKline(row: SinaKlineRow, period: StockPeriod): StockCandle {
     volume: parseFiniteNumber(row.volume),
     turnover: parseFiniteNumber(row.amount)
   }
+}
+
+function parseEastmoneyTimesharePoint(line: string): StockTimesharePoint | null {
+  const cells = line.split(',')
+  const timestamp = parseRemoteTimestamp(cells[0], 'minute')
+  const price = parseNullableNumber(cells[2]) ?? parseNullableNumber(cells[1])
+  if (!Number.isFinite(timestamp) || !price || price <= 0) {
+    return null
+  }
+  const avgPrice = parseNullableNumber(cells[7]) ?? price
+
+  return {
+    timeKey: normalizeTimeshareTimeKey(cells[0]),
+    timestamp,
+    price,
+    avgPrice,
+    volume: parseFiniteNumber(cells[5]),
+    turnover: parseFiniteNumber(cells[6])
+  }
+}
+
+function getEastmoneyPreviousClose(
+  data: EastmoneyTimeshareResponse['data'],
+  points: StockTimesharePoint[]
+): number {
+  return (
+    parseNullableNumber(data?.preClose) ??
+    parseNullableNumber(data?.prePrice) ??
+    parseNullableNumber(data?.yc) ??
+    points[0]?.price ??
+    0
+  )
+}
+
+function parseTencentTimesharePoints(rows: string[], tradeDate: string): StockTimesharePoint[] {
+  const points: StockTimesharePoint[] = []
+  const rawPoints = rows
+    .map((row) => parseTencentTimeshareRawPoint(row, tradeDate))
+    .filter((point): point is NonNullable<typeof point> =>
+      Boolean(point && isAshareTradingMinute(point.hhmm))
+    )
+    .sort((left, right) => left.timestamp - right.timestamp)
+  let previousVolume: number | null = null
+  let previousTurnover: number | null = null
+
+  rawPoints.forEach((point) => {
+    const volume = cumulativeDelta(point.cumulativeVolume, previousVolume)
+    const turnover = cumulativeDelta(point.cumulativeTurnover, previousTurnover)
+    previousVolume = point.cumulativeVolume
+    previousTurnover = point.cumulativeTurnover
+
+    points.push({
+      timeKey: point.timeKey,
+      timestamp: point.timestamp,
+      price: point.price,
+      avgPrice: calculateTencentAveragePrice(point) ?? point.price,
+      volume,
+      turnover
+    })
+  })
+
+  return points
+}
+
+function parseTencentTimeshareRawPoint(
+  row: string,
+  tradeDate: string
+): {
+  hhmm: string
+  timeKey: string
+  timestamp: number
+  price: number
+  cumulativeVolume: number
+  cumulativeTurnover: number
+} | null {
+  const cells = row.trim().split(/\s+/)
+  const hhmm = cells[0]
+  const price = parseNullableNumber(cells[1])
+  const cumulativeVolume = parseFiniteNumber(cells[2])
+  const cumulativeTurnover = parseFiniteNumber(cells[3])
+  if (!/^\d{4}$/.test(hhmm) || !price || price <= 0) {
+    return null
+  }
+
+  const timestamp = parseRemoteTimestamp(
+    `${tradeDate} ${hhmm.slice(0, 2)}:${hhmm.slice(2, 4)}`,
+    'minute'
+  )
+  if (!Number.isFinite(timestamp)) {
+    return null
+  }
+
+  return {
+    hhmm,
+    timeKey: `${tradeDate}${hhmm}`,
+    timestamp,
+    price,
+    cumulativeVolume,
+    cumulativeTurnover
+  }
+}
+
+function calculateTencentAveragePrice(point: {
+  price: number
+  cumulativeVolume: number
+  cumulativeTurnover: number
+}): number | null {
+  if (point.cumulativeVolume <= 0 || point.cumulativeTurnover <= 0) {
+    return null
+  }
+
+  const averagePrice = point.cumulativeTurnover / point.cumulativeVolume / 100
+  if (!Number.isFinite(averagePrice)) {
+    return null
+  }
+
+  const lowerBound = point.price * 0.5
+  const upperBound = point.price * 1.5
+  return averagePrice >= lowerBound && averagePrice <= upperBound ? averagePrice : null
+}
+
+function cumulativeDelta(current: number, previous: number | null): number {
+  if (!Number.isFinite(current) || current <= 0) {
+    return 0
+  }
+  if (previous === null) {
+    return current
+  }
+  const delta = current - previous
+  return delta >= 0 ? delta : current
+}
+
+function normalizeTencentTimeshareDate(value: unknown, fallback?: string): string {
+  const dateKey = String(value ?? fallback ?? '')
+    .replace(/\D/g, '')
+    .slice(0, 8)
+  return dateKey.length === 8 ? dateKey : formatDateKey(new Date())
+}
+
+function isAshareTradingMinute(hhmm: string): boolean {
+  const minute = Number(hhmm)
+  return (minute >= 930 && minute <= 1130) || (minute >= 1300 && minute <= 1500)
 }
 
 async function requestJson<T>(
@@ -618,6 +916,10 @@ function formatErrorCause(error: unknown): string {
   return cause ? `：${cause.message}` : `：${error.message}`
 }
 
+function formatErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
 function stripJsonp(text: string): string {
   const trimmed = text.trim()
   if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
@@ -734,6 +1036,11 @@ function parseFiniteNumber(value: unknown): number {
   return Number.isFinite(parsed) ? parsed : 0
 }
 
+function parseNullableNumber(value: unknown): number | null {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
 function intervalFromPeriod(period: StockPeriod): IntervalType {
   if (period === 'day' || period === 'week' || period === 'month') {
     return period
@@ -786,10 +1093,31 @@ function toDashDate(date: string): string {
   return `${date.slice(0, 4)}-${date.slice(4, 6)}-${date.slice(6, 8)}`
 }
 
+function formatDateKey(date: Date): string {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}${month}${day}`
+}
+
+function normalizeTimeshareTimeKey(value: string): string {
+  return value.replace(/\D/g, '').slice(0, 12)
+}
+
 interface EastmoneyResponse {
   data?: {
     name?: string
     klines?: string[]
+  }
+}
+
+interface EastmoneyTimeshareResponse {
+  data?: {
+    name?: string
+    preClose?: string | number
+    prePrice?: string | number
+    yc?: string | number
+    trends?: string[]
   }
 }
 
@@ -800,6 +1128,18 @@ type TencentSecurityData = {
 
 interface TencentResponse {
   data?: Record<string, TencentSecurityData>
+}
+
+interface TencentTimeshareResponse {
+  data?: Record<string, TencentTimeshareSecurityData>
+}
+
+interface TencentTimeshareSecurityData {
+  data?: {
+    date?: string
+    data?: string[]
+  }
+  qt?: Record<string, string[]>
 }
 
 interface SinaKlineRow {

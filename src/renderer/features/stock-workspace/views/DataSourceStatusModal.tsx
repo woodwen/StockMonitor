@@ -10,22 +10,6 @@ interface DataSourceStatusModalProps {
   stock: StockWorkspaceViewModel
 }
 
-const periodLabels: Record<SourceTestResult['query']['period'], string> = {
-  day: '日线',
-  week: '周线',
-  month: '月线',
-  '5': '5分钟',
-  '15': '15分钟',
-  '30': '30分钟',
-  '60': '60分钟'
-}
-
-const adjustLabels: Record<SourceTestResult['query']['adjust'], string> = {
-  none: '不复权',
-  qfq: '前复权',
-  hfq: '后复权'
-}
-
 const statusTags: Record<SourceTestResult['status'], { color: string; label: string }> = {
   testing: { color: 'processing', label: '请求中' },
   success: { color: 'success', label: '可用' },
@@ -41,7 +25,9 @@ export const DataSourceStatusModal = observer(({ stock }: DataSourceStatusModalP
       render: (sourceName: string, result) => (
         <Space size={6}>
           <span>{sourceName}</span>
-          {stock.query.sourceId === result.sourceId ? <Tag color="blue">当前</Tag> : null}
+          {stock.isSourceActiveForCurrentMode(result.sourceId) ? (
+            <Tag color="blue">当前</Tag>
+          ) : null}
         </Space>
       )
     },
@@ -55,16 +41,17 @@ export const DataSourceStatusModal = observer(({ stock }: DataSourceStatusModalP
       }
     },
     {
+      title: '分时',
+      dataIndex: 'supportsTimeshare',
+      width: 74,
+      render: (supportsTimeshare: boolean) =>
+        supportsTimeshare ? <Tag color="success">支持</Tag> : <Tag>不支持</Tag>
+    },
+    {
       title: '请求参数',
-      dataIndex: 'query',
+      dataIndex: 'requestLabel',
       width: 220,
-      render: (_value, result) => (
-        <Space size={6}>
-          <span>{result.query.symbol}</span>
-          <span>{periodLabels[result.query.period]}</span>
-          <span>{adjustLabels[result.query.adjust]}</span>
-        </Space>
-      )
+      render: (requestLabel: string) => requestLabel
     },
     {
       title: '记录',
@@ -96,15 +83,16 @@ export const DataSourceStatusModal = observer(({ stock }: DataSourceStatusModalP
       dataIndex: 'sourceId',
       width: 88,
       render: (_value, result) => {
-        const active = stock.query.sourceId === result.sourceId
+        const active = stock.isSourceActiveForCurrentMode(result.sourceId)
+        const usable = stock.canUseSourceForCurrentMode(result.sourceId)
         return (
           <Button
             size="small"
             type={active ? 'default' : 'primary'}
-            disabled={active}
+            disabled={active || !usable}
             onClick={() => stock.setSourceId(result.sourceId)}
           >
-            {active ? '当前' : '使用'}
+            {active ? '当前' : usable ? '使用' : '不支持'}
           </Button>
         )
       }
@@ -132,7 +120,9 @@ export const DataSourceStatusModal = observer(({ stock }: DataSourceStatusModalP
       ]}
     >
       <Typography.Paragraph className="source-test-summary">
-        当前数据源：{stock.selectedSourceName}
+        K线数据源：{stock.selectedKlineSourceName}；分时数据源：
+        {stock.selectedTimeshareSourceName}；当前模式：
+        {stock.viewMode === 'timeshare' ? '分时' : 'K线'}
       </Typography.Paragraph>
       <Table<SourceTestResult>
         rowKey="sourceId"

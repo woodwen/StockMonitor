@@ -1,5 +1,5 @@
 import { observer } from 'mobx-react-lite'
-import { Button, Divider, Input, Select, Space, Switch, Tooltip } from 'antd'
+import { Button, Divider, Input, Segmented, Select, Space, Switch, Tooltip } from 'antd'
 import {
   ApiOutlined,
   BarChartOutlined,
@@ -9,7 +9,7 @@ import {
   ReloadOutlined,
   SearchOutlined
 } from '@ant-design/icons'
-import type { StockAdjust, StockPeriod } from '../models/stock-types'
+import type { StockAdjust, StockPeriod, WorkspaceViewMode } from '../models/stock-types'
 import type { StockWorkspaceViewModel } from '../view-models/StockWorkspaceViewModel'
 import type { AppUpdateViewModel } from '../../app-update/view-models/AppUpdateViewModel'
 
@@ -29,32 +29,45 @@ export const TopToolbar = observer(({ stock, updates }: TopToolbarProps) => {
           onChange={(event) => stock.setSymbol(event.target.value)}
           onPressEnter={() => stock.refreshStock()}
         />
-        <Select
-          className="toolbar-period-select"
-          value={stock.query.period}
-          options={stock.availablePeriodOptions}
-          onChange={(value: StockPeriod) => stock.setPeriod(value)}
+        <Segmented<WorkspaceViewMode>
+          size="small"
+          value={stock.viewMode}
+          options={[
+            { label: '分时', value: 'timeshare' },
+            { label: 'K线', value: 'kline' }
+          ]}
+          onChange={stock.setViewMode}
         />
-        <Select
-          className="toolbar-adjust-select"
-          value={stock.query.adjust}
-          options={stock.availableAdjustOptions}
-          onChange={(value: StockAdjust) => stock.setAdjust(value)}
-        />
-        <Input
-          className="toolbar-date-input"
-          value={stock.query.startDate}
-          maxLength={8}
-          onChange={(event) => stock.setStartDate(event.target.value)}
-          onPressEnter={() => stock.refreshStock()}
-        />
-        <Input
-          className="toolbar-date-input"
-          value={stock.query.endDate}
-          maxLength={8}
-          onChange={(event) => stock.setEndDate(event.target.value)}
-          onPressEnter={() => stock.refreshStock()}
-        />
+        {stock.viewMode === 'kline' ? (
+          <>
+            <Select
+              className="toolbar-period-select"
+              value={stock.query.period}
+              options={stock.availablePeriodOptions}
+              onChange={(value: StockPeriod) => stock.setPeriod(value)}
+            />
+            <Select
+              className="toolbar-adjust-select"
+              value={stock.query.adjust}
+              options={stock.availableAdjustOptions}
+              onChange={(value: StockAdjust) => stock.setAdjust(value)}
+            />
+            <Input
+              className="toolbar-date-input"
+              value={stock.query.startDate}
+              maxLength={8}
+              onChange={(event) => stock.setStartDate(event.target.value)}
+              onPressEnter={() => stock.refreshStock()}
+            />
+            <Input
+              className="toolbar-date-input"
+              value={stock.query.endDate}
+              maxLength={8}
+              onChange={(event) => stock.setEndDate(event.target.value)}
+              onPressEnter={() => stock.refreshStock()}
+            />
+          </>
+        ) : null}
         <Tooltip title="刷新远端行情">
           <Button
             icon={<ReloadOutlined />}
@@ -65,7 +78,7 @@ export const TopToolbar = observer(({ stock, updates }: TopToolbarProps) => {
             刷新
           </Button>
         </Tooltip>
-        <Tooltip title={`查看、测试和切换数据源；当前：${stock.selectedSourceName}`}>
+        <Tooltip title={`查看、测试和切换数据源；当前：${stock.activeSourceName}`}>
           <Button icon={<ApiOutlined />} onClick={stock.openSourceTestDialog}>
             数据源
           </Button>
@@ -75,9 +88,9 @@ export const TopToolbar = observer(({ stock, updates }: TopToolbarProps) => {
             代理
           </Button>
         </Tooltip>
-        <div className="toolbar-symbol-title" title={stock.chart.title}>
+        <div className="toolbar-symbol-title" title={stock.activeTitle}>
           <BarChartOutlined />
-          <span>{stock.chart.title}</span>
+          <span>{stock.activeTitle}</span>
         </div>
         <Tooltip title="检查应用更新">
           <Button icon={<CloudDownloadOutlined />} onClick={updates.checkForUpdates}>
@@ -86,15 +99,19 @@ export const TopToolbar = observer(({ stock, updates }: TopToolbarProps) => {
         </Tooltip>
       </Space>
 
-      <Divider type="vertical" />
+      {stock.viewMode === 'kline' ? (
+        <>
+          <Divider type="vertical" />
 
-      <Space size={8}>
-        <Tooltip title="管理指标开关和参数">
-          <Button icon={<LineChartOutlined />} onClick={stock.openIndicatorDialog}>
-            指标
-          </Button>
-        </Tooltip>
-      </Space>
+          <Space size={8}>
+            <Tooltip title="管理指标开关和参数">
+              <Button icon={<LineChartOutlined />} onClick={stock.openIndicatorDialog}>
+                指标
+              </Button>
+            </Tooltip>
+          </Space>
+        </>
+      ) : null}
 
       <div className="toolbar-spacer" />
 
