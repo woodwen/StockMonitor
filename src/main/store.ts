@@ -1,9 +1,7 @@
 import Store from 'electron-store'
-import type { AppSettings } from '../preload/stock-api'
-import type { RecentFileEntry } from '../renderer/features/stock-workspace/models/stock-types'
+import type { AppSettings, NetworkProxySettings } from '../preload/stock-api'
 
 interface AppStoreSchema {
-  recentFiles: RecentFileEntry[]
   settings: AppSettings
   windowBounds?: {
     width: number
@@ -16,15 +14,15 @@ interface AppStoreSchema {
 export const appStore = new Store<AppStoreSchema>({
   name: 'stock-monitor',
   defaults: {
-    recentFiles: [],
     settings: {
-      checkUpdatesOnStartup: true
+      checkUpdatesOnStartup: true,
+      networkProxy: getDefaultNetworkProxy()
     }
   }
 })
 
 export function getSettings(): AppSettings {
-  return appStore.get('settings')
+  return normalizeSettings(appStore.get('settings'))
 }
 
 export function setCheckUpdatesOnStartup(enabled: boolean): AppSettings {
@@ -36,22 +34,37 @@ export function setCheckUpdatesOnStartup(enabled: boolean): AppSettings {
   return settings
 }
 
-export function getRecentFiles(): RecentFileEntry[] {
-  return appStore.get('recentFiles')
-}
-
-export function clearRecentFiles(): void {
-  appStore.set('recentFiles', [])
-}
-
-export function rememberRecentFile(filePath: string): void {
-  const fileName = filePath.split(/[\\/]/).pop() ?? filePath
-  const next: RecentFileEntry = {
-    filePath,
-    fileName,
-    openedAt: Date.now()
+export function setNetworkProxy(proxy: NetworkProxySettings): AppSettings {
+  const settings = {
+    ...getSettings(),
+    networkProxy: normalizeNetworkProxy(proxy)
   }
+  appStore.set('settings', settings)
+  return settings
+}
 
-  const deduped = getRecentFiles().filter((item) => item.filePath !== filePath)
-  appStore.set('recentFiles', [next, ...deduped].slice(0, 5))
+function normalizeSettings(settings: Partial<AppSettings> | undefined): AppSettings {
+  return {
+    checkUpdatesOnStartup: settings?.checkUpdatesOnStartup ?? true,
+    networkProxy: normalizeNetworkProxy(settings?.networkProxy)
+  }
+}
+
+function normalizeNetworkProxy(proxy: Partial<NetworkProxySettings> | undefined): NetworkProxySettings {
+  const port = Number(proxy?.port)
+  return {
+    enabled: Boolean(proxy?.enabled),
+    protocol: proxy?.protocol === 'http' ? 'http' : 'socks5',
+    host: proxy?.host?.trim() || '127.0.0.1',
+    port: Number.isInteger(port) && port > 0 && port <= 65535 ? port : 7890
+  }
+}
+
+function getDefaultNetworkProxy(): NetworkProxySettings {
+  return {
+    enabled: false,
+    protocol: 'socks5',
+    host: '127.0.0.1',
+    port: 7890
+  }
 }

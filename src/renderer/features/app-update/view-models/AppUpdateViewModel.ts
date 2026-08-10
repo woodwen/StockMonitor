@@ -7,7 +7,13 @@ export class AppUpdateViewModel {
     status: 'idle'
   }
   settings: AppSettings = {
-    checkUpdatesOnStartup: true
+    checkUpdatesOnStartup: true,
+    networkProxy: {
+      enabled: false,
+      protocol: 'socks5',
+      host: '127.0.0.1',
+      port: 7890
+    }
   }
   private removeUpdateListener?: () => void
 

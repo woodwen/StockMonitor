@@ -2,6 +2,35 @@ export type IntervalType = 'minute' | 'day' | 'week' | 'month'
 
 export type IndicatorName = 'boll' | 'volumeMa' | 'bsSignal'
 
+export type StockSourceId = 'eastmoney' | 'sina' | 'netease163' | 'tencent'
+
+export type StockAdjust = 'none' | 'qfq' | 'hfq'
+
+export type StockPeriod = 'day' | 'week' | 'month' | '5' | '15' | '30' | '60'
+
+export type StockMarketScope = 'stock' | 'etf' | 'index'
+
+export interface SourceCapabilities {
+  periods: StockPeriod[]
+  adjusts: StockAdjust[]
+  markets: StockMarketScope[]
+}
+
+export interface StockDataSourceMeta {
+  id: StockSourceId
+  name: string
+  capabilities: SourceCapabilities
+}
+
+export interface StockQuery {
+  sourceId: StockSourceId
+  symbol: string
+  period: StockPeriod
+  adjust: StockAdjust
+  startDate: string
+  endDate: string
+}
+
 export interface StockMeta {
   lineType: string
   symbol: string
@@ -49,23 +78,14 @@ export interface StockDataset {
   interval: IntervalType
   columns: string[]
   candles: StockCandle[]
+  sourceId?: StockSourceId
+  sourceName?: string
+  sourceUrl?: string
+  adjust?: StockAdjust
   sourcePath?: string
   encoding?: string
 }
 
 export interface EnrichedStockDataset extends Omit<StockDataset, 'candles'> {
   candles: EnrichedStockCandle[]
-}
-
-export interface FileTextPayload {
-  filePath: string
-  fileName: string
-  text: string
-  encoding: string
-}
-
-export interface RecentFileEntry {
-  filePath: string
-  fileName: string
-  openedAt: number
 }

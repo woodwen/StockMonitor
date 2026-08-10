@@ -24,7 +24,8 @@
     "mobx": "^6.13.7",
     "mobx-react-lite": "^4.1.0",
     "react": "^19.1.0",
-    "react-dom": "^19.1.0"
+    "react-dom": "^19.1.0",
+    "undici": "^7.29.0"
   },
   "devDependencies": {
     "@types/node": "^24.1.0",
@@ -48,12 +49,6 @@
     "files": [
       "out/**/*",
       "package.json"
-    ],
-    "extraResources": [
-      {
-        "from": "fixtures",
-        "to": "fixtures"
-      }
     ],
     "publish": [
       {

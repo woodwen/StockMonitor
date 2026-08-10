@@ -3,13 +3,12 @@ import type { AppUpdateEvent } from '../renderer/features/app-update/models/upda
 import type { StockApi, MenuCommand } from './stock-api'
 
 const stockApi: StockApi = {
-  openLegacyTextFile: () => ipcRenderer.invoke('stock:openLegacyTextFile'),
-  readSampleLegacyTextFile: () => ipcRenderer.invoke('stock:readSampleLegacyTextFile'),
-  getRecentFiles: () => ipcRenderer.invoke('stock:getRecentFiles'),
-  clearRecentFiles: () => ipcRenderer.invoke('stock:clearRecentFiles'),
+  getStockDataSources: () => ipcRenderer.invoke('stock:getDataSources'),
+  fetchStockDataset: (query) => ipcRenderer.invoke('stock:fetchDataset', query),
   getSettings: () => ipcRenderer.invoke('settings:get'),
   setCheckUpdatesOnStartup: (enabled) =>
     ipcRenderer.invoke('settings:setCheckUpdatesOnStartup', enabled),
+  setNetworkProxy: (proxy) => ipcRenderer.invoke('settings:setNetworkProxy', proxy),
   checkForUpdates: () => ipcRenderer.invoke('update:check'),
   downloadUpdate: () => ipcRenderer.invoke('update:download'),
   quitAndInstallUpdate: () => ipcRenderer.invoke('update:quitAndInstall'),

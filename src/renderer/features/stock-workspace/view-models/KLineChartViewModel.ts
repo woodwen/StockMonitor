@@ -36,9 +36,9 @@ export class KLineChartViewModel {
   }
 
   get sourceLabel(): string {
-    if (!this.dataset?.sourcePath) {
-      return '示例数据'
+    if (!this.dataset) {
+      return '未加载'
     }
-    return this.dataset.sourcePath
+    return this.dataset.sourceName ?? this.dataset.sourcePath ?? '远端行情'
   }
 }

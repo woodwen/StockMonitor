@@ -9,21 +9,21 @@ interface StatusBarProps {
 }
 
 export const StatusBar = observer(({ stock, updates }: StatusBarProps) => {
-  const importState = stock.importFile
   const updateStatus = updates.state.status
 
   return (
     <div className="status-bar">
       <Space split={<span className="status-separator">|</span>} size={8}>
+        <span>{stock.selectedSourceName}</span>
+        <span>{stock.query.symbol}</span>
         <span>{stock.recordCount.toLocaleString('zh-CN')} 条记录</span>
         <span>{stock.latestSummary}</span>
-        <span>编码 {importState.encoding || '-'}</span>
         <span title={stock.chart.sourceLabel}>{stock.chart.sourceLabel}</span>
       </Space>
       <Space size={8}>
-        {importState.status === 'success' ? <Tag color="success">导入完成</Tag> : null}
-        {importState.status === 'loading' ? <Tag color="processing">导入中</Tag> : null}
-        {importState.status === 'error' ? <Tag color="error">导入失败</Tag> : null}
+        {stock.status === 'success' ? <Tag color="success">加载完成</Tag> : null}
+        {stock.status === 'loading' ? <Tag color="processing">加载中</Tag> : null}
+        {stock.status === 'error' ? <Tag color="error">加载失败</Tag> : null}
         {updateStatus !== 'idle' ? <Tag color="blue">更新：{updates.state.message}</Tag> : null}
       </Space>
     </div>

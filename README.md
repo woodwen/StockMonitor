@@ -1,8 +1,8 @@
 # Stock Monitor
 
-Stock Monitor 是一个跨平台 K 线桌面应用，用 Electron + React + MobX MVVM 实现本地行情导入和 K 线展示。
+Stock Monitor 是一个跨平台 K 线桌面应用，用 Electron + React + MobX MVVM 实现远端行情查询、多源切换和 K 线展示。
 
-首版目标是稳定支持旧版制表符 `txt` 行情文件导入，并展示主图 K 线、BOLL、成交量、VOL MA 和 B/S 信号。项目内置了一份示例数据：`fixtures/legacy/000002.txt`。
+一期目标是支持沪深京股票、ETF、指数的远端 K 线查询。默认数据源为东方财富，用户可以手动切换到新浪财经、网易财经 163、腾讯/QQ 财经。
 
 ## 技术栈
 
@@ -35,7 +35,16 @@ ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ node node_modules/electr
 yarn dev
 ```
 
-启动后会自动加载项目内的示例数据 `fixtures/legacy/000002.txt`。
+启动后会默认加载：
+
+```ts
+{
+  sourceId: 'eastmoney',
+  symbol: 'sh000001',
+  period: 'day',
+  adjust: 'qfq'
+}
+```
 
 ## 常用命令
 
@@ -49,15 +58,28 @@ yarn dist        # 构建安装包
 
 ## 功能范围
 
-- 本地旧版 `txt` 文件导入
-- 自动解析 `UTF-8 / GBK`
-- 支持周期：`日线 / 周线 / 月线 / 5分钟 / 15分钟 / 30分钟 / 60分钟`
+- 数据源：东方财富、腾讯/QQ 财经、新浪财经、网易财经 163
+- 市场范围：沪深京股票、ETF、指数
+- 默认查询：东方财富、`sh000001`、日线、前复权、近 2 年
+- 首次加载：先请求东方财富；如果当前网络下东财不可用，会自动尝试腾讯/QQ 财经、新浪财经、网易财经 163
+- 周期：日线、周线、月线、5/15/30/60 分钟
+- 复权：不复权、前复权、后复权；不支持复权的数据源会自动收敛到不复权
 - 主图：K 线、BOLL、B/S 信号
 - 副图：成交量、VOL MA5/10/20
 - 交互：缩放、拖拽、十字线、tooltip
-- 顶部工具栏：导入、加载示例、指标开关、检查更新
-- 状态栏：记录数、最新行情、编码、数据来源、导入状态、更新状态
-- 菜单：导入行情文本、加载示例数据、检查更新
+- 顶部工具栏：证券代码、数据源弹窗、周期、复权、日期范围、刷新、指标开关、检查更新
+- 状态栏：数据源、证券代码、记录数、最新行情、加载状态、更新状态
+
+## 数据源能力
+
+| 数据源 | 周期 | 复权 | 备注 |
+|---|---|---|---|
+| 东方财富 | 日/周/月/5/15/30/60 分钟 | 不复权/前复权/后复权 | 默认主源 |
+| 腾讯/QQ 财经 | 日/周/月 | 不复权/前复权/后复权 | K 线备用源 |
+| 新浪财经 | 日/周/月/5/15/30/60 分钟 | 不复权 | 分钟线备用源 |
+| 网易财经 163 | 日线 | 不复权 | 当前只作为日线备用源 |
+
+免费网页接口不提供稳定 SLA。每个源都封装在 main process 的数据源 adapter 里，后续替换正式数据服务时不需要改图表和指标层。
 
 ## 架构说明
 
@@ -65,7 +87,9 @@ yarn dist        # 构建安装包
 
 ```text
 Electron Main
-  ├─ 窗口、菜单、文件选择
+  ├─ 窗口、菜单
+  ├─ 远端数据源 clients
+  ├─ 数据源注册表
   ├─ 本地配置、日志
   ├─ 自动更新
   └─ IPC handlers
@@ -76,38 +100,34 @@ Preload
 Renderer
   ├─ View: React + Ant Design
   ├─ ViewModel: MobX class
-  ├─ Model: 行情数据、旧文件解析、指标计算
-  └─ Adapter: Electron 文件、klinecharts、自动更新状态
+  ├─ Model: 行情数据、指标计算
+  └─ Adapter: Electron 数据桥、klinecharts、自动更新状态
 ```
 
 MVVM 约束：
 
 - View 只负责展示和触发命令。
-- ViewModel 负责状态、命令和流程编排。
-- Model 负责纯业务逻辑，例如文件解析、周期识别、指标计算。
-- Adapter 负责外部依赖，例如 Electron IPC、文件系统、klinecharts。
-- Renderer 不直接访问 Node 文件系统，只通过 preload 暴露的 `window.stockApi`。
+- ViewModel 负责状态、查询条件和流程编排。
+- Model 负责纯业务逻辑，例如指标计算和行情类型。
+- Adapter 负责外部依赖，例如 Electron IPC、远端行情源、klinecharts。
+- Renderer 不直接访问远端行情接口，只通过 preload 暴露的 `window.stockApi`。
 
 ## 目录结构
 
 ```text
-fixtures/
-  legacy/
-    000002.txt
-
 src/
   main/
-    index.ts             # Electron 主入口
-    ipc.ts               # IPC handlers
-    menu.ts              # 中文应用菜单
-    file-utils.ts        # 文件读取和编码解码
-    store.ts             # electron-store 配置
-    logger.ts            # electron-log
-    update-manager.ts    # electron-updater
+    index.ts                  # Electron 主入口
+    ipc.ts                    # IPC handlers
+    menu.ts                   # 中文应用菜单
+    remote-stock-sources.ts   # 远端行情源注册表和数据归一化
+    store.ts                  # electron-store 配置
+    logger.ts                 # electron-log
+    update-manager.ts         # electron-updater
 
   preload/
-    index.ts             # contextBridge 注入
-    stock-api.ts         # preload 类型定义
+    index.ts                  # contextBridge 注入
+    stock-api.ts              # preload 类型定义
 
   renderer/
     app/
@@ -116,10 +136,10 @@ src/
 
     features/
       stock-workspace/
-        models/          # 行情类型、旧文件解析、指标计算
-        view-models/     # MobX ViewModel
-        adapters/        # 文件和 klinecharts 适配
-        views/           # React + Ant Design 界面
+        models/               # 行情类型、指标计算
+        view-models/          # MobX ViewModel
+        adapters/             # Electron 数据桥和 klinecharts 适配
+        views/                # React + Ant Design 界面
 
       app-update/
         models/
@@ -133,26 +153,24 @@ tests/
   klinecharts-adapter.test.ts
 ```
 
-## 数据格式
+## 查询格式
 
-首版支持旧版制表符行情文本。示例：
+前端统一使用 `StockQuery`：
 
-```text
-日线    000001    上证指数
-时间    开盘价    最高价    最低价    收盘价    成交量    成交额
-20100430 ...
+```ts
+interface StockQuery {
+  sourceId: 'eastmoney' | 'sina' | 'netease163' | 'tencent'
+  symbol: string
+  period: 'day' | 'week' | 'month' | '5' | '15' | '30' | '60'
+  adjust: 'none' | 'qfq' | 'hfq'
+  startDate: string
+  endDate: string
+}
 ```
 
-解析策略：
+证券代码支持 `sh/sz/bj` 前缀，例如 `sh000001`、`sz399001`、`sh600519`、`sz159915`。不带前缀时会按代码段推断市场；指数代码建议显式输入前缀，避免 `000001` 同时代表上证指数和平安银行。
 
-- 按列位置优先，不强依赖中文表头。
-- 第一行读取周期、代码、名称。
-- 第二行作为列名。
-- 第三行开始读取行情数据。
-- 导入后统一按时间正序排序。
-- `日线/周线` 使用 `yyyyMMdd`。
-- `月线` 使用 `yyyyMM`。
-- 分钟线兼容旧格式和完整时间格式。
+各数据源返回后都会归一化为现有 `StockDataset`，再进入 `enrichStockDataset` 计算指标并渲染图表。
 
 ## 指标说明
 
@@ -194,7 +212,6 @@ tests/
 - Linux：`AppImage`
 - 应用 ID：`com.stockmonitor.desktop`
 - 产品名：`Stock Monitor`
-- 示例数据通过 `extraResources` 打入包内
 
 执行：
 
@@ -216,11 +233,11 @@ yarn build
 
 - 旧版行情文件解析
 - 指标计算
-- StockWorkspace ViewModel 导入流程
+- StockWorkspace ViewModel 远端查询流程
 - klinecharts Adapter 指标开关不重复累加
 
 ## 设计取舍
 
-- 采用 Electron/React 图表层实现桌面 K 线体验。
-- 将导入、解析、指标、图表适配拆成可测试模块。
-- 首版只做本地文件导入，实时行情后续通过 Adapter 扩展。
+- 远端请求统一放在 Electron main process，renderer 只通过 typed preload bridge 调用。
+- 多源差异集中在 `remote-stock-sources.ts`，图表和指标层只接收统一 `StockDataset`。
+- 一期只在首次加载时做有限 fallback；日常查询由用户在数据源弹窗里手动切源，避免不同数据源结果不一致时难以排查。

@@ -38,7 +38,12 @@ body {
   align-items: center;
   height: 56px;
   gap: 8px;
+  overflow-x: auto;
   white-space: nowrap;
+}
+
+.top-toolbar > .ant-space {
+  flex-shrink: 0;
 }
 
 .toolbar-spacer {
@@ -46,7 +51,27 @@ body {
   min-width: 12px;
 }
 
+.toolbar-symbol-input {
+  width: 126px;
+}
+
+.toolbar-period-select {
+  width: 88px;
+}
+
+.toolbar-adjust-select {
+  width: 92px;
+}
+
+.toolbar-date-input {
+  width: 94px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
 .toolbar-symbol-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   max-width: 300px;
   min-width: 120px;
   overflow: hidden;
@@ -56,6 +81,11 @@ body {
   line-height: 32px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.toolbar-symbol-title > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .subtle-text {
@@ -133,4 +163,38 @@ body {
 
 .status-separator {
   color: #42526b;
+}
+
+.source-test-message {
+  display: inline-block;
+  max-width: 340px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
+  white-space: nowrap;
+}
+
+.source-test-summary {
+  margin-bottom: 12px;
+}
+
+.proxy-settings {
+  width: 100%;
+}
+
+.proxy-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.proxy-grid {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+}
+
+.proxy-grid .ant-input-number {
+  width: 100%;
 }

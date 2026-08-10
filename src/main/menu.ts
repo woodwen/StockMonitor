@@ -8,16 +8,12 @@ export function createApplicationMenu(window: BrowserWindow): void {
 
   const template: Electron.MenuItemConstructorOptions[] = [
     {
-      label: '文件',
+      label: '行情',
       submenu: [
         {
-          label: '导入行情文本',
-          accelerator: 'CmdOrCtrl+O',
-          click: () => sendCommand('open-file')
-        },
-        {
-          label: '加载示例数据',
-          click: () => sendCommand('load-sample')
+          label: '刷新行情',
+          accelerator: 'CmdOrCtrl+R',
+          click: () => sendCommand('refresh-stock')
         },
         { type: 'separator' },
         {

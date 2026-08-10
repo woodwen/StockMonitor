@@ -1,11 +1,11 @@
 import { makeAutoObservable } from 'mobx'
-import { ElectronFileAdapter } from '../features/stock-workspace/adapters/ElectronFileAdapter'
+import { ElectronStockDataAdapter } from '../features/stock-workspace/adapters/ElectronStockDataAdapter'
 import { StockWorkspaceViewModel } from '../features/stock-workspace/view-models/StockWorkspaceViewModel'
 import { AppUpdateViewModel } from '../features/app-update/view-models/AppUpdateViewModel'
 import type { MenuCommand } from '../../preload/stock-api'
 
 export class RootViewModel {
-  readonly stockWorkspace = new StockWorkspaceViewModel(new ElectronFileAdapter())
+  readonly stockWorkspace = new StockWorkspaceViewModel(new ElectronStockDataAdapter())
   readonly appUpdate = new AppUpdateViewModel()
   private removeMenuListener?: () => void
 
@@ -24,10 +24,8 @@ export class RootViewModel {
   }
 
   private handleMenuCommand(command: MenuCommand): void {
-    if (command === 'open-file') {
-      this.stockWorkspace.openFile()
-    } else if (command === 'load-sample') {
-      this.stockWorkspace.loadSample()
+    if (command === 'refresh-stock') {
+      this.stockWorkspace.refreshStock()
     } else if (command === 'check-update') {
       this.appUpdate.checkForUpdates()
     }
