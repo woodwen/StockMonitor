@@ -90,7 +90,8 @@
       "target": [
         "AppImage"
       ],
-      "category": "Finance"
+      "category": "Finance",
+      "executableName": "stock-monitor"
     },
     "toolsets": {
       "appimage": "1.0.3"
