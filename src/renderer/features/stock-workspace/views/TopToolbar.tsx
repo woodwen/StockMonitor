@@ -99,19 +99,17 @@ export const TopToolbar = observer(({ stock, updates }: TopToolbarProps) => {
         </Tooltip>
       </Space>
 
-      {stock.viewMode === 'kline' ? (
-        <>
-          <Divider type="vertical" />
+      <>
+        <Divider type="vertical" />
 
-          <Space size={8}>
-            <Tooltip title="管理指标开关和参数">
-              <Button icon={<LineChartOutlined />} onClick={stock.openIndicatorDialog}>
-                指标
-              </Button>
-            </Tooltip>
-          </Space>
-        </>
-      ) : null}
+        <Space size={8}>
+          <Tooltip title="管理指标开关和参数">
+            <Button icon={<LineChartOutlined />} onClick={stock.openIndicatorDialog}>
+              指标
+            </Button>
+          </Tooltip>
+        </Space>
+      </>
 
       <div className="toolbar-spacer" />
 

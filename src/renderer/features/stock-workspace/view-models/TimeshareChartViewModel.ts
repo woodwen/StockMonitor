@@ -1,8 +1,30 @@
 import { makeAutoObservable } from 'mobx'
-import type { StockTimeshareDataset, StockTimesharePoint } from '../models/stock-types'
+import {
+  canEnableTimeshareIndicator as canEnableIndicatorInSettings,
+  cloneTimeshareIndicatorSettings,
+  countEnabledTimeshareSubIndicators,
+  createDefaultTimeshareIndicatorSettings,
+  getTimeshareIndicatorDefinition,
+  normalizeTimeshareIndicatorSettings,
+  timeshareIndicatorDefinitions,
+  validateTimeshareIndicatorParams
+} from '../models/timeshare-indicator-definitions'
+import { enrichTimeshareDataset } from '../models/timeshare-indicator-engine'
+import type {
+  EnrichedStockTimeshareDataset,
+  StockTimeshareDataset,
+  StockTimesharePoint,
+  TimeshareIndicatorName,
+  TimeshareIndicatorSettings,
+  TimeshareIndicatorSettingsMap
+} from '../models/stock-types'
 
 export class TimeshareChartViewModel {
-  dataset: StockTimeshareDataset | null = null
+  dataset: EnrichedStockTimeshareDataset | null = null
+  rawDataset: StockTimeshareDataset | null = null
+  indicatorSettings: TimeshareIndicatorSettingsMap = createDefaultTimeshareIndicatorSettings()
+  indicatorDialogOpen = false
+  indicatorDraft: TimeshareIndicatorSettingsMap = createDefaultTimeshareIndicatorSettings()
   revision = 0
 
   constructor() {
@@ -10,8 +32,74 @@ export class TimeshareChartViewModel {
   }
 
   setDataset(dataset: StockTimeshareDataset): void {
-    this.dataset = dataset
+    this.rawDataset = dataset
+    this.dataset = enrichTimeshareDataset(dataset, this.indicatorSettings)
     this.revision += 1
+  }
+
+  setIndicatorSettings(
+    indicatorSettings?: Partial<Record<TimeshareIndicatorName, Partial<TimeshareIndicatorSettings>>> | null
+  ): void {
+    this.indicatorSettings = normalizeTimeshareIndicatorSettings(indicatorSettings)
+    this.reenrichCurrentDataset()
+    this.revision += 1
+  }
+
+  openIndicatorDialog(): void {
+    this.indicatorDraft = cloneTimeshareIndicatorSettings(this.indicatorSettings)
+    this.indicatorDialogOpen = true
+  }
+
+  closeIndicatorDialog(): void {
+    this.indicatorDialogOpen = false
+    this.indicatorDraft = cloneTimeshareIndicatorSettings(this.indicatorSettings)
+  }
+
+  applyIndicatorDraft(): boolean {
+    if (this.indicatorDraftHasErrors) {
+      return false
+    }
+    this.indicatorSettings = normalizeTimeshareIndicatorSettings(this.indicatorDraft)
+    this.indicatorDialogOpen = false
+    this.reenrichCurrentDataset()
+    this.revision += 1
+    return true
+  }
+
+  setIndicatorDraftEnabled(name: TimeshareIndicatorName, enabled: boolean): void {
+    if (enabled && !canEnableIndicatorInSettings(this.indicatorDraft, name)) {
+      return
+    }
+    this.indicatorDraft = patchTimeshareIndicatorSetting(this.indicatorDraft, name, {
+      enabled
+    })
+  }
+
+  setIndicatorDraftParam(name: TimeshareIndicatorName, index: number, value: number): void {
+    const current = this.indicatorDraft[name]
+    if (!current || index < 0 || index >= current.params.length) {
+      return
+    }
+    const params = [...current.params]
+    params[index] = value
+    this.indicatorDraft = patchTimeshareIndicatorSetting(this.indicatorDraft, name, {
+      params
+    })
+  }
+
+  setIndicatorDraftParams(name: TimeshareIndicatorName, params: number[]): void {
+    this.indicatorDraft = patchTimeshareIndicatorSetting(this.indicatorDraft, name, {
+      params: [...params]
+    })
+  }
+
+  resetIndicatorDraftParams(name: TimeshareIndicatorName): void {
+    const definition = getTimeshareIndicatorDefinition(name)
+    this.setIndicatorDraftParams(name, definition.defaultParams)
+  }
+
+  canEnableIndicator(name: TimeshareIndicatorName): boolean {
+    return canEnableIndicatorInSettings(this.indicatorDraft, name)
   }
 
   get hasDataset(): boolean {
@@ -41,6 +129,32 @@ export class TimeshareChartViewModel {
     return this.dataset?.points.length ?? 0
   }
 
+  get enabledSubIndicatorCount(): number {
+    return countEnabledTimeshareSubIndicators(this.indicatorSettings)
+  }
+
+  get draftEnabledSubIndicatorCount(): number {
+    return countEnabledTimeshareSubIndicators(this.indicatorDraft)
+  }
+
+  get indicatorDraftErrors(): Partial<Record<TimeshareIndicatorName, string[]>> {
+    const errors: Partial<Record<TimeshareIndicatorName, string[]>> = {}
+    timeshareIndicatorDefinitions.forEach((definition) => {
+      const indicatorErrors = validateTimeshareIndicatorParams(
+        definition.name,
+        this.indicatorDraft[definition.name].params
+      )
+      if (indicatorErrors.length > 0) {
+        errors[definition.name] = indicatorErrors
+      }
+    })
+    return errors
+  }
+
+  get indicatorDraftHasErrors(): boolean {
+    return Object.values(this.indicatorDraftErrors).some((errors) => (errors?.length ?? 0) > 0)
+  }
+
   get latestSummary(): string {
     const latest = this.latestPoint
     if (!latest || !this.dataset) {
@@ -51,6 +165,28 @@ export class TimeshareChartViewModel {
     const change = latest.price - previousClose
     const changePercent = previousClose > 0 ? (change / previousClose) * 100 : 0
     return `价 ${formatNumber(latest.price)}  涨跌 ${formatSignedNumber(change)}  ${formatSignedNumber(changePercent)}%`
+  }
+
+  private reenrichCurrentDataset(): void {
+    if (!this.rawDataset) {
+      return
+    }
+    this.dataset = enrichTimeshareDataset(this.rawDataset, this.indicatorSettings)
+  }
+}
+
+function patchTimeshareIndicatorSetting(
+  settings: TimeshareIndicatorSettingsMap,
+  name: TimeshareIndicatorName,
+  patch: Partial<TimeshareIndicatorSettings>
+): TimeshareIndicatorSettingsMap {
+  return {
+    ...settings,
+    [name]: {
+      ...settings[name],
+      ...patch,
+      params: patch.params ? [...patch.params] : [...settings[name].params]
+    }
   }
 }
 

@@ -4,6 +4,10 @@ Stock Monitor 是一个跨平台行情桌面应用，用 Electron + React + MobX
 
 当前默认进入分时视图，默认分时数据源为东方财富；K 线数据源和分时数据源已经拆分保存，用户可以分别在对应视图下切换东方财富、腾讯/QQ 财经、新浪财经、网易财经 163 的可用能力，并可在应用内检测数据源状态、配置网络代理和管理图表指标。
 
+## 免责声明
+
+本项目仅用于个人学习、技术研究和行情展示验证，不构成任何投资建议、交易建议、荐股服务或收益承诺。应用内行情数据来自公开网页接口或第三方服务，可能存在延迟、缺失、错误、接口变更、访问受限或服务不可用等情况；所有技术指标和 B/S 信号仅为基于当前数据的程序化计算结果，不保证准确性、完整性或适用于任何交易决策。用户应自行核验数据并独立承担投资和使用风险。
+
 ## 技术栈
 
 - 桌面框架：`Electron`
@@ -50,7 +54,9 @@ yarn dev
     adjust: 'qfq',
     startDate: 'YYYYMMDD', // 启动日往前 2 年
     endDate: 'YYYYMMDD' // 启动日
-  }
+  },
+  indicatorSettings: createDefaultIndicatorSettings(), // K 线：BOLL、VOL、B/S 默认开启
+  timeshareIndicatorSettings: createDefaultTimeshareIndicatorSettings() // 分时：基础显示默认开启，新增指标默认关闭
 }
 ```
 
@@ -71,18 +77,57 @@ yarn dist        # 构建安装包
 - 市场范围：沪深京股票、ETF、指数
 - 默认查询：分时视图、东方财富分时源、`sh000001`；K 线保留东方财富、日线、前复权、近 2 年
 - 数据源拆分：K 线使用 `workspace.query.sourceId`，分时使用 `workspace.timeshareSourceId`，两者共享证券代码但互不覆盖
-- 分时：价格线、均价线、昨收参考线、右侧涨跌幅轴、成交量柱、十字线、tooltip，并压缩午间休市空档
+- 分时：价格线、均价线、昨收参考线、右侧涨跌幅轴、成交量柱、主图/成交量/副图指标、B/S 信号、分区图例、十字线、tooltip，并压缩午间休市空档
 - 分时刷新：分时视图在窗口可见且处于 A 股交易时段时每 15 秒自动静默刷新；K 线仍由用户手动刷新
 - 首次加载：K 线首次加载支持跨源 fallback；分时不做跨源自动 fallback，东方财富分时会在同一数据源内从 `push2.eastmoney.com` fallback 到 `push2delay.eastmoney.com`
 - 数据源管理：弹窗按当前视图测试数据源请求状态、耗时和返回记录数，并展示分时能力；分时视图只允许切换到支持分时的数据源
 - 周期：日线、周线、月线、5/15/30/60 分钟
 - 复权：不复权、前复权、后复权；不支持复权的数据源会自动收敛到不复权
-- 主图：K 线、BOLL、MA、EMA、B/S 信号
-- 副图：成交量、VOL、MACD、KDJ、RSI，最多同时开启 3 个副图指标
+- K 线主图：K 线、BOLL、MA、EMA、B/S 信号
+- K 线副图：成交量、VOL、MACD、KDJ、RSI，最多同时开启 3 个副图指标
+- 分时主图：价格线、均价线、昨收线、MA、EMA、BOLL、B/S 信号
+- 分时成交量区：成交量柱、VOL MA
+- 分时副图：MACD、RSI，最多同时开启 2 个副图指标
 - 交互：缩放、拖拽、十字线、tooltip
 - 顶部工具栏：证券代码、分时/K线、周期、复权、日期范围、刷新、数据源、代理、指标、检查更新、启动检查更新开关；分时视图隐藏 K 线专属控件
 - 状态栏：当前视图的数据源、证券代码、记录数或分时点数、最新行情、加载状态、更新状态
 - 本地持久化：查询条件、指标开关与参数、网络代理、启动检查更新配置会保存到 `electron-store`
+
+## 界面截图
+
+### 分时视图
+
+<img src="docs/assets/screenshots/timeshare-home.png" alt="分时首页" width="900">
+
+分时首页展示当日分时价格线、均价线、昨收线、分时指标图例、成交量区、MACD/RSI 副图区、底部状态栏和自动刷新状态。
+
+<img src="docs/assets/screenshots/timeshare-data-sources.png" alt="分时数据源" width="900">
+
+分时数据源弹窗按当前分时模式测试各数据源，展示分时能力、请求状态、耗时、记录数，并限制不支持分时的数据源被误用。
+
+<img src="docs/assets/screenshots/timeshare-indicators.png" alt="分时指标设置" width="900">
+
+分时指标弹窗按基础显示、主图指标、信号指标、成交量指标和副图指标分组，支持分时 MA/EMA/BOLL、B/S、VOL MA、MACD、RSI 的开关和参数配置。
+
+### 网络代理
+
+<img src="docs/assets/screenshots/network-proxy.png" alt="网络代理配置" width="900">
+
+网络代理弹窗默认直连，不读取系统代理环境变量；需要代理时可手动启用 SOCKS5 或 HTTP，并配置地址和端口。
+
+### K 线视图
+
+<img src="docs/assets/screenshots/kline-home.png" alt="K 线首页" width="900">
+
+K 线首页展示周期、复权和日期范围控制，主图支持 BOLL、MA、EMA、B/S 标记，副图区展示成交量和相关指标。
+
+<img src="docs/assets/screenshots/kline-data-sources.png" alt="K 线数据源" width="900">
+
+K 线数据源弹窗按当前 K 线查询参数测试各数据源，展示周期、复权、分时能力、请求状态、错误详情和切换操作。
+
+<img src="docs/assets/screenshots/kline-indicators.png" alt="K 线指标设置" width="900">
+
+K 线指标弹窗管理 BOLL、MA、EMA、B/S、VOL、MACD、KDJ、RSI 的开关和参数，并限制副图指标数量。
 
 ## 数据源能力
 
@@ -172,6 +217,8 @@ tests/
   remote-stock-sources.test.ts
   indicator-definitions.test.ts
   indicator-engine.test.ts
+  timeshare-indicator-definitions.test.ts
+  timeshare-indicator-engine.test.ts
   legacy-stock-parser.test.ts
   stock-workspace-view-model.test.ts
   klinecharts-adapter.test.ts
@@ -211,17 +258,22 @@ interface WorkspaceSettings {
   timeshareSourceId?: StockQuery['sourceId']
   query: StockQuery
   indicatorSettings?: IndicatorSettingsMap
+  timeshareIndicatorSettings?: TimeshareIndicatorSettingsMap
   enabledIndicators?: Partial<Record<IndicatorName, boolean>>
 }
 ```
 
 证券代码支持 `sh/sz/bj` 前缀，例如 `sh000001`、`sz399001`、`sh600519`、`sz159915`。不带前缀时会按代码段推断市场；指数代码建议显式输入前缀，避免 `000001` 同时代表上证指数和平安银行。
 
-K 线数据源返回后会归一化为 `StockDataset`，再进入 `enrichStockDataset` 计算指标并渲染图表。分时数据源返回后会归一化为 `StockTimeshareDataset`，由分时 ViewModel 和 Canvas adapter 渲染。
+K 线数据源返回后会归一化为 `StockDataset`，再进入 `enrichStockDataset` 计算指标并渲染图表。分时数据源返回后会归一化为 `StockTimeshareDataset`，再进入 `enrichTimeshareDataset` 计算分时指标，并由分时 ViewModel 和 Canvas adapter 渲染。
 
 切换 K 线数据源、周期或复权时，ViewModel 会按当前数据源能力自动收敛不支持的选项。例如新浪财经不支持复权，会自动改为不复权；网易财经 163 只支持日线股票。切换分时数据源时，ViewModel 会拒绝新浪财经、网易财经 163 这类未声明分时能力的数据源，避免把 K 线源误用成分时源。
 
 ## 指标说明
+
+K 线和分时使用独立指标配置。K 线配置保存在 `workspace.indicatorSettings`，分时配置保存在 `workspace.timeshareIndicatorSettings`，两者互不覆盖。
+
+### K 线指标
 
 默认开启：
 
@@ -250,6 +302,30 @@ K 线数据源返回后会归一化为 `StockDataset`，再进入 `enrichStockDa
 
 本地 model 会为数据集计算 `BOLL`、`VOL MA` 和 `B/S` 信号；图表层通过 `klinecharts` 创建 `BOLL`、`VOL`、`MA`、`EMA`、`MACD`、`KDJ`、`RSI` 指标，并使用自定义 overlay 渲染 `B/S` 标记。
 
+### 分时指标
+
+默认开启：
+
+- `价格线`：固定展示，不提供关闭
+- `均价线`：数据源返回的分时均价，可关闭
+- `昨收线`：基于 `previousClose` 的参考线，可关闭
+- `成交量`：单分钟成交量柱，可关闭
+
+默认关闭：
+
+- 主图：`MA` 默认 5/10/20/60，`EMA` 默认 12/26，`BOLL` 默认 20/2
+- 信号：`B/S` 默认 5/20，基于分时价格快慢 EMA 交叉；上穿生成 `B`，下穿生成 `S`
+- 成交量区：`VOL MA` 默认 5/10/20
+- 副图：`MACD` 默认 12/26/9，`RSI` 默认 6/12/24，最多同时开启 2 个副图指标
+
+分时指标设置：
+
+- 分时指标弹窗分为基础显示、主图指标、信号指标、成交量指标和副图指标。
+- 参数会校验范围，周期类参数为 `1-250` 整数；`B/S` 和 `MACD` 要求快线小于慢线。
+- 分时自动刷新或指标参数应用后会在本地重新计算指标，不额外请求行情。
+- 分时图按区域展示图例：主图显示价格、均价、昨收、MA、EMA、BOLL、B/S；成交量区显示成交量和 VOL MA；副图区显示 MACD/RSI。
+- tooltip 会按鼠标所在区域展示相关指标值；命中 B/S 信号点时显示 `B/S 买入` 或 `B/S 卖出`。
+
 ## 本地设置与代理
 
 本地设置通过 `electron-store` 保存，配置名为 `stock-monitor`。当前保存内容包括：
@@ -259,7 +335,8 @@ K 线数据源返回后会归一化为 `StockDataset`，再进入 `enrichStockDa
 - `workspace.viewMode`：当前视图，默认 `timeshare`
 - `workspace.timeshareSourceId`：分时数据源，默认 `eastmoney`
 - `workspace.query`：K 线数据源、证券代码、周期、复权和日期范围
-- `workspace.indicatorSettings`：指标开关和参数
+- `workspace.indicatorSettings`：K 线指标开关和参数
+- `workspace.timeshareIndicatorSettings`：分时指标开关和参数
 
 网络代理默认关闭，关闭时行情请求不读取 `HTTP_PROXY`、`HTTPS_PROXY` 或 `ALL_PROXY` 环境变量。代理支持 `SOCKS5` 和 `HTTP`，默认草稿配置为 `127.0.0.1:7890`。
 
@@ -313,11 +390,14 @@ yarn build
 - 远端数据源元信息、K 线/分时请求归一化、能力校验和网络错误透传
 - 东方财富分时解析、分时同源主机 fallback、腾讯/QQ 财经分时解析、未支持分时源拦截
 - 旧版行情文件解析
-- 指标定义、参数校验、旧配置迁移、副图指标数量限制
-- 指标计算
+- K 线指标定义、参数校验、旧配置迁移、副图指标数量限制
+- K 线指标计算
+- 分时指标定义、参数校验、副图指标数量限制
+- 分时指标计算，包括 MA、EMA、BOLL、VOL MA、MACD、RSI 和 B/S 信号
 - StockWorkspace ViewModel 远端查询、K 线启动 fallback、默认分时启动、分时/K 线源独立、数据源测试、配置持久化、代理保存
 - TimeshareChart ViewModel 分时摘要、点数和 revision 更新
 - klinecharts Adapter 指标开关、参数变更和 B/S overlay 不重复累加
+- Canvas Timeshare Adapter 午间休市压缩、分时指标图例、tooltip、B/S 标记和动态副图区
 
 ## 设计取舍
 
@@ -326,3 +406,9 @@ yarn build
 - K 线和分时数据源拆开保存，避免某个平台只支持其中一种行情时污染另一种视图的选择。
 - K 线只在首次加载时做有限跨源 fallback；分时不做跨源自动 fallback，日常切源由用户在数据源弹窗里手动完成，避免不同数据源结果不一致时难以排查。
 - 代理默认直连且不隐式读取环境变量，避免开发机代理配置污染行情请求结果。
+- 分时指标与 K 线指标配置拆开保存，避免两种图表不同数据结构和展示密度互相影响。
+- 分时当前没有分钟 OHLC、流通股本、盘口或逐笔方向数据，因此暂不实现 KDJ、量比、换手率、委比、内外盘和资金流等需要额外数据口径的指标。
+
+## 致谢
+
+感谢东方财富、腾讯/QQ 财经、新浪财经、网易财经 163 等公开免费行情数据源为个人学习和技术研究提供参考数据。本项目仅做数据聚合、归一化和本地展示，不隶属于上述数据源，也不对其接口稳定性、数据准确性或可用性作任何承诺。

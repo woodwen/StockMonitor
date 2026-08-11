@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AppSettings, NetworkProxySettings, WorkspaceSettings } from '../src/preload/stock-api'
 import type { StockDataAdapter } from '../src/renderer/features/stock-workspace/adapters/ElectronStockDataAdapter'
 import { createDefaultIndicatorSettings } from '../src/renderer/features/stock-workspace/models/indicator-definitions'
+import { createDefaultTimeshareIndicatorSettings } from '../src/renderer/features/stock-workspace/models/timeshare-indicator-definitions'
 import type {
   StockDataset,
   StockDataSourceMeta,
@@ -601,6 +602,29 @@ describe('StockWorkspaceViewModel', () => {
     expect(adapter.savedWorkspaceSettings.at(-1)?.indicatorSettings?.boll.params).toEqual([30, 2])
   })
 
+  it('applies timeshare indicator drafts without refetching remote data', async () => {
+    const adapter = new FakeDataAdapter([], createDefaultSettings())
+    const viewModel = new StockWorkspaceViewModel(adapter)
+
+    await viewModel.initialize()
+    const requestCount = adapter.timeshareQueries.length
+
+    viewModel.openIndicatorDialog()
+    viewModel.timeshare.setIndicatorDraftEnabled('ma', true)
+    viewModel.timeshare.setIndicatorDraftParam('ma', 0, 3)
+    viewModel.applyIndicatorSettingsDraft()
+
+    expect(viewModel.timeshare.indicatorDialogOpen).toBe(false)
+    expect(viewModel.timeshare.indicatorSettings.ma.enabled).toBe(true)
+    expect(viewModel.timeshare.indicatorSettings.ma.params).toEqual([3, 10, 20, 60])
+    expect(viewModel.chart.indicatorSettings.ma.enabled).toBe(false)
+    expect(adapter.timeshareQueries).toHaveLength(requestCount)
+    expect(adapter.savedWorkspaceSettings.at(-1)?.timeshareIndicatorSettings?.ma).toMatchObject({
+      enabled: true,
+      params: [3, 10, 20, 60]
+    })
+  })
+
   it('prevents enabling more than three sub indicators in the draft', () => {
     const viewModel = new StockWorkspaceViewModel(new FakeDataAdapter())
 
@@ -634,7 +658,8 @@ function createDefaultSettings(): AppSettings {
         startDate: '20240101',
         endDate: '20260101'
       },
-      indicatorSettings: createDefaultIndicatorSettings()
+      indicatorSettings: createDefaultIndicatorSettings(),
+      timeshareIndicatorSettings: createDefaultTimeshareIndicatorSettings()
     }
   }
 }
