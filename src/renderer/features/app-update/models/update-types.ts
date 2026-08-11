@@ -27,4 +27,5 @@ export type AppUpdateEvent =
   | { type: 'not-available'; version?: string }
   | { type: 'progress'; progress: UpdateProgress }
   | { type: 'downloaded'; version: string }
+  | { type: 'cancelled' }
   | { type: 'error'; message: string }

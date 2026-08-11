@@ -1,7 +1,14 @@
-import { BrowserWindow, Menu, app } from 'electron'
+import { BrowserWindow, Menu, app, dialog } from 'electron'
 import type { MenuCommand } from '../preload/stock-api'
+import { APP_NAME } from './app-metadata'
 
 export function createApplicationMenu(window: BrowserWindow): void {
+  Menu.setApplicationMenu(Menu.buildFromTemplate(buildApplicationMenuTemplate(window)))
+}
+
+export function buildApplicationMenuTemplate(
+  window: BrowserWindow
+): Electron.MenuItemConstructorOptions[] {
   const sendCommand = (command: MenuCommand): void => {
     window.webContents.send('menu:command', command)
   }
@@ -29,10 +36,23 @@ export function createApplicationMenu(window: BrowserWindow): void {
         {
           label: '检查更新',
           click: () => sendCommand('check-update')
+        },
+        { type: 'separator' },
+        {
+          label: `关于 ${APP_NAME}`,
+          click: () => {
+            void dialog.showMessageBox(window, {
+              type: 'info',
+              title: `关于 ${APP_NAME}`,
+              message: APP_NAME,
+              detail: `版本 ${app.getVersion()}`,
+              buttons: ['好']
+            })
+          }
         }
       ]
     }
   ]
 
-  Menu.setApplicationMenu(Menu.buildFromTemplate(template))
+  return template
 }

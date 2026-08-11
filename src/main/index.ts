@@ -2,6 +2,7 @@ import { app, BrowserWindow, shell } from 'electron'
 import { existsSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { formatVersionedAppTitle } from './app-metadata'
 import { createApplicationMenu } from './menu'
 import { registerIpcHandlers } from './ipc'
 import { configureUpdateManager, checkForUpdates } from './update-manager'
@@ -23,13 +24,14 @@ function getAppIconPath(): string | undefined {
 
 function createWindow(): BrowserWindow {
   const iconPath = getAppIconPath()
+  const windowTitle = formatVersionedAppTitle(app.getVersion())
 
   const window = new BrowserWindow({
     width: 1440,
     height: 900,
     minWidth: 1100,
     minHeight: 700,
-    title: 'Stock Monitor',
+    title: windowTitle,
     show: false,
     ...(process.platform === 'darwin' || !iconPath ? {} : { icon: iconPath }),
     webPreferences: {
@@ -49,6 +51,11 @@ function createWindow(): BrowserWindow {
     return { action: 'deny' }
   })
 
+  window.on('page-title-updated', (event) => {
+    event.preventDefault()
+    window.setTitle(windowTitle)
+  })
+
   if (process.env.ELECTRON_RENDERER_URL) {
     window.loadURL(process.env.ELECTRON_RENDERER_URL)
   } else {
@@ -57,7 +64,6 @@ function createWindow(): BrowserWindow {
 
   mainWindow = window
   createApplicationMenu(window)
-  registerIpcHandlers(window)
   configureUpdateManager(window)
 
   return window
@@ -70,6 +76,7 @@ app.whenReady().then(() => {
     app.dock?.setIcon(iconPath)
   }
 
+  registerIpcHandlers()
   createWindow()
 
   if (getSettings().checkUpdatesOnStartup) {

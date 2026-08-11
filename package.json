@@ -33,6 +33,7 @@
   "dependencies": {
     "@ant-design/icons": "^6.0.0",
     "antd": "^5.27.0",
+    "builder-util-runtime": "9.7.0",
     "electron-log": "^5.4.0",
     "electron-store": "^10.0.0",
     "electron-updater": "^6.8.9",

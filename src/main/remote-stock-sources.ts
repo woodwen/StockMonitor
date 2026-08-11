@@ -15,6 +15,7 @@ import type {
   StockTimesharePoint,
   StockTimeshareQuery
 } from '../renderer/features/stock-workspace/models/stock-types'
+import { getElectronProxyRules, getHttpProxyUrl } from './network-proxy'
 
 interface StockDataSource {
   meta: StockDataSourceMeta
@@ -886,25 +887,6 @@ async function getElectronFetch(proxy: NetworkProxySettings): Promise<
   } catch {
     return null
   }
-}
-
-function getElectronProxyRules(proxy: NetworkProxySettings): string {
-  if (!proxy.enabled) {
-    return 'direct://'
-  }
-
-  if (proxy.protocol === 'socks5') {
-    return `socks5://${proxy.host}:${proxy.port}`
-  }
-
-  return `http=${proxy.host}:${proxy.port};https=${proxy.host}:${proxy.port}`
-}
-
-function getHttpProxyUrl(proxy: NetworkProxySettings): string | null {
-  if (!proxy.enabled || proxy.protocol !== 'http') {
-    return null
-  }
-  return `http://${proxy.host}:${proxy.port}`
 }
 
 function formatErrorCause(error: unknown): string {
