@@ -4,6 +4,10 @@
 
 ## Unreleased / 0.1.4
 
+### Build
+
+- 发版成功后自动在 `dev` 分支准备下一开发版本，`master` 保持已发布版本不变。
+
 ### Docs
 
 - 新增 Codex 项目工程接入方案文档、中文仓库级 `AGENTS.md` 指令和本地 Codex 任务模板。
