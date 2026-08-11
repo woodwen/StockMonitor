@@ -7,6 +7,7 @@ import type {
   StockQuery,
   StockTimeshareDataset,
   StockTimeshareQuery,
+  TimeshareIndicatorSettingsMap,
   WorkspaceViewMode
 } from '../renderer/features/stock-workspace/models/stock-types'
 
@@ -30,6 +31,7 @@ export interface WorkspaceSettings {
   timeshareSourceId?: StockQuery['sourceId']
   viewMode?: WorkspaceViewMode
   indicatorSettings?: IndicatorSettingsMap
+  timeshareIndicatorSettings?: TimeshareIndicatorSettingsMap
   enabledIndicators?: Partial<Record<IndicatorName, boolean>>
 }
 

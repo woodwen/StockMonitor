@@ -19,6 +19,30 @@ export interface IndicatorSettings {
 
 export type IndicatorSettingsMap = Record<IndicatorName, IndicatorSettings>
 
+export type TimeshareIndicatorName =
+  | 'avgPriceLine'
+  | 'previousCloseLine'
+  | 'volume'
+  | 'ma'
+  | 'ema'
+  | 'boll'
+  | 'bsSignal'
+  | 'volumeMa'
+  | 'macd'
+  | 'rsi'
+
+export type TimeshareIndicatorPane = 'base' | 'main' | 'signal' | 'volume' | 'sub'
+
+export interface TimeshareIndicatorSettings {
+  enabled: boolean
+  params: number[]
+}
+
+export type TimeshareIndicatorSettingsMap = Record<
+  TimeshareIndicatorName,
+  TimeshareIndicatorSettings
+>
+
 export type StockSourceId = 'eastmoney' | 'sina' | 'netease163' | 'tencent'
 
 export type StockAdjust = 'none' | 'qfq' | 'hfq'
@@ -109,6 +133,31 @@ export type SignalSide = 'buy' | 'sell'
 export interface BsSignal {
   side: SignalSide
   value: number
+}
+
+export interface TimeshareMacdValue {
+  dif: number
+  dea: number
+  macd: number
+}
+
+export interface TimeshareIndicatorValues {
+  ma?: Record<string, number | undefined>
+  ema?: Record<string, number | undefined>
+  boll?: BollValue
+  bsSignal?: BsSignal
+  volumeMa?: Record<string, number | undefined>
+  macd?: TimeshareMacdValue
+  rsi?: Record<string, number | undefined>
+}
+
+export interface EnrichedStockTimesharePoint extends StockTimesharePoint {
+  indicators: TimeshareIndicatorValues
+}
+
+export interface EnrichedStockTimeshareDataset extends Omit<StockTimeshareDataset, 'points'> {
+  points: EnrichedStockTimesharePoint[]
+  indicatorSettings: TimeshareIndicatorSettingsMap
 }
 
 export interface EnrichedStockCandle extends StockCandle {

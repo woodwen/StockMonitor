@@ -2,6 +2,7 @@ import { makeAutoObservable, runInAction } from 'mobx'
 import type { NetworkProxySettings, WorkspaceSettings } from '../../../../preload/stock-api'
 import { enrichStockDataset, getLatestCandle } from '../models/indicator-engine'
 import { cloneIndicatorSettings } from '../models/indicator-definitions'
+import { cloneTimeshareIndicatorSettings } from '../models/timeshare-indicator-definitions'
 import type {
   IndicatorName,
   StockAdjust,
@@ -253,14 +254,28 @@ export class StockWorkspaceViewModel {
   }
 
   openIndicatorDialog(): void {
+    if (this.viewMode === 'timeshare') {
+      this.timeshare.openIndicatorDialog()
+      return
+    }
     this.chart.openIndicatorDialog()
   }
 
   closeIndicatorDialog(): void {
+    if (this.viewMode === 'timeshare') {
+      this.timeshare.closeIndicatorDialog()
+      return
+    }
     this.chart.closeIndicatorDialog()
   }
 
   applyIndicatorSettingsDraft(): void {
+    if (this.viewMode === 'timeshare') {
+      if (this.timeshare.applyIndicatorDraft()) {
+        this.saveWorkspaceSettingsNow()
+      }
+      return
+    }
     if (!this.chart.applyIndicatorDraft()) {
       return
     }
@@ -481,6 +496,7 @@ export class StockWorkspaceViewModel {
           settings.workspace.indicatorSettings,
           settings.workspace.enabledIndicators
         )
+        this.timeshare.setIndicatorSettings(settings.workspace.timeshareIndicatorSettings)
       })
     } catch (error) {
       console.warn('Failed to load workspace settings', error)
@@ -678,7 +694,8 @@ export class StockWorkspaceViewModel {
       viewMode: this.viewMode,
       timeshareSourceId: this.timeshareSourceId,
       query: this.normalizeQueryForSource(this.query),
-      indicatorSettings: cloneIndicatorSettings(this.chart.indicatorSettings)
+      indicatorSettings: cloneIndicatorSettings(this.chart.indicatorSettings),
+      timeshareIndicatorSettings: cloneTimeshareIndicatorSettings(this.timeshare.indicatorSettings)
     }
   }
 
