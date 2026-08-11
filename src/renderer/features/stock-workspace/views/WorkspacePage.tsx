@@ -2,6 +2,7 @@ import { Alert, Layout } from 'antd'
 import { observer } from 'mobx-react-lite'
 import type { RootViewModel } from '../../../app/RootViewModel'
 import { UpdateStatusView } from '../../app-update/views/UpdateStatusView'
+import { UserManualModal } from '../../help/views/UserManualModal'
 import { DataSourceStatusModal } from './DataSourceStatusModal'
 import { IndicatorSettingsModal } from './IndicatorSettingsModal'
 import { KLineChartView } from './KLineChartView'
@@ -45,6 +46,7 @@ export const WorkspacePage = observer(({ root }: WorkspacePageProps) => {
       <DataSourceStatusModal stock={stock} />
       <NetworkProxyModal stock={stock} />
       <UpdateStatusView viewModel={root.appUpdate} />
+      <UserManualModal open={root.isUserManualOpen} onClose={root.closeUserManual} />
     </Layout>
   )
 })

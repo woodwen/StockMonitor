@@ -7,6 +7,7 @@ import type { MenuCommand } from '../../preload/stock-api'
 export class RootViewModel {
   readonly stockWorkspace = new StockWorkspaceViewModel(new ElectronStockDataAdapter())
   readonly appUpdate = new AppUpdateViewModel()
+  isUserManualOpen = false
   private removeMenuListener?: () => void
 
   constructor() {
@@ -24,11 +25,21 @@ export class RootViewModel {
     this.appUpdate.dispose()
   }
 
+  openUserManual(): void {
+    this.isUserManualOpen = true
+  }
+
+  closeUserManual(): void {
+    this.isUserManualOpen = false
+  }
+
   private handleMenuCommand(command: MenuCommand): void {
     if (command === 'refresh-stock') {
       this.stockWorkspace.refreshStock()
     } else if (command === 'check-update') {
       this.appUpdate.checkForUpdates()
+    } else if (command === 'open-user-manual') {
+      this.openUserManual()
     }
   }
 }
