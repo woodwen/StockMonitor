@@ -125,6 +125,7 @@ jobs:
           retention-days: 7
           path: |
             release/*.dmg
+            release/*.zip
             release/*.exe
             release/*.AppImage
             release/*.yml

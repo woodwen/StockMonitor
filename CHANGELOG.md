@@ -2,7 +2,25 @@
 
 本文件记录每个版本的主要更新内容。版本日期以对应 Git tag 的合并时间为准。
 
-## Unreleased / 0.1.2
+## Unreleased / 0.1.3
+
+### Fixed
+
+- 修复 macOS 自动更新元数据缺少 ZIP 产物导致更新检查失败的问题。
+- 优化更新失败弹窗文案，避免直接向用户展示 updater 内部 JSON。
+
+### Build
+
+- macOS 打包目标新增 `zip`，保留 `dmg` 用于手动安装。
+- 固定安装包产物命名模板，避免 GitHub Release asset 名与更新元数据 URL 不一致。
+- Release workflow 上传 macOS ZIP 产物，保证 `latest-mac.yml` 可被 `electron-updater` 使用。
+
+### Docs
+
+- 新增 macOS 自动更新 ZIP 产物修复方案文档。
+- 更新 README 中的 macOS 打包说明。
+
+## v0.1.2 - 2026-08-11
 
 ### Added
 
