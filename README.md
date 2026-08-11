@@ -349,6 +349,7 @@ K 线和分时使用独立指标配置。K 线配置保存在 `workspace.indicat
 - 发布源：GitHub Releases
 - 发布地址：`https://github.com/woodwen/StockMonitor/releases`
 - 更新元数据：由 `electron-builder` 随桌面安装包生成，并作为 Release assets 上传
+- macOS 自动更新需要同时上传 `dmg` 和 `zip`，其中 `zip` 供 `electron-updater` 安装更新使用
 - 启动后延迟 5 秒检查更新
 - 菜单入口：`帮助 -> 检查更新`
 - 工具栏入口：`检查更新`
@@ -363,7 +364,7 @@ K 线和分时使用独立指标配置。K 线配置保存在 `workspace.indicat
 
 `package.json` 中已配置：
 
-- macOS：`dmg`
+- macOS：`dmg` + `zip`，`zip` 用于自动更新
 - Windows：`nsis`
 - Linux：`AppImage`
 - 应用 ID：`com.stockmonitor.desktop`

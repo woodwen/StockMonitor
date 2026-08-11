@@ -6,6 +6,10 @@ import { logger } from './logger'
 
 const { autoUpdater } = electronUpdater
 
+type UpdateError = Error & {
+  code?: string
+}
+
 let mainWindow: BrowserWindow | null = null
 
 export function configureUpdateManager(window: BrowserWindow): void {
@@ -47,7 +51,7 @@ export function configureUpdateManager(window: BrowserWindow): void {
 
   autoUpdater.on('error', (error) => {
     logger.error('Update error', error)
-    sendUpdateEvent({ type: 'error', message: error.message })
+    sendUpdateEvent({ type: 'error', message: getUserFacingUpdateErrorMessage(error) })
   })
 }
 
@@ -82,4 +86,15 @@ export function quitAndInstallUpdate(): void {
 
 function sendUpdateEvent(event: AppUpdateEvent): void {
   mainWindow?.webContents.send('update:event', event)
+}
+
+function getUserFacingUpdateErrorMessage(error: UpdateError): string {
+  if (
+    error.code === 'ERR_UPDATER_ZIP_FILE_NOT_FOUND' ||
+    error.message.includes('ZIP file not provided')
+  ) {
+    return '更新包不完整，请下载最新版安装包或稍后再试'
+  }
+
+  return error.message || '更新检查失败，请稍后再试'
 }

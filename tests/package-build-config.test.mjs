@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 
 const packageJson = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
+const releaseWorkflow = readFileSync(new URL('../.github/workflows/release.yml', import.meta.url), 'utf8')
 const appImageSafePathPattern = /^[\p{L}\p{N}._\- ]+$/u
 
 describe('package build config', () => {
@@ -40,5 +41,17 @@ describe('package build config', () => {
         releaseType: 'release'
       }
     ])
+  })
+
+  it('builds the macOS ZIP required by electron-updater', () => {
+    expect(packageJson.build.artifactName).toBe('Stock-Monitor-${version}-${arch}.${ext}')
+    expect(packageJson.build.mac.target).toEqual(expect.arrayContaining(['dmg', 'zip']))
+  })
+
+  it('uploads macOS ZIP artifacts for GitHub Releases', () => {
+    expect(releaseWorkflow).toContain('release/*.dmg')
+    expect(releaseWorkflow).toContain('release/*.zip')
+    expect(releaseWorkflow).toContain('release/*.yml')
+    expect(releaseWorkflow).toContain('release/*.blockmap')
   })
 })
