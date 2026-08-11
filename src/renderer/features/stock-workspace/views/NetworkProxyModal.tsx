@@ -33,7 +33,7 @@ export const NetworkProxyModal = observer(({ stock }: NetworkProxyModalProps) =>
           type="info"
           showIcon
           message="默认直连"
-          description="未启用代理时，行情请求不会读取 HTTP_PROXY、HTTPS_PROXY 或 ALL_PROXY 环境变量。"
+          description="启用后，行情请求和更新检查都会使用该代理；未启用时应用内请求默认直连，不读取 HTTP_PROXY、HTTPS_PROXY 或 ALL_PROXY 环境变量。"
         />
 
         <div className="proxy-row">

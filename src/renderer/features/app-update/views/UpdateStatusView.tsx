@@ -1,4 +1,4 @@
-import { Modal, Progress } from 'antd'
+import { Button, Modal, Progress } from 'antd'
 import { observer } from 'mobx-react-lite'
 import type { AppUpdateViewModel } from '../view-models/AppUpdateViewModel'
 
@@ -25,9 +25,19 @@ export const UpdateStatusView = observer(({ viewModel }: UpdateStatusViewProps) 
 
       <Modal
         title="正在下载更新"
-        open={state.status === 'downloading'}
-        footer={null}
-        closable={false}
+        open={state.status === 'downloading' && viewModel.isDownloadDialogVisible}
+        okText="后台下载"
+        cancelText="取消下载"
+        onOk={viewModel.downloadInBackground}
+        onCancel={viewModel.downloadInBackground}
+        footer={[
+          <Button key="cancel" danger onClick={viewModel.cancelDownload}>
+            取消下载
+          </Button>,
+          <Button key="background" type="primary" onClick={viewModel.downloadInBackground}>
+            后台下载
+          </Button>
+        ]}
       >
         <Progress percent={progress} status="active" />
       </Modal>

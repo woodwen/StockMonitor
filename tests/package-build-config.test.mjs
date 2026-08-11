@@ -54,4 +54,14 @@ describe('package build config', () => {
     expect(releaseWorkflow).toContain('release/*.yml')
     expect(releaseWorkflow).toContain('release/*.blockmap')
   })
+
+  it('prepares the next dev version after a successful release', () => {
+    expect(releaseWorkflow).toContain('bump-dev-version:')
+    expect(releaseWorkflow).toContain('ref: dev')
+    expect(releaseWorkflow).toContain(
+      'node scripts/prepare-next-dev-version.mjs --released-version "$RELEASED_VERSION"'
+    )
+    expect(releaseWorkflow).toContain('git push origin HEAD:dev')
+    expect(releaseWorkflow).toContain('[skip release] [skip ci]')
+  })
 })

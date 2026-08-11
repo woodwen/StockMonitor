@@ -47,6 +47,7 @@ export interface StockApi {
   setWorkspaceSettings(workspace: WorkspaceSettings): Promise<AppSettings>
   checkForUpdates(): Promise<void>
   downloadUpdate(): Promise<void>
+  cancelUpdateDownload(): Promise<void>
   quitAndInstallUpdate(): Promise<void>
   onUpdateEvent(callback: (event: AppUpdateEvent) => void): () => void
   onMenuCommand(callback: (command: MenuCommand) => void): () => void

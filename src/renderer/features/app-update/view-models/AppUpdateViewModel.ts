@@ -8,6 +8,7 @@ export class AppUpdateViewModel {
   state: AppUpdateState = {
     status: 'idle'
   }
+  isDownloadDialogVisible = true
   settings: AppSettings = createDefaultAppSettings()
   private removeUpdateListener?: () => void
 
@@ -33,7 +34,39 @@ export class AppUpdateViewModel {
   }
 
   async downloadUpdate(): Promise<void> {
-    await this.stockApi.downloadUpdate()
+    this.isDownloadDialogVisible = true
+    this.state = {
+      status: 'downloading',
+      message: '正在下载更新...',
+      progress: createEmptyProgress()
+    }
+
+    try {
+      await this.stockApi.downloadUpdate()
+    } catch (error) {
+      runInAction(() => {
+        this.isDownloadDialogVisible = true
+        this.state = {
+          status: 'error',
+          message: error instanceof Error ? error.message : '下载更新失败，请稍后再试'
+        }
+      })
+    }
+  }
+
+  async cancelDownload(): Promise<void> {
+    try {
+      await this.stockApi.cancelUpdateDownload()
+    } finally {
+      runInAction(() => {
+        this.isDownloadDialogVisible = true
+        this.state = { status: 'idle' }
+      })
+    }
+  }
+
+  downloadInBackground(): void {
+    this.isDownloadDialogVisible = false
   }
 
   async quitAndInstall(): Promise<void> {
@@ -58,6 +91,7 @@ export class AppUpdateViewModel {
           this.state = { status: 'checking', message: '正在检查更新...' }
           break
         case 'available':
+          this.isDownloadDialogVisible = true
           this.state = {
             status: 'available',
             version: event.version,
@@ -72,6 +106,9 @@ export class AppUpdateViewModel {
           }
           break
         case 'progress':
+          if (this.state.status !== 'downloading') {
+            this.isDownloadDialogVisible = true
+          }
           this.state = {
             status: 'downloading',
             message: '正在下载更新...',
@@ -79,13 +116,19 @@ export class AppUpdateViewModel {
           }
           break
         case 'downloaded':
+          this.isDownloadDialogVisible = true
           this.state = {
             status: 'downloaded',
             version: event.version,
             message: `版本 ${event.version} 已下载`
           }
           break
+        case 'cancelled':
+          this.isDownloadDialogVisible = true
+          this.state = { status: 'idle' }
+          break
         case 'error':
+          this.isDownloadDialogVisible = true
           this.state = {
             status: 'error',
             message: event.message
@@ -93,6 +136,15 @@ export class AppUpdateViewModel {
           break
       }
     })
+  }
+}
+
+function createEmptyProgress() {
+  return {
+    percent: 0,
+    transferred: 0,
+    total: 0,
+    bytesPerSecond: 0
   }
 }
 

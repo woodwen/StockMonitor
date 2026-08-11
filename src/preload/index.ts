@@ -13,6 +13,7 @@ const stockApi: StockApi = {
   setWorkspaceSettings: (workspace) => ipcRenderer.invoke('settings:setWorkspaceSettings', workspace),
   checkForUpdates: () => ipcRenderer.invoke('update:check'),
   downloadUpdate: () => ipcRenderer.invoke('update:download'),
+  cancelUpdateDownload: () => ipcRenderer.invoke('update:cancelDownload'),
   quitAndInstallUpdate: () => ipcRenderer.invoke('update:quitAndInstall'),
   onUpdateEvent: (callback) => {
     const listener = (_event: Electron.IpcRendererEvent, payload: AppUpdateEvent): void => {
