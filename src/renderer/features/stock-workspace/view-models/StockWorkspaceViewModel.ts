@@ -11,8 +11,19 @@ import type {
   StockQuery,
   StockSourceId,
   StockTimeshareQuery,
+  WatchlistItem,
+  WatchlistParseResult,
   WorkspaceViewMode
 } from '../models/stock-types'
+import {
+  addWatchlistItems,
+  createWatchlistItem,
+  normalizeWatchlist,
+  normalizeWatchlistName,
+  normalizeWatchlistSymbol,
+  parseWatchlistText,
+  removeWatchlistSymbols
+} from '../models/watchlist'
 import type { StockDataAdapter } from '../adapters/ElectronStockDataAdapter'
 import { KLineChartViewModel } from './KLineChartViewModel'
 import { TimeshareChartViewModel } from './TimeshareChartViewModel'
@@ -53,6 +64,13 @@ export class StockWorkspaceViewModel {
   status: RemoteLoadStatus = 'idle'
   initialized = false
   error = ''
+  watchlist: WatchlistItem[] = []
+  watchlistOpen = false
+  watchlistManageMode = false
+  selectedWatchlistSymbols: string[] = []
+  watchlistAddText = ''
+  watchlistAddPreview: WatchlistParseResult = createEmptyWatchlistParseResult()
+  watchlistPasteError = ''
   private workspaceSaveTimer?: ReturnType<typeof setTimeout>
   private timeshareRefreshTimer?: ReturnType<typeof setTimeout>
   private timeshareRequestId = 0
@@ -129,12 +147,17 @@ export class StockWorkspaceViewModel {
   private async loadQuery(query: StockQuery): Promise<void> {
     const dataset = await this.dataAdapter.fetchStockDataset(query)
     const enriched = enrichStockDataset(dataset, this.chart.indicatorSettings)
+    let shouldSaveWatchlist = false
     runInAction(() => {
       this.query = query
       this.chart.setDataset(enriched)
       this.status = 'success'
       this.error = ''
+      shouldSaveWatchlist = this.updateWatchlistItemName(query.symbol, dataset.meta.name)
     })
+    if (shouldSaveWatchlist) {
+      this.saveWorkspaceSettingsNow()
+    }
   }
 
   private async refreshTimeshare(options: { silent?: boolean } = {}): Promise<void> {
@@ -152,6 +175,7 @@ export class StockWorkspaceViewModel {
       if (requestId !== this.timeshareRequestId) {
         return
       }
+      let shouldSaveWatchlist = false
       runInAction(() => {
         this.query = {
           ...this.query,
@@ -160,7 +184,11 @@ export class StockWorkspaceViewModel {
         this.timeshare.setDataset(dataset)
         this.status = 'success'
         this.error = ''
+        shouldSaveWatchlist = this.updateWatchlistItemName(query.symbol, dataset.meta.name)
       })
+      if (shouldSaveWatchlist) {
+        this.saveWorkspaceSettingsNow()
+      }
       this.scheduleTimeshareAutoRefresh()
     } catch (error) {
       if (requestId !== this.timeshareRequestId) {
@@ -242,6 +270,128 @@ export class StockWorkspaceViewModel {
       endDate: normalizeDateInput(endDate)
     }
     this.queueWorkspaceSettingsSave()
+  }
+
+  toggleWatchlistOpen(): void {
+    this.watchlistOpen = !this.watchlistOpen
+    if (!this.watchlistOpen) {
+      this.exitWatchlistManageMode()
+    }
+  }
+
+  setWatchlistAddText(text: string): void {
+    this.watchlistAddText = text
+    this.watchlistPasteError = ''
+    this.previewWatchlistAdditions()
+  }
+
+  appendWatchlistAddText(text: string): void {
+    const content = text.trim()
+    if (!content) {
+      this.watchlistPasteError = '剪切板没有可添加的文本'
+      return
+    }
+
+    const current = this.watchlistAddText.trimEnd()
+    this.watchlistAddText = current ? `${current}\n${content}` : content
+    this.watchlistPasteError = ''
+    this.previewWatchlistAdditions()
+  }
+
+  setWatchlistPasteError(message: string): void {
+    this.watchlistPasteError = message
+  }
+
+  previewWatchlistAdditions(): void {
+    this.watchlistAddPreview = parseWatchlistText(this.watchlistAddText, this.watchlist)
+  }
+
+  confirmWatchlistAdditions(): void {
+    const preview = parseWatchlistText(this.watchlistAddText, this.watchlist)
+    const additions = preview.previews
+      .filter((item) => item.status === 'ready' && item.item)
+      .map((item) => item.item as WatchlistItem)
+
+    this.watchlistAddPreview = preview
+    if (additions.length === 0) {
+      return
+    }
+
+    this.watchlist = addWatchlistItems(this.watchlist, additions)
+    this.watchlistAddText = ''
+    this.watchlistAddPreview = createEmptyWatchlistParseResult()
+    this.saveWorkspaceSettingsNow()
+  }
+
+  addCurrentToWatchlist(): void {
+    const item = createWatchlistItem(this.query.symbol, this.currentStockName)
+    if (!item) {
+      return
+    }
+    const next = addWatchlistItems(this.watchlist, [item])
+    if (next.length === this.watchlist.length) {
+      return
+    }
+    this.watchlist = next
+    this.saveWorkspaceSettingsNow()
+  }
+
+  async selectWatchlistItem(symbol: string): Promise<void> {
+    const normalizedSymbol = normalizeWatchlistSymbol(symbol)
+    if (!normalizedSymbol) {
+      return
+    }
+    this.query = {
+      ...this.query,
+      symbol: normalizedSymbol
+    }
+    this.error = ''
+    this.sourceTestResults = []
+    this.saveWorkspaceSettingsNow()
+    await this.refreshStock()
+  }
+
+  toggleWatchlistManageMode(): void {
+    this.watchlistManageMode = !this.watchlistManageMode
+    this.selectedWatchlistSymbols = []
+  }
+
+  toggleWatchlistSelection(symbol: string, selected: boolean): void {
+    const normalizedSymbol = normalizeWatchlistSymbol(symbol)
+    if (!normalizedSymbol) {
+      return
+    }
+
+    if (selected) {
+      if (!this.selectedWatchlistSymbols.includes(normalizedSymbol)) {
+        this.selectedWatchlistSymbols = [...this.selectedWatchlistSymbols, normalizedSymbol]
+      }
+      return
+    }
+
+    this.selectedWatchlistSymbols = this.selectedWatchlistSymbols.filter(
+      (item) => item !== normalizedSymbol
+    )
+  }
+
+  selectAllWatchlistItems(): void {
+    this.selectedWatchlistSymbols = this.watchlist.map((item) => item.symbol)
+  }
+
+  invertWatchlistSelection(): void {
+    const selected = new Set(this.selectedWatchlistSymbols)
+    this.selectedWatchlistSymbols = this.watchlist
+      .map((item) => item.symbol)
+      .filter((symbol) => !selected.has(symbol))
+  }
+
+  removeSelectedWatchlistItems(): void {
+    if (this.selectedWatchlistSymbols.length === 0) {
+      return
+    }
+    this.watchlist = removeWatchlistSymbols(this.watchlist, this.selectedWatchlistSymbols)
+    this.exitWatchlistManageMode()
+    this.saveWorkspaceSettingsNow()
   }
 
   toggleIndicator(name: IndicatorName, enabled: boolean): void {
@@ -462,6 +612,33 @@ export class StockWorkspaceViewModel {
     return this.chart.dataset?.candles.length ?? 0
   }
 
+  get normalizedCurrentSymbol(): string {
+    return normalizeWatchlistSymbol(this.query.symbol) ?? this.query.symbol.trim().toLowerCase()
+  }
+
+  get isCurrentSymbolWatched(): boolean {
+    const symbol = normalizeWatchlistSymbol(this.query.symbol)
+    return Boolean(symbol && this.watchlist.some((item) => item.symbol === symbol))
+  }
+
+  get selectedWatchlistCount(): number {
+    return this.selectedWatchlistSymbols.length
+  }
+
+  get canAddWatchlistPreview(): boolean {
+    return this.watchlistAddPreview.previews.some((item) => item.status === 'ready')
+  }
+
+  get canDeleteSelectedWatchlistItems(): boolean {
+    return this.selectedWatchlistSymbols.length > 0
+  }
+
+  get currentStockName(): string {
+    const dataset = this.viewMode === 'timeshare' ? this.timeshare.dataset : this.chart.dataset
+    const name = normalizeWatchlistName(dataset?.meta.name)
+    return name || this.normalizedCurrentSymbol
+  }
+
   canUseSourceForCurrentMode(sourceId: StockSourceId): boolean {
     if (this.viewMode === 'kline') {
       return true
@@ -497,6 +674,8 @@ export class StockWorkspaceViewModel {
           settings.workspace.enabledIndicators
         )
         this.timeshare.setIndicatorSettings(settings.workspace.timeshareIndicatorSettings)
+        this.watchlist = normalizeWatchlist(settings.workspace.watchlist)
+        this.watchlistAddPreview = parseWatchlistText(this.watchlistAddText, this.watchlist)
       })
     } catch (error) {
       console.warn('Failed to load workspace settings', error)
@@ -695,7 +874,8 @@ export class StockWorkspaceViewModel {
       timeshareSourceId: this.timeshareSourceId,
       query: this.normalizeQueryForSource(this.query),
       indicatorSettings: cloneIndicatorSettings(this.chart.indicatorSettings),
-      timeshareIndicatorSettings: cloneTimeshareIndicatorSettings(this.timeshare.indicatorSettings)
+      timeshareIndicatorSettings: cloneTimeshareIndicatorSettings(this.timeshare.indicatorSettings),
+      watchlist: normalizeWatchlist(this.watchlist)
     }
   }
 
@@ -704,6 +884,33 @@ export class StockWorkspaceViewModel {
       return
     }
     this.chart.setDataset(enrichStockDataset(this.chart.dataset, this.chart.indicatorSettings))
+  }
+
+  private exitWatchlistManageMode(): void {
+    this.watchlistManageMode = false
+    this.selectedWatchlistSymbols = []
+  }
+
+  private updateWatchlistItemName(symbol: string, name: string): boolean {
+    const normalizedSymbol = normalizeWatchlistSymbol(symbol)
+    const normalizedName = normalizeWatchlistName(name)
+    if (!normalizedSymbol || !normalizedName) {
+      return false
+    }
+
+    let changed = false
+    this.watchlist = this.watchlist.map((item) => {
+      if (item.symbol !== normalizedSymbol || (item.name && item.name !== item.symbol)) {
+        return item
+      }
+      changed = true
+      return {
+        ...item,
+        name: normalizedName,
+        updatedAt: Date.now()
+      }
+    })
+    return changed
   }
 }
 
@@ -776,6 +983,15 @@ function normalizeDateInput(value: string): string {
 
 function normalizeWorkspaceViewMode(value: WorkspaceSettings['viewMode']): WorkspaceViewMode {
   return value === 'kline' ? 'kline' : 'timeshare'
+}
+
+function createEmptyWatchlistParseResult(): WatchlistParseResult {
+  return {
+    previews: [],
+    totalLineCount: 0,
+    parsedLineCount: 0,
+    truncated: false
+  }
 }
 
 function periodLabel(period: StockPeriod): string {

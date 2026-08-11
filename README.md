@@ -2,7 +2,7 @@
 
 Stock Monitor 是一个跨平台行情桌面应用，用 Electron + React + MobX MVVM 实现远端行情查询、多源切换、当日分时和 K 线展示。
 
-当前默认进入分时视图，默认分时数据源为东方财富；K 线数据源和分时数据源已经拆分保存，用户可以分别在对应视图下切换东方财富、腾讯/QQ 财经、新浪财经、网易财经 163 的可用能力，并可在应用内检测数据源状态、配置网络代理和管理图表指标。
+当前默认进入分时视图，默认分时数据源为东方财富；K 线数据源和分时数据源已经拆分保存，用户可以分别在对应视图下切换东方财富、腾讯/QQ 财经、新浪财经、网易财经 163 的可用能力，并可在应用内检测数据源状态、配置网络代理、管理图表指标和维护本地自选股。
 
 ## 免责声明
 
@@ -56,7 +56,8 @@ yarn dev
     endDate: 'YYYYMMDD' // 启动日
   },
   indicatorSettings: createDefaultIndicatorSettings(), // K 线：BOLL、VOL、B/S 默认开启
-  timeshareIndicatorSettings: createDefaultTimeshareIndicatorSettings() // 分时：基础显示默认开启，新增指标默认关闭
+  timeshareIndicatorSettings: createDefaultTimeshareIndicatorSettings(), // 分时：基础显示默认开启，新增指标默认关闭
+  watchlist: []
 }
 ```
 
@@ -81,6 +82,7 @@ yarn dist        # 构建安装包
 - 分时刷新：分时视图在窗口可见且处于 A 股交易时段时每 15 秒自动静默刷新；K 线仍由用户手动刷新
 - 首次加载：K 线首次加载支持跨源 fallback；分时不做跨源自动 fallback，东方财富分时会在同一数据源内从 `push2.eastmoney.com` fallback 到 `push2delay.eastmoney.com`
 - 数据源管理：弹窗按当前视图测试数据源请求状态、耗时和返回记录数，并展示分时能力；分时视图只允许切换到支持分时的数据源
+- 自选股：顶部 `自选` 入口打开左侧自选股栏，支持单只/批量添加、剪切板粘贴、管理模式删除所选、点击切换和本地持久化
 - 周期：日线、周线、月线、5/15/30/60 分钟
 - 复权：不复权、前复权、后复权；不支持复权的数据源会自动收敛到不复权
 - K 线主图：K 线、BOLL、MA、EMA、B/S 信号
@@ -89,7 +91,7 @@ yarn dist        # 构建安装包
 - 分时成交量区：成交量柱、VOL MA
 - 分时副图：MACD、RSI，最多同时开启 2 个副图指标
 - 交互：缩放、拖拽、十字线、tooltip
-- 顶部工具栏：证券代码、分时/K线、周期、复权、日期范围、刷新、数据源、代理、指标、检查更新、启动检查更新开关；分时视图隐藏 K 线专属控件
+- 顶部工具栏：证券代码、自选、分时/K线、周期、复权、日期范围、刷新、数据源、代理、指标、检查更新、启动检查更新开关；分时视图隐藏 K 线专属控件
 - 状态栏：当前视图的数据源、证券代码、记录数或分时点数、最新行情、加载状态、更新状态
 - 本地持久化：查询条件、指标开关与参数、网络代理、启动检查更新配置会保存到 `electron-store`
 
@@ -337,6 +339,7 @@ K 线和分时使用独立指标配置。K 线配置保存在 `workspace.indicat
 - `workspace.query`：K 线数据源、证券代码、周期、复权和日期范围
 - `workspace.indicatorSettings`：K 线指标开关和参数
 - `workspace.timeshareIndicatorSettings`：分时指标开关和参数
+- `workspace.watchlist`：本地自选股列表，包含证券代码、名称和创建时间
 
 网络代理默认关闭，关闭时行情请求不读取 `HTTP_PROXY`、`HTTPS_PROXY` 或 `ALL_PROXY` 环境变量。代理支持 `SOCKS5` 和 `HTTP`，默认草稿配置为 `127.0.0.1:7890`。
 

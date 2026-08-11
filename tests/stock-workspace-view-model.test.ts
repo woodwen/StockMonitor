@@ -73,9 +73,15 @@ class FakeDataAdapter implements StockDataAdapter {
     if (this.failingSourceIds.includes(query.sourceId)) {
       throw new Error(`${query.sourceId} failed`)
     }
+    const dataset = createSampleStockDataset()
 
     return {
-      ...createSampleStockDataset(),
+      ...dataset,
+      meta: {
+        ...dataset.meta,
+        symbol: query.symbol,
+        name: stockNameBySymbol[query.symbol] ?? dataset.meta.name
+      },
       sourceId: query.sourceId,
       sourceName: sourceNameById[query.sourceId],
       adjust: query.adjust
@@ -92,7 +98,7 @@ class FakeDataAdapter implements StockDataAdapter {
       meta: {
         lineType: '分时',
         symbol: query.symbol,
-        name: '上证指数'
+        name: stockNameBySymbol[query.symbol] ?? '上证指数'
       },
       previousClose: 10,
       points: [
@@ -146,6 +152,13 @@ const sourceNameById: Record<StockQuery['sourceId'], string> = {
   sina: '新浪财经',
   netease163: '网易财经 163',
   tencent: '腾讯/QQ 财经'
+}
+
+const stockNameBySymbol: Record<string, string> = {
+  sh000001: '上证指数',
+  sh600519: '贵州茅台',
+  sz000001: '平安银行',
+  sz000002: '万科A'
 }
 
 afterEach(() => {
@@ -247,6 +260,30 @@ describe('StockWorkspaceViewModel', () => {
     expect(viewModel.chart.indicatorSettings.bsSignal.enabled).toBe(false)
     expect(viewModel.chart.indicatorSettings.macd.enabled).toBe(false)
     expect(viewModel.timeshareSourceId).toBe('eastmoney')
+  })
+
+  it('restores cached watchlist on startup', async () => {
+    const viewModel = new StockWorkspaceViewModel(
+      new FakeDataAdapter([], {
+        ...createDefaultSettings(),
+        workspace: {
+          ...createDefaultSettings().workspace,
+          watchlist: [
+            { symbol: 'SH600519', name: '贵州茅台', createdAt: 1 },
+            { symbol: 'xx000001', name: 'bad', createdAt: 2 },
+            { symbol: '600519', name: 'duplicate', createdAt: 3 },
+            { symbol: '000001', name: '', createdAt: 4 }
+          ]
+        }
+      })
+    )
+
+    await viewModel.initialize()
+
+    expect(viewModel.watchlist).toEqual([
+      { symbol: 'sh600519', name: '贵州茅台', createdAt: 1 },
+      { symbol: 'sz000001', name: '', createdAt: 4 }
+    ])
   })
 
   it('restores timeshare mode and loads timeshare data on startup', async () => {
@@ -558,6 +595,194 @@ describe('StockWorkspaceViewModel', () => {
     expect(adapter.savedWorkspaceSettings[0].query.symbol).toBe('sz000002')
   })
 
+  it('adds the current stock to the watchlist and saves workspace settings', async () => {
+    const adapter = new FakeDataAdapter()
+    const viewModel = new StockWorkspaceViewModel(adapter)
+
+    await viewModel.initialize()
+    viewModel.addCurrentToWatchlist()
+
+    expect(viewModel.isCurrentSymbolWatched).toBe(true)
+    expect(viewModel.watchlist[0]).toMatchObject({
+      symbol: 'sh000001',
+      name: '上证指数'
+    })
+    expect(adapter.savedWorkspaceSettings.at(-1)?.watchlist?.[0]).toMatchObject({
+      symbol: 'sh000001',
+      name: '上证指数'
+    })
+  })
+
+  it('batch adds watchlist items and skips duplicates and invalid lines', async () => {
+    const adapter = new FakeDataAdapter()
+    const viewModel = new StockWorkspaceViewModel(adapter)
+
+    await viewModel.initialize()
+    viewModel.setWatchlistAddText(['600519 贵州茅台', 'sh600519', 'sz000001 平安银行', 'bad'].join('\n'))
+    viewModel.confirmWatchlistAdditions()
+
+    expect(viewModel.watchlist.map((item) => item.symbol)).toEqual(['sh600519', 'sz000001'])
+    expect(viewModel.watchlist.map((item) => item.name)).toEqual(['贵州茅台', '平安银行'])
+    expect(viewModel.watchlistAddText).toBe('')
+    expect(adapter.savedWorkspaceSettings.at(-1)?.watchlist?.map((item) => item.symbol)).toEqual([
+      'sh600519',
+      'sz000001'
+    ])
+  })
+
+  it('appends pasted clipboard text into the batch add draft and previews it', async () => {
+    const viewModel = new StockWorkspaceViewModel(new FakeDataAdapter())
+
+    await viewModel.initialize()
+    viewModel.setWatchlistAddText('600519 贵州茅台')
+    viewModel.appendWatchlistAddText('sz000001 平安银行')
+
+    expect(viewModel.watchlistAddText).toBe('600519 贵州茅台\nsz000001 平安银行')
+    expect(viewModel.watchlistPasteError).toBe('')
+    expect(viewModel.watchlistAddPreview.previews.map((preview) => preview.symbol)).toEqual([
+      'sh600519',
+      'sz000001'
+    ])
+  })
+
+  it('shows a paste error when clipboard text is empty', async () => {
+    const viewModel = new StockWorkspaceViewModel(new FakeDataAdapter())
+
+    await viewModel.initialize()
+    viewModel.appendWatchlistAddText('   ')
+
+    expect(viewModel.watchlistAddText).toBe('')
+    expect(viewModel.watchlistPasteError).toBe('剪切板没有可添加的文本')
+  })
+
+  it('removes one selected watchlist item in manage mode without changing the active chart', async () => {
+    const adapter = new FakeDataAdapter([], {
+      ...createDefaultSettings(),
+      workspace: {
+        ...createDefaultSettings().workspace,
+        watchlist: [
+          { symbol: 'sh000001', name: '上证指数', createdAt: 1 },
+          { symbol: 'sh600519', name: '贵州茅台', createdAt: 2 }
+        ]
+      }
+    })
+    const viewModel = new StockWorkspaceViewModel(adapter)
+
+    await viewModel.initialize()
+    viewModel.toggleWatchlistManageMode()
+    viewModel.toggleWatchlistSelection('sh000001', true)
+    viewModel.removeSelectedWatchlistItems()
+
+    expect(viewModel.query.symbol).toBe('sh000001')
+    expect(viewModel.timeshare.dataset?.meta.name).toBe('上证指数')
+    expect(viewModel.watchlist.map((item) => item.symbol)).toEqual(['sh600519'])
+    expect(adapter.savedWorkspaceSettings.at(-1)?.watchlist?.map((item) => item.symbol)).toEqual([
+      'sh600519'
+    ])
+  })
+
+  it('removes selected watchlist items and exits manage mode', async () => {
+    const adapter = new FakeDataAdapter([], {
+      ...createDefaultSettings(),
+      workspace: {
+        ...createDefaultSettings().workspace,
+        watchlist: [
+          { symbol: 'sh000001', name: '上证指数', createdAt: 1 },
+          { symbol: 'sh600519', name: '贵州茅台', createdAt: 2 },
+          { symbol: 'sz000001', name: '平安银行', createdAt: 3 }
+        ]
+      }
+    })
+    const viewModel = new StockWorkspaceViewModel(adapter)
+
+    await viewModel.initialize()
+    viewModel.toggleWatchlistManageMode()
+    viewModel.toggleWatchlistSelection('sh000001', true)
+    viewModel.toggleWatchlistSelection('sz000001', true)
+    viewModel.removeSelectedWatchlistItems()
+
+    expect(viewModel.watchlistManageMode).toBe(false)
+    expect(viewModel.selectedWatchlistSymbols).toEqual([])
+    expect(viewModel.watchlist.map((item) => item.symbol)).toEqual(['sh600519'])
+  })
+
+  it('selects a watchlist item and preserves the current data source', async () => {
+    const adapter = new FakeDataAdapter([], {
+      ...createDefaultSettings(),
+      workspace: {
+        ...createDefaultSettings().workspace,
+        viewMode: 'kline',
+        query: {
+          ...createDefaultSettings().workspace.query,
+          sourceId: 'sina'
+        },
+        watchlist: [{ symbol: 'sh600519', name: '贵州茅台', createdAt: 1 }]
+      }
+    })
+    const viewModel = new StockWorkspaceViewModel(adapter)
+
+    await viewModel.initialize()
+    await viewModel.selectWatchlistItem('sh600519')
+
+    expect(viewModel.query.symbol).toBe('sh600519')
+    expect(viewModel.query.sourceId).toBe('sina')
+    expect(adapter.stockQueries.at(-1)).toMatchObject({
+      symbol: 'sh600519',
+      sourceId: 'sina'
+    })
+  })
+
+  it('backfills watchlist item names after loading stock data', async () => {
+    const adapter = new FakeDataAdapter([], {
+      ...createDefaultSettings(),
+      workspace: {
+        ...createDefaultSettings().workspace,
+        query: {
+          ...createDefaultSettings().workspace.query,
+          symbol: 'sh600519'
+        },
+        watchlist: [{ symbol: 'sh600519', name: '', createdAt: 1 }]
+      }
+    })
+    const viewModel = new StockWorkspaceViewModel(adapter)
+
+    await viewModel.initialize()
+
+    expect(viewModel.watchlist[0]).toMatchObject({
+      symbol: 'sh600519',
+      name: '贵州茅台'
+    })
+    expect(adapter.savedWorkspaceSettings.at(-1)?.watchlist?.[0]).toMatchObject({
+      symbol: 'sh600519',
+      name: '贵州茅台'
+    })
+  })
+
+  it('clears watchlist selection when closing the panel', async () => {
+    const viewModel = new StockWorkspaceViewModel(
+      new FakeDataAdapter([], {
+        ...createDefaultSettings(),
+        workspace: {
+          ...createDefaultSettings().workspace,
+          watchlist: [
+            { symbol: 'sh000001', name: '上证指数', createdAt: 1 },
+            { symbol: 'sh600519', name: '贵州茅台', createdAt: 2 }
+          ]
+        }
+      })
+    )
+
+    await viewModel.initialize()
+    viewModel.toggleWatchlistOpen()
+    viewModel.toggleWatchlistManageMode()
+    viewModel.selectAllWatchlistItems()
+    viewModel.toggleWatchlistOpen()
+
+    expect(viewModel.watchlistOpen).toBe(false)
+    expect(viewModel.watchlistManageMode).toBe(false)
+    expect(viewModel.selectedWatchlistSymbols).toEqual([])
+  })
+
   it('saves proxy settings from the workspace state', async () => {
     const viewModel = new StockWorkspaceViewModel(new FakeDataAdapter([], createKlineSettings()))
 
@@ -659,7 +884,8 @@ function createDefaultSettings(): AppSettings {
         endDate: '20260101'
       },
       indicatorSettings: createDefaultIndicatorSettings(),
-      timeshareIndicatorSettings: createDefaultTimeshareIndicatorSettings()
+      timeshareIndicatorSettings: createDefaultTimeshareIndicatorSettings(),
+      watchlist: []
     }
   }
 }

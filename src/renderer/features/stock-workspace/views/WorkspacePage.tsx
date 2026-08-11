@@ -9,6 +9,7 @@ import { NetworkProxyModal } from './NetworkProxyModal'
 import { StatusBar } from './StatusBar'
 import { TimeshareChartView } from './TimeshareChartView'
 import { TopToolbar } from './TopToolbar'
+import { WatchlistPanel } from './WatchlistPanel'
 
 interface WorkspacePageProps {
   root: RootViewModel
@@ -26,11 +27,16 @@ export const WorkspacePage = observer(({ root }: WorkspacePageProps) => {
         {stock.error ? (
           <Alert className="workspace-alert" type="error" showIcon message={stock.error} />
         ) : null}
-        {stock.viewMode === 'timeshare' ? (
-          <TimeshareChartView viewModel={stock.timeshare} loading={stock.loading} />
-        ) : (
-          <KLineChartView viewModel={stock.chart} loading={stock.loading} />
-        )}
+        <div className="workspace-main">
+          {stock.watchlistOpen ? <WatchlistPanel stock={stock} /> : null}
+          <div className="workspace-chart-area">
+            {stock.viewMode === 'timeshare' ? (
+              <TimeshareChartView viewModel={stock.timeshare} loading={stock.loading} />
+            ) : (
+              <KLineChartView viewModel={stock.chart} loading={stock.loading} />
+            )}
+          </div>
+        </div>
       </Layout.Content>
       <Layout.Footer className="workspace-footer">
         <StatusBar stock={stock} updates={root.appUpdate} />

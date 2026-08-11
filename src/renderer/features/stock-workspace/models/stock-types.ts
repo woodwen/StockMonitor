@@ -81,6 +81,32 @@ export interface StockMeta {
   name: string
 }
 
+export interface WatchlistItem {
+  symbol: string
+  name: string
+  createdAt: number
+  updatedAt?: number
+}
+
+export type WatchlistAddPreviewStatus = 'ready' | 'duplicate' | 'invalid'
+
+export interface WatchlistAddPreview {
+  lineNumber: number
+  raw: string
+  symbol: string
+  name: string
+  status: WatchlistAddPreviewStatus
+  message: string
+  item?: WatchlistItem
+}
+
+export interface WatchlistParseResult {
+  previews: WatchlistAddPreview[]
+  totalLineCount: number
+  parsedLineCount: number
+  truncated: boolean
+}
+
 export interface StockCandle {
   timeKey: string
   timestamp: number
