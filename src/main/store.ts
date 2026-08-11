@@ -15,6 +15,7 @@ import {
   createDefaultTimeshareIndicatorSettings,
   normalizeTimeshareIndicatorSettings
 } from '../renderer/features/stock-workspace/models/timeshare-indicator-definitions'
+import { normalizeWatchlist } from '../renderer/features/stock-workspace/models/watchlist'
 import { logger } from './logger'
 
 interface AppStoreSchema {
@@ -118,7 +119,8 @@ function normalizeWorkspaceSettings(workspace: Partial<WorkspaceSettings> | unde
     indicatorSettings: normalizeIndicatorSettings(workspace?.indicatorSettings, workspace?.enabledIndicators),
     timeshareIndicatorSettings: normalizeTimeshareIndicatorSettings(
       workspace?.timeshareIndicatorSettings
-    )
+    ),
+    watchlist: normalizeWatchlist(workspace?.watchlist)
   }
 }
 
@@ -150,7 +152,8 @@ function getDefaultWorkspaceSettings(): WorkspaceSettings {
       endDate: formatDateKey(endDate)
     },
     indicatorSettings: createDefaultIndicatorSettings(),
-    timeshareIndicatorSettings: createDefaultTimeshareIndicatorSettings()
+    timeshareIndicatorSettings: createDefaultTimeshareIndicatorSettings(),
+    watchlist: []
   }
 }
 

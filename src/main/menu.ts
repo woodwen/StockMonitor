@@ -34,6 +34,10 @@ export function buildApplicationMenuTemplate(
       label: '帮助',
       submenu: [
         {
+          label: '使用说明书',
+          click: () => sendCommand('open-user-manual')
+        },
+        {
           label: '检查更新',
           click: () => sendCommand('check-update')
         },

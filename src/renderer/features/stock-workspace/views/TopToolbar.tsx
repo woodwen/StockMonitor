@@ -1,5 +1,5 @@
 import { observer } from 'mobx-react-lite'
-import { Button, Divider, Input, Segmented, Select, Space, Switch, Tooltip } from 'antd'
+import { Badge, Button, Divider, Input, Segmented, Select, Space, Switch, Tooltip } from 'antd'
 import {
   ApiOutlined,
   BarChartOutlined,
@@ -7,7 +7,9 @@ import {
   GlobalOutlined,
   LineChartOutlined,
   ReloadOutlined,
-  SearchOutlined
+  SearchOutlined,
+  StarFilled,
+  StarOutlined
 } from '@ant-design/icons'
 import type { StockAdjust, StockPeriod, WorkspaceViewMode } from '../models/stock-types'
 import type { StockWorkspaceViewModel } from '../view-models/StockWorkspaceViewModel'
@@ -29,6 +31,17 @@ export const TopToolbar = observer(({ stock, updates }: TopToolbarProps) => {
           onChange={(event) => stock.setSymbol(event.target.value)}
           onPressEnter={() => stock.refreshStock()}
         />
+        <Tooltip title={stock.isCurrentSymbolWatched ? '当前股票已在自选股' : '打开自选股'}>
+          <Badge count={stock.watchlist.length} size="small" overflowCount={999}>
+            <Button
+              icon={stock.isCurrentSymbolWatched ? <StarFilled /> : <StarOutlined />}
+              type={stock.watchlistOpen ? 'primary' : 'default'}
+              onClick={stock.toggleWatchlistOpen}
+            >
+              自选
+            </Button>
+          </Badge>
+        </Tooltip>
         <Segmented<WorkspaceViewMode>
           size="small"
           value={stock.viewMode}

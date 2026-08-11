@@ -34,6 +34,20 @@ describe('application menu', () => {
     vi.clearAllMocks()
   })
 
+  it('adds a User Manual item under Help and sends the menu command', () => {
+    const template = buildApplicationMenuTemplate(windowMock as never)
+    const helpMenu = template.find((item) => item.label === '帮助')
+    const helpSubmenu = helpMenu?.submenu as Electron.MenuItemConstructorOptions[]
+    const manualItem = helpSubmenu.find((item) => item.label === '使用说明书')
+
+    expect(helpSubmenu[0]?.label).toBe('使用说明书')
+    expect(manualItem).toBeDefined()
+
+    manualItem?.click?.({} as never, windowMock as never, {} as never)
+
+    expect(windowMock.webContents.send).toHaveBeenCalledWith('menu:command', 'open-user-manual')
+  })
+
   it('adds an About item under Help with the current version', () => {
     const template = buildApplicationMenuTemplate(windowMock as never)
     const helpMenu = template.find((item) => item.label === '帮助')

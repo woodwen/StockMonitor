@@ -8,6 +8,7 @@ import type {
   StockTimeshareDataset,
   StockTimeshareQuery,
   TimeshareIndicatorSettingsMap,
+  WatchlistItem,
   WorkspaceViewMode
 } from '../renderer/features/stock-workspace/models/stock-types'
 
@@ -32,10 +33,11 @@ export interface WorkspaceSettings {
   viewMode?: WorkspaceViewMode
   indicatorSettings?: IndicatorSettingsMap
   timeshareIndicatorSettings?: TimeshareIndicatorSettingsMap
+  watchlist?: WatchlistItem[]
   enabledIndicators?: Partial<Record<IndicatorName, boolean>>
 }
 
-export type MenuCommand = 'refresh-stock' | 'check-update'
+export type MenuCommand = 'refresh-stock' | 'check-update' | 'open-user-manual'
 
 export interface StockApi {
   getStockDataSources(): Promise<StockDataSourceMeta[]>
