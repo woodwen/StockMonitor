@@ -369,6 +369,7 @@ K 线和分时使用独立指标配置。K 线配置保存在 `workspace.indicat
 - 有新版本时提示下载
 - 下载完成后提示重启安装
 - 开发环境不真实更新，只走日志和状态流
+- macOS 构建在完成 Developer ID 签名和 notarization 前不执行应用内自动安装；检查到新版本时打开 GitHub Release 下载页，由用户手动下载 DMG 安装
 
 `package.json` 的 `build.publish` 已配置为 GitHub provider：`woodwen/StockMonitor`，正式发布时仍需准备 macOS/Windows 签名。
 

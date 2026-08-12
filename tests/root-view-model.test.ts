@@ -58,6 +58,7 @@ function createFakeStockApi(): StockApi & {
       }
     }),
     onUpdateEvent: vi.fn(() => () => undefined),
+    openUpdateDownloadPage: vi.fn(async () => undefined),
     quitAndInstallUpdate: vi.fn(async () => undefined),
     setCheckUpdatesOnStartup: vi.fn(async () => settings),
     setNetworkProxy: vi.fn(async () => settings),

@@ -42,11 +42,31 @@ describe('AppUpdateViewModel', () => {
     expect(viewModel.state.status).toBe('idle')
     expect(viewModel.isDownloadDialogVisible).toBe(true)
   })
+
+  it('opens the release page for manual macOS updates', async () => {
+    const stockApi = createFakeStockApi()
+    const viewModel = new AppUpdateViewModel(stockApi)
+    await viewModel.initialize()
+
+    stockApi.emitUpdateEvent({
+      type: 'manual-download',
+      version: '0.1.6',
+      message: '请手动下载最新版'
+    })
+
+    expect(viewModel.state.status).toBe('manual-download')
+
+    await viewModel.openManualDownloadPage()
+
+    expect(stockApi.openUpdateDownloadPage).toHaveBeenCalledWith('0.1.6')
+    expect(viewModel.state.status).toBe('idle')
+  })
 })
 
 function createFakeStockApi(): StockApi & {
   cancelUpdateDownload: ReturnType<typeof vi.fn>
   emitUpdateEvent(event: AppUpdateEvent): void
+  openUpdateDownloadPage: ReturnType<typeof vi.fn>
 } {
   let updateListener: ((event: AppUpdateEvent) => void) | undefined
   const settings = createDefaultSettings()
@@ -66,6 +86,7 @@ function createFakeStockApi(): StockApi & {
         updateListener = undefined
       }
     }),
+    openUpdateDownloadPage: vi.fn(async () => undefined),
     quitAndInstallUpdate: vi.fn(async () => undefined),
     setCheckUpdatesOnStartup: vi.fn(async () => settings),
     setNetworkProxy: vi.fn(async () => settings),

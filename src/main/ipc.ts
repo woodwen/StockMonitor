@@ -9,6 +9,7 @@ import {
   cancelUpdateDownload,
   checkForUpdates,
   downloadUpdate,
+  openUpdateDownloadPage,
   quitAndInstallUpdate
 } from './update-manager'
 import { logger } from './logger'
@@ -49,5 +50,8 @@ export function registerIpcHandlers(): void {
   registerIpcHandler('update:check', () => checkForUpdates())
   registerIpcHandler('update:download', () => downloadUpdate())
   registerIpcHandler('update:cancelDownload', () => cancelUpdateDownload())
+  registerIpcHandler('update:openDownloadPage', (_event, version?: string) =>
+    openUpdateDownloadPage(version)
+  )
   registerIpcHandler('update:quitAndInstall', () => quitAndInstallUpdate())
 }

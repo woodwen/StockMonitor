@@ -156,6 +156,7 @@ export function UserManualModal({ open, onClose }: UserManualModalProps): React.
               </li>
               <li>“启动检查更新”开关控制应用启动后是否自动检查更新。</li>
               <li>有新版本时应用会提示下载；下载完成后可选择重启安装。</li>
+              <li>macOS 未签名构建会打开 GitHub Release 下载页，需要手动下载 DMG 安装。</li>
               <li>开发环境不会真实安装更新，只展示状态流。</li>
             </ul>
           </section>

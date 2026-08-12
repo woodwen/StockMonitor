@@ -14,6 +14,7 @@ const stockApi: StockApi = {
   checkForUpdates: () => ipcRenderer.invoke('update:check'),
   downloadUpdate: () => ipcRenderer.invoke('update:download'),
   cancelUpdateDownload: () => ipcRenderer.invoke('update:cancelDownload'),
+  openUpdateDownloadPage: (version) => ipcRenderer.invoke('update:openDownloadPage', version),
   quitAndInstallUpdate: () => ipcRenderer.invoke('update:quitAndInstall'),
   onUpdateEvent: (callback) => {
     const listener = (_event: Electron.IpcRendererEvent, payload: AppUpdateEvent): void => {

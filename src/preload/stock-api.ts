@@ -50,6 +50,7 @@ export interface StockApi {
   checkForUpdates(): Promise<void>
   downloadUpdate(): Promise<void>
   cancelUpdateDownload(): Promise<void>
+  openUpdateDownloadPage(version?: string): Promise<void>
   quitAndInstallUpdate(): Promise<void>
   onUpdateEvent(callback: (event: AppUpdateEvent) => void): () => void
   onMenuCommand(callback: (command: MenuCommand) => void): () => void
