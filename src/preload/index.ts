@@ -11,6 +11,8 @@ const stockApi: StockApi = {
     ipcRenderer.invoke('settings:setCheckUpdatesOnStartup', enabled),
   setNetworkProxy: (proxy) => ipcRenderer.invoke('settings:setNetworkProxy', proxy),
   setWorkspaceSettings: (workspace) => ipcRenderer.invoke('settings:setWorkspaceSettings', workspace),
+  setTradeProfitSettings: (settings) =>
+    ipcRenderer.invoke('settings:setTradeProfitSettings', settings),
   checkForUpdates: () => ipcRenderer.invoke('update:check'),
   downloadUpdate: () => ipcRenderer.invoke('update:download'),
   cancelUpdateDownload: () => ipcRenderer.invoke('update:cancelDownload'),

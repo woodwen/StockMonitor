@@ -93,6 +93,7 @@ describe('IPC handlers', () => {
     expect(() => registerIpcHandlers()).not.toThrow()
 
     expect(mocks.registeredHandlers).toContain('stock:getDataSources')
+    expect(mocks.registeredHandlers).toContain('settings:setTradeProfitSettings')
     expect(mocks.registeredHandlers).toContain('update:openDownloadPage')
   })
 })

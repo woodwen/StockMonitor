@@ -1,10 +1,21 @@
 import { ipcMain } from 'electron'
-import type { AppSettings, NetworkProxySettings, WorkspaceSettings } from '../preload/stock-api'
+import type {
+  AppSettings,
+  NetworkProxySettings,
+  WorkspaceSettings
+} from '../preload/stock-api'
+import type { TradeProfitSettings } from '../renderer/features/trade-profit-calculator/models/trade-profit'
 import type {
   StockQuery,
   StockTimeshareQuery
 } from '../renderer/features/stock-workspace/models/stock-types'
-import { getSettings, setCheckUpdatesOnStartup, setNetworkProxy, setWorkspaceSettings } from './store'
+import {
+  getSettings,
+  setCheckUpdatesOnStartup,
+  setNetworkProxy,
+  setTradeProfitSettings,
+  setWorkspaceSettings
+} from './store'
 import {
   cancelUpdateDownload,
   checkForUpdates,
@@ -47,6 +58,12 @@ export function registerIpcHandlers(): void {
   registerIpcHandler('settings:setWorkspaceSettings', (_event, workspace: WorkspaceSettings): AppSettings => {
     return setWorkspaceSettings(workspace)
   })
+  registerIpcHandler(
+    'settings:setTradeProfitSettings',
+    (_event, settings: TradeProfitSettings): AppSettings => {
+      return setTradeProfitSettings(settings)
+    }
+  )
   registerIpcHandler('update:check', () => checkForUpdates())
   registerIpcHandler('update:download', () => downloadUpdate())
   registerIpcHandler('update:cancelDownload', () => cancelUpdateDownload())

@@ -11,11 +11,13 @@ import type {
   WatchlistItem,
   WorkspaceViewMode
 } from '../renderer/features/stock-workspace/models/stock-types'
+import type { TradeProfitSettings } from '../renderer/features/trade-profit-calculator/models/trade-profit'
 
 export interface AppSettings {
   checkUpdatesOnStartup: boolean
   networkProxy: NetworkProxySettings
   workspace: WorkspaceSettings
+  tradeProfit: TradeProfitSettings
 }
 
 export type NetworkProxyProtocol = 'http' | 'socks5'
@@ -47,6 +49,7 @@ export interface StockApi {
   setCheckUpdatesOnStartup(enabled: boolean): Promise<AppSettings>
   setNetworkProxy(proxy: NetworkProxySettings): Promise<AppSettings>
   setWorkspaceSettings(workspace: WorkspaceSettings): Promise<AppSettings>
+  setTradeProfitSettings(settings: TradeProfitSettings): Promise<AppSettings>
   checkForUpdates(): Promise<void>
   downloadUpdate(): Promise<void>
   cancelUpdateDownload(): Promise<void>

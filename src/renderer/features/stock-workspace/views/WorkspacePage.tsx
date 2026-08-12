@@ -3,6 +3,7 @@ import { observer } from 'mobx-react-lite'
 import type { RootViewModel } from '../../../app/RootViewModel'
 import { UpdateStatusView } from '../../app-update/views/UpdateStatusView'
 import { UserManualModal } from '../../help/views/UserManualModal'
+import { TradeProfitCalculatorDrawer } from '../../trade-profit-calculator/views/TradeProfitCalculatorDrawer'
 import { DataSourceStatusModal } from './DataSourceStatusModal'
 import { IndicatorSettingsModal } from './IndicatorSettingsModal'
 import { KLineChartView } from './KLineChartView'
@@ -22,7 +23,11 @@ export const WorkspacePage = observer(({ root }: WorkspacePageProps) => {
   return (
     <Layout className="workspace-layout">
       <Layout.Header className="workspace-header">
-        <TopToolbar stock={stock} updates={root.appUpdate} />
+        <TopToolbar
+          stock={stock}
+          updates={root.appUpdate}
+          tradeProfit={root.tradeProfitCalculator}
+        />
       </Layout.Header>
       <Layout.Content className="workspace-content">
         {stock.error ? (
@@ -46,6 +51,11 @@ export const WorkspacePage = observer(({ root }: WorkspacePageProps) => {
       <DataSourceStatusModal stock={stock} />
       <NetworkProxyModal stock={stock} />
       <UpdateStatusView viewModel={root.appUpdate} />
+      <TradeProfitCalculatorDrawer
+        calculator={root.tradeProfitCalculator}
+        symbol={stock.normalizedCurrentSymbol}
+        stockName={stock.currentStockName}
+      />
       <UserManualModal open={root.isUserManualOpen} onClose={root.closeUserManual} />
     </Layout>
   )

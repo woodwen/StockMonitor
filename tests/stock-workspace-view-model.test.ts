@@ -9,6 +9,7 @@ import type {
   StockQuery,
   StockTimeshareQuery
 } from '../src/renderer/features/stock-workspace/models/stock-types'
+import { createDefaultTradeProfitSettings } from '../src/renderer/features/trade-profit-calculator/models/trade-profit'
 import { StockWorkspaceViewModel } from '../src/renderer/features/stock-workspace/view-models/StockWorkspaceViewModel'
 
 class FakeDataAdapter implements StockDataAdapter {
@@ -945,7 +946,8 @@ function createDefaultSettings(): AppSettings {
       indicatorSettings: createDefaultIndicatorSettings(),
       timeshareIndicatorSettings: createDefaultTimeshareIndicatorSettings(),
       watchlist: []
-    }
+    },
+    tradeProfit: createDefaultTradeProfitSettings()
   }
 }
 

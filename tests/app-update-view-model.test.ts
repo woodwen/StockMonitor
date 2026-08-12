@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { AppSettings, StockApi } from '../src/preload/stock-api'
 import type { AppUpdateEvent } from '../src/renderer/features/app-update/models/update-types'
+import { createDefaultTradeProfitSettings } from '../src/renderer/features/trade-profit-calculator/models/trade-profit'
 import { AppUpdateViewModel } from '../src/renderer/features/app-update/view-models/AppUpdateViewModel'
 
 describe('AppUpdateViewModel', () => {
@@ -90,6 +91,7 @@ function createFakeStockApi(): StockApi & {
     quitAndInstallUpdate: vi.fn(async () => undefined),
     setCheckUpdatesOnStartup: vi.fn(async () => settings),
     setNetworkProxy: vi.fn(async () => settings),
+    setTradeProfitSettings: vi.fn(async () => settings),
     setWorkspaceSettings: vi.fn(async () => settings),
     emitUpdateEvent(event: AppUpdateEvent): void {
       updateListener?.(event)
@@ -115,6 +117,7 @@ function createDefaultSettings(): AppSettings {
         startDate: '20240811',
         endDate: '20260811'
       }
-    }
+    },
+    tradeProfit: createDefaultTradeProfitSettings()
   }
 }
