@@ -2,7 +2,7 @@
 
 本文件记录每个版本的主要更新内容。版本日期以对应 Git tag 的合并时间为准。
 
-## Unreleased / 0.1.6
+## Unreleased / 0.1.7
 
 ### Added
 
