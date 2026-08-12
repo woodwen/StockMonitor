@@ -39,7 +39,11 @@ export interface WorkspaceSettings {
   enabledIndicators?: Partial<Record<IndicatorName, boolean>>
 }
 
-export type MenuCommand = 'refresh-stock' | 'check-update' | 'open-user-manual'
+export type MenuCommand =
+  | 'refresh-stock'
+  | 'check-update'
+  | 'open-user-manual'
+  | 'open-version-updates'
 
 export interface StockApi {
   getStockDataSources(): Promise<StockDataSourceMeta[]>

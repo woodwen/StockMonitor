@@ -34,6 +34,21 @@ describe('RootViewModel', () => {
     root.closeUserManual()
     expect(root.isUserManualOpen).toBe(false)
   })
+
+  it('opens and closes the version updates from the menu command', async () => {
+    const stockApi = createFakeStockApi()
+    vi.stubGlobal('window', { stockApi })
+    root = new RootViewModel()
+
+    await root.initialize()
+    expect(root.isVersionUpdatesOpen).toBe(false)
+
+    stockApi.emitMenuCommand('open-version-updates')
+    expect(root.isVersionUpdatesOpen).toBe(true)
+
+    root.closeVersionUpdates()
+    expect(root.isVersionUpdatesOpen).toBe(false)
+  })
 })
 
 function createFakeStockApi(): StockApi & {
