@@ -3,11 +3,11 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
+  archiveReleasedChangelogVersion,
   compareBoundedVersions,
   getNextDevVersion,
   parseBoundedVersion,
-  prepareNextDevVersion,
-  updateChangelogUnreleasedVersion
+  prepareNextDevVersion
 } from '../scripts/prepare-next-dev-version.mjs'
 
 const tempDirs = []
@@ -89,14 +89,15 @@ describe('next dev version preparation', () => {
     expect(getNextDevVersion('0.100.100')).toBe('1.0.0')
   })
 
-  it('updates package version and the top unreleased changelog heading', () => {
+  it('updates package version, archives released notes, and creates the next unreleased heading', () => {
     const { changelogPath, packageJsonPath } = createTempProject({ version: '0.1.4' })
 
     expect(
       prepareNextDevVersion({
         changelogPath,
         packageJsonPath,
-        releasedVersion: '0.1.4'
+        releasedVersion: '0.1.4',
+        releaseDate: '2026-08-11'
       })
     ).toEqual({
       changed: true,
@@ -107,8 +108,24 @@ describe('next dev version preparation', () => {
     })
 
     expect(readPackageVersion(packageJsonPath)).toBe('0.1.5')
-    expect(readFileSync(changelogPath, 'utf8')).toContain('## Unreleased / 0.1.5')
-    expect(readFileSync(changelogPath, 'utf8')).not.toContain('## Unreleased / 0.1.4')
+    expect(readFileSync(changelogPath, 'utf8')).toBe(`# Changelog
+
+本文件记录每个版本的主要更新内容。
+
+## Unreleased / 0.1.5
+
+## v0.1.4 - 2026-08-11
+
+### Build
+
+- Pending build note.
+
+## v0.1.3 - 2026-08-11
+
+### Fixed
+
+- Previous note.
+`)
   })
 
   it('skips when the dev package version is already higher than the released version', () => {
@@ -163,7 +180,23 @@ describe('next dev version preparation', () => {
     expect(readFileSync(changelogPath, 'utf8')).toContain('## Unreleased / 0.1.3')
   })
 
-  it('updates only the first version heading in the changelog', () => {
+  it('throws without modifying files when the release date is invalid', () => {
+    const { changelogPath, packageJsonPath } = createTempProject({ version: '0.1.4' })
+
+    expect(() =>
+      prepareNextDevVersion({
+        changelogPath,
+        packageJsonPath,
+        releasedVersion: '0.1.4',
+        releaseDate: '2026/08/11'
+      })
+    ).toThrow('release date must be in YYYY-MM-DD format')
+
+    expect(readPackageVersion(packageJsonPath)).toBe('0.1.4')
+    expect(readFileSync(changelogPath, 'utf8')).toContain('## Unreleased / 0.1.4')
+  })
+
+  it('archives only the first version heading in the changelog', () => {
     const markdown = `# Changelog
 
 ## Unreleased / 0.1.4
@@ -175,9 +208,11 @@ describe('next dev version preparation', () => {
 - Historical malformed note.
 `
 
-    expect(updateChangelogUnreleasedVersion(markdown, '0.1.4', '0.1.5')).toBe(`# Changelog
+    expect(archiveReleasedChangelogVersion(markdown, '0.1.4', '0.1.5', '2026-08-11')).toBe(`# Changelog
 
 ## Unreleased / 0.1.5
+
+## v0.1.4 - 2026-08-11
 
 - Pending note.
 
