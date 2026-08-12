@@ -35,4 +35,4 @@
 
 - [x] 5.1 使用 `project-commit-pr` 将已实施迁移打包为本地文档/工具类 commit。
 - [x] 5.2 提交后保持 OpenSpec change active，除非用户明确要求 archive。
-- [ ] 5.3 用户要求 finalize 时，运行 `openspec archive adopt-openspec-workflow --yes`，并验证 archive 后的 baseline specs。
+- [x] 5.3 用户要求 finalize 时，运行 `openspec archive adopt-openspec-workflow --yes`，并验证 archive 后的 baseline specs。
