@@ -15,6 +15,9 @@ const mocks = vi.hoisted(() => {
     }),
     quitAndInstall: vi.fn()
   }
+  const shellMock = {
+    openExternal: vi.fn(async () => undefined)
+  }
   const settings = {
     checkUpdatesOnStartup: true,
     networkProxy: {
@@ -26,14 +29,15 @@ const mocks = vi.hoisted(() => {
     workspace: {}
   }
 
-  return { autoUpdaterMock, settings, updateListeners }
+  return { autoUpdaterMock, settings, shellMock, updateListeners }
 })
 
 vi.mock('electron', () => ({
   app: {
     getVersion: () => '0.1.3',
     isPackaged: true
-  }
+  },
+  shell: mocks.shellMock
 }))
 
 vi.mock('electron-updater', () => ({
@@ -70,7 +74,10 @@ import {
   cancelUpdateDownload,
   checkForUpdates,
   configureUpdateManager,
-  downloadUpdate
+  downloadUpdate,
+  getReleaseDownloadUrl,
+  openUpdateDownloadPage,
+  shouldUseManualMacUpdateInstall
 } from '../src/main/update-manager'
 
 describe('update manager', () => {
@@ -131,7 +138,7 @@ describe('update manager', () => {
         })
     )
 
-    const downloadPromise = downloadUpdate()
+    const downloadPromise = downloadUpdate({ forceAutomaticInstall: true })
     await Promise.resolve()
     await Promise.resolve()
     const downloadCall = mocks.autoUpdaterMock.downloadUpdate.mock.calls[0]
@@ -146,5 +153,21 @@ describe('update manager', () => {
 
     finishDownload([])
     await downloadPromise
+  })
+
+  it('uses manual installation for packaged unsigned macOS builds', () => {
+    expect(shouldUseManualMacUpdateInstall('darwin', true, false)).toBe(true)
+    expect(shouldUseManualMacUpdateInstall('darwin', true, true)).toBe(false)
+    expect(shouldUseManualMacUpdateInstall('win32', true, false)).toBe(false)
+    expect(shouldUseManualMacUpdateInstall('darwin', false, false)).toBe(false)
+  })
+
+  it('opens the GitHub release download page', async () => {
+    await openUpdateDownloadPage('0.1.6')
+
+    expect(mocks.shellMock.openExternal).toHaveBeenCalledWith(
+      'https://github.com/woodwen/StockMonitor/releases/tag/v0.1.6'
+    )
+    expect(getReleaseDownloadUrl()).toBe('https://github.com/woodwen/StockMonitor/releases')
   })
 })

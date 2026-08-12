@@ -24,6 +24,17 @@ export const UpdateStatusView = observer(({ viewModel }: UpdateStatusViewProps) 
       </Modal>
 
       <Modal
+        title="发现新版本"
+        open={state.status === 'manual-download'}
+        okText="打开下载页"
+        cancelText="稍后"
+        onOk={viewModel.openManualDownloadPage}
+        onCancel={viewModel.dismiss}
+      >
+        <p>{state.message}</p>
+      </Modal>
+
+      <Modal
         title="正在下载更新"
         open={state.status === 'downloading' && viewModel.isDownloadDialogVisible}
         okText="后台下载"

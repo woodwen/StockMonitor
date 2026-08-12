@@ -22,7 +22,10 @@ vi.mock('electron', () => ({
     getVersion: () => '0.0.0',
     isPackaged: false
   },
-  ipcMain: mocks.ipcMainMock
+  ipcMain: mocks.ipcMainMock,
+  shell: {
+    openExternal: vi.fn()
+  }
 }))
 
 vi.mock('electron-log/main', () => ({
@@ -90,5 +93,7 @@ describe('IPC handlers', () => {
     expect(() => registerIpcHandlers()).not.toThrow()
 
     expect(mocks.registeredHandlers).toContain('stock:getDataSources')
+    expect(mocks.registeredHandlers).toContain('settings:setTradeProfitSettings')
+    expect(mocks.registeredHandlers).toContain('update:openDownloadPage')
   })
 })

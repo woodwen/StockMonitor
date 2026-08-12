@@ -1,3 +1,82 @@
+# M-27(feat): 增强 K 线指标样式、精度与实时预览
+
+## 背景:
+
+- K 线指标设置已经支持开关、参数、副图数量限制和持久化，但颜色、线型、显示精度仍沿用 klinecharts 默认值。
+- 指标弹窗此前只有点击“应用”后才生效，用户调整参数或样式时无法即时确认图表效果。
+- B/S 信号 overlay 的买入、卖出颜色硬编码在 adapter 中，无法与其他指标样式一起配置和保存。
+
+## 方案概述:
+
+- 扩展 K 线 `IndicatorSettings`，把 `enabled`、`params`、`precision` 和 `styles` 作为统一配置。
+- 指标定义集中维护默认精度、线条样式槽位、柱体样式和 B/S 标记样式。
+- K 线指标弹窗使用草稿 + 预览模型：有效草稿实时预览，点击“应用”后才提交并保存，点击“取消”恢复已提交配置。
+- klinecharts adapter 同步 `calcParams`、`precision`、`styles`，仅样式或精度变化时优先覆盖已有指标，参数变化时重建指标。
+- 分时指标继续保持原有参数弹窗和应用后生效逻辑，本次不扩展样式。
+
+## 实现改动:
+
+- 扩展 `stock-types.ts`：
+  - 新增 `IndicatorLineStyle`、线条样式、柱体样式、标记样式和 `IndicatorVisualSettings` 类型。
+  - `IndicatorSettings` 新增 `precision` 和 `styles` 字段。
+- 扩展 `indicator-definitions.ts`：
+  - 新增默认精度、默认线条颜色、默认柱体颜色、默认 B/S 标记颜色。
+  - 新增样式创建、clone、normalize、validate helper。
+  - 旧配置缺少 `precision/styles` 时自动补齐默认值，非法颜色、线型、精度回退默认值。
+- 修改 `KLineChartViewModel`：
+  - 新增 `previewIndicatorSettings` 和 `effectiveIndicatorSettings`。
+  - 新增精度、线条颜色、线型、柱体颜色、B/S 标记颜色和恢复样式 draft action。
+  - 参数或样式草稿有效时同步预览；非法草稿保持最后一次有效预览。
+- 修改 `StockWorkspaceViewModel`：
+  - K 线图表渲染使用 `effectiveIndicatorSettings`。
+  - K 线预览变更不保存；应用后保存完整工作区配置。
+  - B/S 预览和取消回滚基于当前 dataset 重新 enrich，不重新请求远端行情。
+- 修改 `KLineChartsAdapter`：
+  - 创建指标时传入 `calcParams`、`precision`、`styles`。
+  - 将 `solid/dashed/dotted` 映射为 klinecharts line style 和 `dashedValue`。
+  - 将 VOL/MACD 柱体涨跌平颜色映射到 `styles.bars[0]`。
+  - B/S overlay 从配置读取买入、卖出颜色，样式变化时重建 overlay。
+- 修改 `IndicatorSettingsModal.tsx` 和 `styles.css`：
+  - K 线指标行新增显示精度输入和样式 Popover。
+  - Popover 内支持线条颜色、线型、柱体涨跌平颜色、B/S 买卖颜色和“恢复样式”。
+  - 保持分时指标行不变。
+- 更新 `CHANGELOG.md`：
+  - 在 `Unreleased / 0.1.6` 记录 K 线指标样式、精度和实时预览能力。
+
+## 测试计划(UT):
+
+- 已执行 `yarn typecheck`，TypeScript 类型检查通过。
+- 已执行 `yarn test`，全量 Vitest 通过：20 个测试文件，124 个用例。
+- 已执行 `yarn test tests/release-version.test.mjs tests/changelog-release-notes.test.mjs`，changelog/release notes 校验通过。
+- 已执行 `yarn build`，Electron main/preload/renderer 生产构建通过。
+- 已执行 `git diff --check`，diff 空白检查通过。
+
+## 影响范围(建议手动测试范围):
+
+- 打开 K 线“指标设置”，确认 BOLL、MA、EMA、VOL、MACD、KDJ、RSI 显示精度输入可用，B/S 不展示精度。
+- 修改 BOLL 或 MA 线条颜色、线型，确认图表在弹窗未应用时实时预览，取消后恢复原样。
+- 修改 VOL 或 MACD 柱体涨跌平颜色，确认柱体颜色实时变化，应用后重启仍能恢复。
+- 修改 B/S 买入、卖出颜色，确认 overlay 颜色更新且不会重复叠加。
+- 输入非法参数或非法精度时，确认“应用”禁用，图表保持最后一次有效预览。
+- 开启 3 个副图指标后，确认第 4 个副图指标仍被限制。
+- 切换到分时视图，确认分时指标弹窗仍保持原有参数配置能力。
+- 使用旧版缺少 `precision/styles` 的工作区设置启动，确认可以自动补齐默认样式并正常保存。
+
+## 风险与后续:
+
+- 本次只开放颜色、线型和显示精度，不包含线宽、透明度或自定义标记形状。
+- 样式覆盖依赖 klinecharts 当前 `precision/styles/overrideIndicator` 行为，后续升级图表库时需要回归 adapter。
+- B/S overlay 仍由本项目自定义绘制，后续若开放标记形状需要扩展 overlay 数据结构。
+
+## 验收标准:
+
+- K 线指标弹窗能配置颜色、线型和显示精度。
+- 弹窗内有效草稿可以实时预览；应用才保存，取消会回滚。
+- 旧指标配置能兼容迁移并补齐默认样式和精度。
+- `yarn typecheck`、`yarn test`、`yarn build` 和 `git diff --check` 均通过。
+
+---
+
 # M-6(feat): 新增指标管理弹窗与参数配置
 
 ## 背景:

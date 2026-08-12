@@ -7,6 +7,7 @@ import type {
   StockTimeshareDataset,
   StockTimeshareQuery
 } from '../src/renderer/features/stock-workspace/models/stock-types'
+import { createDefaultTradeProfitSettings } from '../src/renderer/features/trade-profit-calculator/models/trade-profit'
 import { RootViewModel } from '../src/renderer/app/RootViewModel'
 
 describe('RootViewModel', () => {
@@ -58,9 +59,11 @@ function createFakeStockApi(): StockApi & {
       }
     }),
     onUpdateEvent: vi.fn(() => () => undefined),
+    openUpdateDownloadPage: vi.fn(async () => undefined),
     quitAndInstallUpdate: vi.fn(async () => undefined),
     setCheckUpdatesOnStartup: vi.fn(async () => settings),
     setNetworkProxy: vi.fn(async () => settings),
+    setTradeProfitSettings: vi.fn(async () => settings),
     setWorkspaceSettings: vi.fn(async () => settings),
     emitMenuCommand(command: MenuCommand): void {
       menuListener?.(command)
@@ -103,7 +106,8 @@ function createDefaultSettings(): AppSettings {
         startDate: '20240811',
         endDate: '20260811'
       }
-    }
+    },
+    tradeProfit: createDefaultTradeProfitSettings()
   }
 }
 

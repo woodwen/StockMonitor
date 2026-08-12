@@ -2,11 +2,16 @@ import { makeAutoObservable } from 'mobx'
 import { ElectronStockDataAdapter } from '../features/stock-workspace/adapters/ElectronStockDataAdapter'
 import { StockWorkspaceViewModel } from '../features/stock-workspace/view-models/StockWorkspaceViewModel'
 import { AppUpdateViewModel } from '../features/app-update/view-models/AppUpdateViewModel'
+import { ElectronTradeProfitSettingsAdapter } from '../features/trade-profit-calculator/adapters/ElectronTradeProfitSettingsAdapter'
+import { TradeProfitCalculatorViewModel } from '../features/trade-profit-calculator/view-models/TradeProfitCalculatorViewModel'
 import type { MenuCommand } from '../../preload/stock-api'
 
 export class RootViewModel {
   readonly stockWorkspace = new StockWorkspaceViewModel(new ElectronStockDataAdapter())
   readonly appUpdate = new AppUpdateViewModel()
+  readonly tradeProfitCalculator = new TradeProfitCalculatorViewModel(
+    new ElectronTradeProfitSettingsAdapter()
+  )
   isUserManualOpen = false
   private removeMenuListener?: () => void
 
@@ -15,7 +20,11 @@ export class RootViewModel {
   }
 
   async initialize(): Promise<void> {
-    await Promise.all([this.stockWorkspace.initialize(), this.appUpdate.initialize()])
+    await Promise.all([
+      this.stockWorkspace.initialize(),
+      this.appUpdate.initialize(),
+      this.tradeProfitCalculator.initialize()
+    ])
     this.removeMenuListener = window.stockApi.onMenuCommand(this.handleMenuCommand)
   }
 
@@ -23,6 +32,7 @@ export class RootViewModel {
     this.removeMenuListener?.()
     this.stockWorkspace.dispose()
     this.appUpdate.dispose()
+    this.tradeProfitCalculator.dispose()
   }
 
   openUserManual(): void {

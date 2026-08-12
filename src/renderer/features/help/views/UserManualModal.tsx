@@ -15,6 +15,7 @@ const manualSections = [
   { id: 'manual-kline', label: 'K 线视图' },
   { id: 'manual-indicators', label: '指标设置' },
   { id: 'manual-watchlist', label: '自选股' },
+  { id: 'manual-trade-profit', label: '做T测算' },
   { id: 'manual-sources', label: '数据源' },
   { id: 'manual-proxy', label: '网络代理' },
   { id: 'manual-updates', label: '应用更新' },
@@ -128,6 +129,18 @@ export function UserManualModal({ open, onClose }: UserManualModalProps): React.
             </ul>
           </section>
 
+          <section className="manual-section" id="manual-trade-profit">
+            <Title level={4}>做T测算</Title>
+            <ul>
+              <li>点击顶部工具栏“做T”打开右侧盈亏测算面板。</li>
+              <li>输入买入价、卖出价、股数、手续费、印花税和最低佣金后，面板会实时展示费用明细和本次盈亏。</li>
+              <li>ETF 交易不会扣除印花税；普通股票会按卖出金额和印花税费率测算。</li>
+              <li>点击“新增记录”可把当前测算结果加入历史记录，并按全部记录汇总总盈亏。</li>
+              <li>草稿输入和最近 200 条测算记录会保存到本地设置，应用重启后恢复。</li>
+              <li>测算结果仅基于输入参数计算，不代表真实成交结果，也不构成投资建议或收益承诺。</li>
+            </ul>
+          </section>
+
           <section className="manual-section" id="manual-sources">
             <Title level={4}>数据源</Title>
             <ul>
@@ -156,6 +169,7 @@ export function UserManualModal({ open, onClose }: UserManualModalProps): React.
               </li>
               <li>“启动检查更新”开关控制应用启动后是否自动检查更新。</li>
               <li>有新版本时应用会提示下载；下载完成后可选择重启安装。</li>
+              <li>macOS 未签名构建会打开 GitHub Release 下载页，需要手动下载 DMG 安装。</li>
               <li>开发环境不会真实安装更新，只展示状态流。</li>
             </ul>
           </section>

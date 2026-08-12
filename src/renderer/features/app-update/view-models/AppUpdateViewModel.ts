@@ -2,6 +2,7 @@ import { makeAutoObservable, runInAction } from 'mobx'
 import type { AppSettings, StockApi } from '../../../../preload/stock-api'
 import { createDefaultIndicatorSettings } from '../../stock-workspace/models/indicator-definitions'
 import { createDefaultTimeshareIndicatorSettings } from '../../stock-workspace/models/timeshare-indicator-definitions'
+import { createDefaultTradeProfitSettings } from '../../trade-profit-calculator/models/trade-profit'
 import type { AppUpdateEvent, AppUpdateState } from '../models/update-types'
 
 export class AppUpdateViewModel {
@@ -69,6 +70,22 @@ export class AppUpdateViewModel {
     this.isDownloadDialogVisible = false
   }
 
+  async openManualDownloadPage(): Promise<void> {
+    try {
+      await this.stockApi.openUpdateDownloadPage(this.state.version)
+      runInAction(() => {
+        this.state = { status: 'idle' }
+      })
+    } catch (error) {
+      runInAction(() => {
+        this.state = {
+          status: 'error',
+          message: error instanceof Error ? error.message : '打开下载页失败，请稍后再试'
+        }
+      })
+    }
+  }
+
   async quitAndInstall(): Promise<void> {
     await this.stockApi.quitAndInstallUpdate()
   }
@@ -96,6 +113,14 @@ export class AppUpdateViewModel {
             status: 'available',
             version: event.version,
             message: `发现新版本 ${event.version}`
+          }
+          break
+        case 'manual-download':
+          this.isDownloadDialogVisible = true
+          this.state = {
+            status: 'manual-download',
+            version: event.version,
+            message: event.message
           }
           break
         case 'not-available':
@@ -174,7 +199,8 @@ function createDefaultAppSettings(): AppSettings {
       },
       indicatorSettings: createDefaultIndicatorSettings(),
       timeshareIndicatorSettings: createDefaultTimeshareIndicatorSettings()
-    }
+    },
+    tradeProfit: createDefaultTradeProfitSettings()
   }
 }
 

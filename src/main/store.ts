@@ -16,6 +16,11 @@ import {
   normalizeTimeshareIndicatorSettings
 } from '../renderer/features/stock-workspace/models/timeshare-indicator-definitions'
 import { normalizeWatchlist } from '../renderer/features/stock-workspace/models/watchlist'
+import {
+  createDefaultTradeProfitSettings,
+  normalizeTradeProfitSettings,
+  type TradeProfitSettings
+} from '../renderer/features/trade-profit-calculator/models/trade-profit'
 import { logger } from './logger'
 
 interface AppStoreSchema {
@@ -34,7 +39,8 @@ export const appStore = new Store<AppStoreSchema>({
     settings: {
       checkUpdatesOnStartup: true,
       networkProxy: getDefaultNetworkProxy(),
-      workspace: getDefaultWorkspaceSettings()
+      workspace: getDefaultWorkspaceSettings(),
+      tradeProfit: createDefaultTradeProfitSettings()
     }
   }
 })
@@ -75,11 +81,21 @@ export function setWorkspaceSettings(workspace: WorkspaceSettings): AppSettings 
   return settings
 }
 
+export function setTradeProfitSettings(tradeProfit: TradeProfitSettings): AppSettings {
+  const settings = {
+    ...getSettings(),
+    tradeProfit: normalizeTradeProfitSettings(tradeProfit)
+  }
+  persistSettings(settings)
+  return settings
+}
+
 function normalizeSettings(settings: Partial<AppSettings> | undefined): AppSettings {
   return {
     checkUpdatesOnStartup: settings?.checkUpdatesOnStartup ?? true,
     networkProxy: normalizeNetworkProxy(settings?.networkProxy),
-    workspace: normalizeWorkspaceSettings(settings?.workspace)
+    workspace: normalizeWorkspaceSettings(settings?.workspace),
+    tradeProfit: normalizeTradeProfitSettings(settings?.tradeProfit)
   }
 }
 

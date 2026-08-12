@@ -518,6 +518,10 @@ body {
   border-bottom: 1px solid #263241;
 }
 
+.indicator-row-kline {
+  grid-template-columns: 96px minmax(0, 1fr) 88px 86px 74px;
+}
+
 .indicator-row-main {
   display: flex;
   align-items: center;
@@ -551,10 +555,195 @@ body {
   width: 72px;
 }
 
+.indicator-precision {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #95a3b8;
+  font-size: 12px;
+}
+
+.indicator-precision .ant-input-number {
+  width: 54px;
+}
+
+.indicator-style-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-right: 5px;
+  vertical-align: -1px;
+}
+
+.indicator-style-swatch {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.32);
+  border-radius: 50%;
+}
+
+.indicator-style-editor {
+  display: flex;
+  width: 240px;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.indicator-style-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.indicator-style-line {
+  display: grid;
+  grid-template-columns: 54px 36px minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+}
+
+.indicator-style-line .ant-select {
+  width: 94px;
+}
+
+.indicator-style-label {
+  overflow: hidden;
+  color: #d7e0ea;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .indicator-error {
-  grid-column: 2 / 4;
+  grid-column: 2 / -1;
   min-height: 16px;
   color: #ff7875;
   font-size: 12px;
   line-height: 16px;
+}
+
+.trade-profit-drawer .ant-drawer-body {
+  padding: 14px;
+}
+
+.trade-profit-shell {
+  display: flex;
+  min-height: 0;
+  gap: 14px;
+}
+
+.trade-profit-form-panel {
+  flex: 0 0 224px;
+  min-width: 0;
+  padding-right: 14px;
+  border-right: 1px solid #263241;
+}
+
+.trade-profit-form-panel .ant-input-number {
+  width: 100%;
+}
+
+.trade-profit-result-panel {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.trade-profit-current-result {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.trade-profit-current-result > div {
+  display: flex;
+  min-height: 54px;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  padding: 8px 10px;
+  border: 1px solid #263241;
+  border-radius: 6px;
+  background: #111a26;
+}
+
+.trade-profit-current-result strong {
+  overflow: hidden;
+  font-size: 15px;
+  line-height: 20px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trade-profit-save-error {
+  min-height: 20px;
+  line-height: 20px;
+}
+
+.trade-profit-actions {
+  flex-wrap: wrap;
+}
+
+.trade-profit-table .ant-table-cell {
+  white-space: nowrap;
+}
+
+.trade-profit-symbol {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.trade-profit-symbol span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trade-profit-symbol span:first-child {
+  color: #d7e0ea;
+  font-weight: 600;
+}
+
+.trade-profit-symbol span:last-child {
+  color: #95a3b8;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+}
+
+.trade-profit-positive {
+  color: #ff7875;
+  font-weight: 600;
+}
+
+.trade-profit-negative {
+  color: #52c41a;
+  font-weight: 600;
+}
+
+.trade-profit-neutral {
+  color: #d7e0ea;
+  font-weight: 600;
+}
+
+@media (max-width: 760px) {
+  .trade-profit-shell {
+    flex-direction: column;
+  }
+
+  .trade-profit-form-panel {
+    flex: none;
+    padding-right: 0;
+    padding-bottom: 12px;
+    border-right: 0;
+    border-bottom: 1px solid #263241;
+  }
+
+  .trade-profit-current-result {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }

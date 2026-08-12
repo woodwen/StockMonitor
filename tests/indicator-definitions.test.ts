@@ -2,10 +2,14 @@ import { describe, expect, it } from 'vitest'
 import {
   countEnabledSubIndicators,
   createDefaultIndicatorSettings,
+  defaultIndicatorBarStyle,
+  defaultIndicatorLineColors,
+  defaultIndicatorMarkerStyle,
   indicatorNames,
   normalizeIndicatorParams,
   normalizeIndicatorSettings,
   subIndicatorNames,
+  validateIndicatorPrecision,
   validateIndicatorParams
 } from '../src/renderer/features/stock-workspace/models/indicator-definitions'
 
@@ -28,6 +32,14 @@ describe('indicator-definitions', () => {
     expect(settings.volumeMa.enabled).toBe(true)
     expect(settings.bsSignal.enabled).toBe(true)
     expect(settings.macd.enabled).toBe(false)
+    expect(settings.boll.precision).toBe(2)
+    expect(settings.volumeMa.precision).toBe(0)
+    expect(settings.bsSignal.precision).toBeUndefined()
+    expect(settings.boll.styles.lines?.map((line) => line.color)).toEqual(
+      defaultIndicatorLineColors.slice(0, 3)
+    )
+    expect(settings.volumeMa.styles.bar).toEqual(defaultIndicatorBarStyle)
+    expect(settings.bsSignal.styles.marker).toEqual(defaultIndicatorMarkerStyle)
   })
 
   it('validates parameter ranges and MACD fast/slow order', () => {
@@ -35,6 +47,7 @@ describe('indicator-definitions', () => {
     expect(validateIndicatorParams('ma', [5, 10, 10, 60])).toContain('参数不能重复')
     expect(validateIndicatorParams('boll', [20, 0])).toContain('倍数 必须在 0.1-10 之间')
     expect(validateIndicatorParams('macd', [26, 12, 9])).toContain('快线必须小于慢线')
+    expect(validateIndicatorPrecision('boll', 7)).toContain('显示精度必须在 0-6 之间')
   })
 
   it('normalizes invalid params to defaults', () => {
@@ -64,5 +77,47 @@ describe('indicator-definitions', () => {
     expect(settings.macd.enabled).toBe(true)
     expect(settings.kdj.enabled).toBe(true)
     expect(settings.rsi.enabled).toBe(false)
+    expect(settings.boll.precision).toBe(2)
+    expect(settings.boll.styles.lines?.[0]).toEqual({
+      color: '#FF9600',
+      lineStyle: 'solid'
+    })
+  })
+
+  it('normalizes invalid style and precision values to defaults', () => {
+    const settings = normalizeIndicatorSettings({
+      boll: {
+        precision: 9,
+        styles: {
+          lines: [
+            { color: 'red', lineStyle: 'zigzag' },
+            { color: '#123456', lineStyle: 'dashed' }
+          ]
+        } as any
+      },
+      bsSignal: {
+        styles: {
+          marker: {
+            buyColor: '#abcdef',
+            sellColor: 'bad'
+          }
+        }
+      }
+    })
+
+    expect(settings.boll.precision).toBe(2)
+    expect(settings.boll.styles.lines?.[0]).toEqual({
+      color: '#FF9600',
+      lineStyle: 'solid'
+    })
+    expect(settings.boll.styles.lines?.[1]).toEqual({
+      color: '#123456',
+      lineStyle: 'dashed'
+    })
+    expect(settings.boll.styles.lines).toHaveLength(3)
+    expect(settings.bsSignal.styles.marker).toEqual({
+      buyColor: '#abcdef',
+      sellColor: '#13c2c2'
+    })
   })
 })

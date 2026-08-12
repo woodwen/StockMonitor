@@ -9,6 +9,7 @@ import type {
   StockQuery,
   StockTimeshareQuery
 } from '../src/renderer/features/stock-workspace/models/stock-types'
+import { createDefaultTradeProfitSettings } from '../src/renderer/features/trade-profit-calculator/models/trade-profit'
 import { StockWorkspaceViewModel } from '../src/renderer/features/stock-workspace/view-models/StockWorkspaceViewModel'
 
 class FakeDataAdapter implements StockDataAdapter {
@@ -817,14 +818,73 @@ describe('StockWorkspaceViewModel', () => {
 
     await viewModel.initialize()
     viewModel.openIndicatorDialog()
-    viewModel.chart.setIndicatorDraftParam('boll', 0, 30)
-    viewModel.chart.setIndicatorDraftEnabled('macd', true)
+    viewModel.setKLineIndicatorDraftParam('boll', 0, 30)
+    viewModel.setKLineIndicatorDraftEnabled('macd', true)
     viewModel.applyIndicatorSettingsDraft()
 
     expect(viewModel.chart.indicatorDialogOpen).toBe(false)
     expect(viewModel.chart.indicatorSettings.boll.params).toEqual([30, 2])
     expect(viewModel.chart.indicatorSettings.macd.enabled).toBe(true)
     expect(adapter.savedWorkspaceSettings.at(-1)?.indicatorSettings?.boll.params).toEqual([30, 2])
+  })
+
+  it('previews kline indicator drafts without saving until apply', async () => {
+    const adapter = new FakeDataAdapter([], createKlineSettings())
+    const viewModel = new StockWorkspaceViewModel(adapter)
+
+    await viewModel.initialize()
+    const saveCount = adapter.savedWorkspaceSettings.length
+
+    viewModel.openIndicatorDialog()
+    viewModel.setKLineIndicatorDraftPrecision('boll', 3)
+    viewModel.setKLineIndicatorDraftLineColor('boll', 0, '#123456')
+
+    expect(viewModel.chart.previewIndicatorSettings?.boll.precision).toBe(3)
+    expect(viewModel.chart.effectiveIndicatorSettings.boll.styles.lines?.[0].color).toBe('#123456')
+    expect(viewModel.chart.indicatorSettings.boll.precision).toBe(2)
+    expect(adapter.savedWorkspaceSettings).toHaveLength(saveCount)
+
+    viewModel.closeIndicatorDialog()
+
+    expect(viewModel.chart.previewIndicatorSettings).toBeNull()
+    expect(viewModel.chart.effectiveIndicatorSettings.boll.precision).toBe(2)
+    expect(adapter.savedWorkspaceSettings).toHaveLength(saveCount)
+  })
+
+  it('saves kline indicator style and precision after applying the draft', async () => {
+    const adapter = new FakeDataAdapter([], createKlineSettings())
+    const viewModel = new StockWorkspaceViewModel(adapter)
+
+    await viewModel.initialize()
+    viewModel.openIndicatorDialog()
+    viewModel.setKLineIndicatorDraftPrecision('boll', 4)
+    viewModel.setKLineIndicatorDraftLineStyle('boll', 0, 'dashed')
+    viewModel.setKLineIndicatorDraftLineColor('boll', 0, '#654321')
+    viewModel.applyIndicatorSettingsDraft()
+
+    expect(viewModel.chart.indicatorSettings.boll.precision).toBe(4)
+    expect(viewModel.chart.indicatorSettings.boll.styles.lines?.[0]).toEqual({
+      color: '#654321',
+      lineStyle: 'dashed'
+    })
+    const savedBoll = adapter.savedWorkspaceSettings.at(-1)?.indicatorSettings?.boll
+    expect(savedBoll?.precision).toBe(4)
+    expect(savedBoll?.styles.lines?.[0]).toEqual({
+      color: '#654321',
+      lineStyle: 'dashed'
+    })
+  })
+
+  it('keeps the last valid preview when kline indicator draft has errors', async () => {
+    const viewModel = new StockWorkspaceViewModel(new FakeDataAdapter([], createKlineSettings()))
+
+    await viewModel.initialize()
+    viewModel.openIndicatorDialog()
+    viewModel.setKLineIndicatorDraftPrecision('boll', 3)
+    viewModel.setKLineIndicatorDraftPrecision('boll', 9)
+
+    expect(viewModel.chart.indicatorDraftHasErrors).toBe(true)
+    expect(viewModel.chart.previewIndicatorSettings?.boll.precision).toBe(3)
   })
 
   it('applies timeshare indicator drafts without refetching remote data', async () => {
@@ -854,9 +914,9 @@ describe('StockWorkspaceViewModel', () => {
     const viewModel = new StockWorkspaceViewModel(new FakeDataAdapter())
 
     viewModel.openIndicatorDialog()
-    viewModel.chart.setIndicatorDraftEnabled('macd', true)
-    viewModel.chart.setIndicatorDraftEnabled('kdj', true)
-    viewModel.chart.setIndicatorDraftEnabled('rsi', true)
+    viewModel.setKLineIndicatorDraftEnabled('macd', true)
+    viewModel.setKLineIndicatorDraftEnabled('kdj', true)
+    viewModel.setKLineIndicatorDraftEnabled('rsi', true)
 
     expect(viewModel.chart.draftEnabledSubIndicatorCount).toBe(3)
     expect(viewModel.chart.indicatorDraft.rsi.enabled).toBe(false)
@@ -886,7 +946,8 @@ function createDefaultSettings(): AppSettings {
       indicatorSettings: createDefaultIndicatorSettings(),
       timeshareIndicatorSettings: createDefaultTimeshareIndicatorSettings(),
       watchlist: []
-    }
+    },
+    tradeProfit: createDefaultTradeProfitSettings()
   }
 }
 

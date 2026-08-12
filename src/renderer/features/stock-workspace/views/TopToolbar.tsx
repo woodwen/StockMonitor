@@ -3,6 +3,7 @@ import { Badge, Button, Divider, Input, Segmented, Select, Space, Switch, Toolti
 import {
   ApiOutlined,
   BarChartOutlined,
+  CalculatorOutlined,
   CloudDownloadOutlined,
   GlobalOutlined,
   LineChartOutlined,
@@ -14,13 +15,15 @@ import {
 import type { StockAdjust, StockPeriod, WorkspaceViewMode } from '../models/stock-types'
 import type { StockWorkspaceViewModel } from '../view-models/StockWorkspaceViewModel'
 import type { AppUpdateViewModel } from '../../app-update/view-models/AppUpdateViewModel'
+import type { TradeProfitCalculatorViewModel } from '../../trade-profit-calculator/view-models/TradeProfitCalculatorViewModel'
 
 interface TopToolbarProps {
   stock: StockWorkspaceViewModel
   updates: AppUpdateViewModel
+  tradeProfit: TradeProfitCalculatorViewModel
 }
 
-export const TopToolbar = observer(({ stock, updates }: TopToolbarProps) => {
+export const TopToolbar = observer(({ stock, updates, tradeProfit }: TopToolbarProps) => {
   return (
     <div className="top-toolbar">
       <Space size={8}>
@@ -99,6 +102,11 @@ export const TopToolbar = observer(({ stock, updates }: TopToolbarProps) => {
         <Tooltip title={stock.networkProxy.enabled ? '代理已启用' : '代理未启用，当前直连'}>
           <Button icon={<GlobalOutlined />} onClick={stock.openProxyDialog}>
             代理
+          </Button>
+        </Tooltip>
+        <Tooltip title="测算买入卖出费用和盈亏">
+          <Button icon={<CalculatorOutlined />} onClick={tradeProfit.openCalculator}>
+            做T
           </Button>
         </Tooltip>
         <div className="toolbar-symbol-title" title={stock.activeTitle}>

@@ -1,6 +1,6 @@
 # Stock Monitor
 
-Stock Monitor 是一个跨平台行情桌面应用，用 Electron + React + MobX MVVM 实现远端行情查询、多源切换、当日分时和 K 线展示。
+Stock Monitor 是一个跨平台行情桌面应用，用 Electron + React + MobX MVVM 实现远端行情查询、多源切换、当日分时、K 线展示和做T盈亏测算。
 
 当前默认进入分时视图，默认分时数据源为东方财富；K 线数据源和分时数据源已经拆分保存，用户可以分别在对应视图下切换东方财富、腾讯/QQ 财经、新浪财经、网易财经 163 的可用能力，并可在应用内检测数据源状态、配置网络代理、管理图表指标和维护本地自选股。
 
@@ -83,6 +83,7 @@ yarn dist        # 构建安装包
 - 首次加载：K 线首次加载支持跨源 fallback；分时不做跨源自动 fallback，东方财富分时会在同一数据源内从 `push2.eastmoney.com` fallback 到 `push2delay.eastmoney.com`
 - 数据源管理：弹窗按当前视图测试数据源请求状态、耗时和返回记录数，并展示分时能力；分时视图只允许切换到支持分时的数据源
 - 自选股：顶部 `自选` 入口打开左侧自选股栏，支持单只/批量添加、剪切板粘贴、管理模式删除所选、点击切换和本地持久化
+- 做T盈亏测算：顶部 `做T` 入口打开右侧测算 Drawer，支持费用明细、ETF 免印花税、多笔记录、总盈亏和本地持久化
 - 周期：日线、周线、月线、5/15/30/60 分钟
 - 复权：不复权、前复权、后复权；不支持复权的数据源会自动收敛到不复权
 - K 线主图：K 线、BOLL、MA、EMA、B/S 信号
@@ -91,7 +92,7 @@ yarn dist        # 构建安装包
 - 分时成交量区：成交量柱、VOL MA
 - 分时副图：MACD、RSI，最多同时开启 2 个副图指标
 - 交互：缩放、拖拽、十字线、tooltip
-- 顶部工具栏：证券代码、自选、分时/K线、周期、复权、日期范围、刷新、数据源、代理、指标、检查更新、启动检查更新开关；分时视图隐藏 K 线专属控件
+- 顶部工具栏：证券代码、自选、分时/K线、周期、复权、日期范围、刷新、数据源、代理、做T、指标、检查更新、启动检查更新开关；分时视图隐藏 K 线专属控件
 - 帮助菜单：使用说明书、检查更新、关于 Stock Monitor
 - 状态栏：当前视图的数据源、证券代码、记录数或分时点数、最新行情、加载状态、更新状态
 - 本地持久化：查询条件、指标开关与参数、网络代理、启动检查更新配置会保存到 `electron-store`
@@ -211,6 +212,12 @@ src/
         adapters/             # Electron 数据桥、klinecharts 和 Canvas 分时图适配
         views/                # React + Ant Design 界面、K 线和分时图视图
 
+      trade-profit-calculator/
+        models/               # 做T费用和盈亏测算规则
+        view-models/          # MobX 测算状态、记录和持久化
+        adapters/             # Electron 设置桥
+        views/                # 做T测算 Drawer
+
       app-update/
         models/
         view-models/
@@ -329,6 +336,27 @@ K 线和分时使用独立指标配置。K 线配置保存在 `workspace.indicat
 - 分时图按区域展示图例：主图显示价格、均价、昨收、MA、EMA、BOLL、B/S；成交量区显示成交量和 VOL MA；副图区显示 MACD/RSI。
 - tooltip 会按鼠标所在区域展示相关指标值；命中 B/S 信号点时显示 `B/S 买入` 或 `B/S 卖出`。
 
+## 做T盈亏测算
+
+顶部工具栏 `做T` 按钮会打开右侧测算 Drawer，用于基于用户输入估算买入卖出组合的费用明细和盈亏。
+
+首版能力：
+
+- 输入买入价、卖出价、股数、手续费万分比、印花税万分比、最低佣金和 ETF 标记。
+- 实时展示买入金额、卖出金额、费用合计和本次盈亏。
+- 新增多笔测算记录，按记录汇总总盈亏。
+- 单条删除或清空全部测算记录。
+- 草稿输入和最近 200 条测算记录保存到本地设置，应用重启后恢复。
+
+费用规则：
+
+- 买入手续费和卖出手续费分别按 `max(成交金额 * 手续费万分比 / 10000, 最低佣金)` 计算。
+- 普通股票印花税按 `卖出金额 * 印花税万分比 / 10000` 计算。
+- ETF 交易不扣印花税。
+- 盈亏为 `卖出金额 - 买入金额 - 买入手续费 - 卖出手续费 - 印花税`。
+
+做T盈亏测算只基于输入参数进行费用和盈亏计算，不代表真实成交结果，也不构成投资建议或收益承诺。
+
 ## 本地设置与代理
 
 本地设置通过 `electron-store` 保存，配置名为 `stock-monitor`。当前保存内容包括：
@@ -341,6 +369,8 @@ K 线和分时使用独立指标配置。K 线配置保存在 `workspace.indicat
 - `workspace.indicatorSettings`：K 线指标开关和参数
 - `workspace.timeshareIndicatorSettings`：分时指标开关和参数
 - `workspace.watchlist`：本地自选股列表，包含证券代码、名称和创建时间
+- `tradeProfit.draft`：做T测算草稿输入
+- `tradeProfit.records`：最近 200 条做T测算记录
 
 网络代理默认关闭，关闭时行情请求不读取 `HTTP_PROXY`、`HTTPS_PROXY` 或 `ALL_PROXY` 环境变量。代理支持 `SOCKS5` 和 `HTTP`，默认草稿配置为 `127.0.0.1:7890`。
 
@@ -348,7 +378,7 @@ K 线和分时使用独立指标配置。K 线配置保存在 `workspace.indicat
 
 帮助菜单提供以下入口：
 
-- `帮助 -> 使用说明书`：在当前窗口内打开离线说明书，覆盖快速开始、证券代码、分时、K 线、指标、自选股、数据源、网络代理、应用更新和常见问题。
+- `帮助 -> 使用说明书`：在当前窗口内打开离线说明书，覆盖快速开始、证券代码、分时、K 线、指标、自选股、做T测算、数据源、网络代理、应用更新和常见问题。
 - `帮助 -> 检查更新`：手动触发应用更新检查。
 - `帮助 -> 关于 Stock Monitor`：查看当前应用版本。
 
@@ -369,6 +399,7 @@ K 线和分时使用独立指标配置。K 线配置保存在 `workspace.indicat
 - 有新版本时提示下载
 - 下载完成后提示重启安装
 - 开发环境不真实更新，只走日志和状态流
+- macOS 构建在完成 Developer ID 签名和 notarization 前不执行应用内自动安装；检查到新版本时打开 GitHub Release 下载页，由用户手动下载 DMG 安装
 
 `package.json` 的 `build.publish` 已配置为 GitHub provider：`woodwen/StockMonitor`，正式发布时仍需准备 macOS/Windows 签名。
 
@@ -408,6 +439,7 @@ yarn build
 - 分时指标定义、参数校验、副图指标数量限制
 - 分时指标计算，包括 MA、EMA、BOLL、VOL MA、MACD、RSI 和 B/S 信号
 - StockWorkspace ViewModel 远端查询、K 线启动 fallback、默认分时启动、分时/K 线源独立、数据源测试、配置持久化、代理保存
+- 做T盈亏测算 model、持久化设置清洗和 ViewModel 记录管理
 - TimeshareChart ViewModel 分时摘要、点数和 revision 更新
 - klinecharts Adapter 指标开关、参数变更和 B/S overlay 不重复累加
 - Canvas Timeshare Adapter 午间休市压缩、分时指标图例、tooltip、B/S 标记和动态副图区

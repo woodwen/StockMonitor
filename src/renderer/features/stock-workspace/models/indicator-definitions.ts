@@ -1,4 +1,14 @@
-import type { IndicatorName, IndicatorPane, IndicatorSettings, IndicatorSettingsMap } from './stock-types'
+import type {
+  IndicatorBarVisualStyle,
+  IndicatorLineStyle,
+  IndicatorLineVisualStyle,
+  IndicatorMarkerVisualStyle,
+  IndicatorName,
+  IndicatorPane,
+  IndicatorSettings,
+  IndicatorSettingsMap,
+  IndicatorVisualSettings
+} from './stock-types'
 
 export type IndicatorParamKind = 'period' | 'decimal'
 
@@ -18,12 +28,36 @@ export interface IndicatorDefinition {
   chartName?: string
   defaultEnabled: boolean
   defaultParams: number[]
+  defaultPrecision?: number
   params: IndicatorParamDefinition[]
+  lineStyleLabels?: string[]
+  dynamicLineStylePrefix?: string
+  hasBarStyle?: boolean
+  hasMarkerStyle?: boolean
   uniqueParams?: boolean
   fastLessThanSlow?: boolean
 }
 
 export const SUB_INDICATOR_LIMIT = 3
+export const INDICATOR_PRECISION_MIN = 0
+export const INDICATOR_PRECISION_MAX = 6
+export const indicatorLineStyleValues: IndicatorLineStyle[] = ['solid', 'dashed', 'dotted']
+export const defaultIndicatorLineColors = [
+  '#FF9600',
+  '#935EBD',
+  '#1677FF',
+  '#E11D74',
+  '#01C5C4'
+]
+export const defaultIndicatorBarStyle: IndicatorBarVisualStyle = {
+  upColor: '#ef5350',
+  downColor: '#26a69a',
+  noChangeColor: '#8f9bb3'
+}
+export const defaultIndicatorMarkerStyle: IndicatorMarkerVisualStyle = {
+  buyColor: '#ff4d4f',
+  sellColor: '#13c2c2'
+}
 
 const periodParam = (label: string): IndicatorParamDefinition => ({
   label,
@@ -41,6 +75,8 @@ export const indicatorDefinitions: IndicatorDefinition[] = [
     chartName: 'BOLL',
     defaultEnabled: true,
     defaultParams: [20, 2],
+    defaultPrecision: 2,
+    lineStyleLabels: ['UP', 'MID', 'DN'],
     params: [
       periodParam('周期'),
       {
@@ -60,6 +96,8 @@ export const indicatorDefinitions: IndicatorDefinition[] = [
     chartName: 'MA',
     defaultEnabled: false,
     defaultParams: [5, 10, 20, 60],
+    defaultPrecision: 2,
+    dynamicLineStylePrefix: 'MA',
     params: [periodParam('周期1'), periodParam('周期2'), periodParam('周期3'), periodParam('周期4')],
     uniqueParams: true
   },
@@ -70,6 +108,8 @@ export const indicatorDefinitions: IndicatorDefinition[] = [
     chartName: 'EMA',
     defaultEnabled: false,
     defaultParams: [12, 26],
+    defaultPrecision: 2,
+    dynamicLineStylePrefix: 'EMA',
     params: [periodParam('周期1'), periodParam('周期2')],
     uniqueParams: true
   },
@@ -79,6 +119,7 @@ export const indicatorDefinitions: IndicatorDefinition[] = [
     pane: 'overlay',
     defaultEnabled: true,
     defaultParams: [5, 20],
+    hasMarkerStyle: true,
     params: [periodParam('快线'), periodParam('慢线')],
     uniqueParams: true
   },
@@ -89,6 +130,9 @@ export const indicatorDefinitions: IndicatorDefinition[] = [
     chartName: 'VOL',
     defaultEnabled: true,
     defaultParams: [5, 10, 20],
+    defaultPrecision: 0,
+    dynamicLineStylePrefix: 'MA',
+    hasBarStyle: true,
     params: [periodParam('周期1'), periodParam('周期2'), periodParam('周期3')],
     uniqueParams: true
   },
@@ -99,6 +143,9 @@ export const indicatorDefinitions: IndicatorDefinition[] = [
     chartName: 'MACD',
     defaultEnabled: false,
     defaultParams: [12, 26, 9],
+    defaultPrecision: 2,
+    lineStyleLabels: ['DIF', 'DEA'],
+    hasBarStyle: true,
     params: [periodParam('快线'), periodParam('慢线'), periodParam('信号')],
     uniqueParams: true,
     fastLessThanSlow: true
@@ -110,6 +157,8 @@ export const indicatorDefinitions: IndicatorDefinition[] = [
     chartName: 'KDJ',
     defaultEnabled: false,
     defaultParams: [9, 3, 3],
+    defaultPrecision: 2,
+    lineStyleLabels: ['K', 'D', 'J'],
     params: [periodParam('N'), periodParam('M1'), periodParam('M2')]
   },
   {
@@ -119,6 +168,8 @@ export const indicatorDefinitions: IndicatorDefinition[] = [
     chartName: 'RSI',
     defaultEnabled: false,
     defaultParams: [6, 12, 24],
+    defaultPrecision: 2,
+    dynamicLineStylePrefix: 'RSI',
     params: [periodParam('周期1'), periodParam('周期2'), periodParam('周期3')],
     uniqueParams: true
   }
@@ -146,7 +197,9 @@ export function createDefaultIndicatorSettings(): IndicatorSettingsMap {
       definition.name,
       {
         enabled: definition.defaultEnabled,
-        params: [...definition.defaultParams]
+        params: [...definition.defaultParams],
+        precision: definition.defaultPrecision,
+        styles: createDefaultIndicatorStyles(definition.name)
       }
     ])
   ) as IndicatorSettingsMap
@@ -158,10 +211,58 @@ export function cloneIndicatorSettings(settings: IndicatorSettingsMap): Indicato
       definition.name,
       {
         enabled: settings[definition.name]?.enabled ?? definition.defaultEnabled,
-        params: [...(settings[definition.name]?.params ?? definition.defaultParams)]
+        params: [...(settings[definition.name]?.params ?? definition.defaultParams)],
+        precision: settings[definition.name]?.precision ?? definition.defaultPrecision,
+        styles: cloneIndicatorStyles(
+          settings[definition.name]?.styles ?? createDefaultIndicatorStyles(definition.name)
+        )
       }
     ])
   ) as IndicatorSettingsMap
+}
+
+export function createDefaultIndicatorStyles(name: IndicatorName): IndicatorVisualSettings {
+  const definition = getIndicatorDefinition(name)
+  const styles: IndicatorVisualSettings = {}
+  const lineCount = getIndicatorLineStyleLabels(name, definition.defaultParams).length
+
+  if (lineCount > 0) {
+    styles.lines = Array.from({ length: lineCount }, (_, index) => ({
+      color: defaultIndicatorLineColors[index % defaultIndicatorLineColors.length],
+      lineStyle: 'solid' as const
+    }))
+  }
+
+  if (definition.hasBarStyle) {
+    styles.bar = { ...defaultIndicatorBarStyle }
+  }
+
+  if (definition.hasMarkerStyle) {
+    styles.marker = { ...defaultIndicatorMarkerStyle }
+  }
+
+  return styles
+}
+
+export function cloneIndicatorStyles(styles: IndicatorVisualSettings): IndicatorVisualSettings {
+  return {
+    lines: styles.lines?.map((line) => ({ ...line })),
+    bar: styles.bar ? { ...styles.bar } : undefined,
+    marker: styles.marker ? { ...styles.marker } : undefined
+  }
+}
+
+export function getIndicatorLineStyleLabels(name: IndicatorName, params?: number[]): string[] {
+  const definition = getIndicatorDefinition(name)
+  if (definition.lineStyleLabels) {
+    return [...definition.lineStyleLabels]
+  }
+  if (!definition.dynamicLineStylePrefix) {
+    return []
+  }
+  return (params ?? definition.defaultParams).map(
+    (param, index) => `${definition.dynamicLineStylePrefix}${Number.isFinite(param) ? param : index + 1}`
+  )
 }
 
 export function normalizeIndicatorSettings(
@@ -181,7 +282,9 @@ export function normalizeIndicatorSettings(
               : typeof legacyEnabled === 'boolean'
                 ? legacyEnabled
                 : definition.defaultEnabled,
-          params: normalizeIndicatorParams(definition.name, current?.params)
+          params: normalizeIndicatorParams(definition.name, current?.params),
+          precision: normalizeIndicatorPrecision(definition.name, current?.precision),
+          styles: normalizeIndicatorStyles(definition.name, current?.styles)
         }
       ]
     })
@@ -202,6 +305,47 @@ export function normalizeIndicatorParams(name: IndicatorName, params: unknown): 
   )
 
   return validateIndicatorParams(name, normalized).length === 0 ? normalized : [...definition.defaultParams]
+}
+
+export function normalizeIndicatorPrecision(name: IndicatorName, precision: unknown): number | undefined {
+  const definition = getIndicatorDefinition(name)
+  if (definition.defaultPrecision === undefined) {
+    return undefined
+  }
+  const numeric = Number(precision)
+  return Number.isInteger(numeric) &&
+    numeric >= INDICATOR_PRECISION_MIN &&
+    numeric <= INDICATOR_PRECISION_MAX
+    ? numeric
+    : definition.defaultPrecision
+}
+
+export function normalizeIndicatorStyles(
+  name: IndicatorName,
+  styles: unknown
+): IndicatorVisualSettings {
+  const definition = getIndicatorDefinition(name)
+  const defaults = createDefaultIndicatorStyles(name)
+  const source = isRecord(styles) ? styles : {}
+  const normalized: IndicatorVisualSettings = {}
+
+  const lineLabels = getIndicatorLineStyleLabels(name, definition.defaultParams)
+  if (lineLabels.length > 0) {
+    const lines = Array.isArray(source.lines) ? source.lines : []
+    normalized.lines = lineLabels.map((_, index) =>
+      normalizeLineStyle(lines[index], defaults.lines?.[index])
+    )
+  }
+
+  if (definition.hasBarStyle) {
+    normalized.bar = normalizeBarStyle(source.bar, defaults.bar)
+  }
+
+  if (definition.hasMarkerStyle) {
+    normalized.marker = normalizeMarkerStyle(source.marker, defaults.marker)
+  }
+
+  return normalized
 }
 
 export function validateIndicatorParams(name: IndicatorName, params: number[]): string[] {
@@ -237,6 +381,67 @@ export function validateIndicatorParams(name: IndicatorName, params: number[]): 
   return errors
 }
 
+export function validateIndicatorSettings(name: IndicatorName, settings: IndicatorSettings): string[] {
+  return [
+    ...validateIndicatorParams(name, settings.params),
+    ...validateIndicatorPrecision(name, settings.precision),
+    ...validateIndicatorStyles(name, settings.styles)
+  ]
+}
+
+export function validateIndicatorPrecision(name: IndicatorName, precision: unknown): string[] {
+  const definition = getIndicatorDefinition(name)
+  if (definition.defaultPrecision === undefined) {
+    return []
+  }
+  const numeric = Number(precision)
+  if (
+    Number.isInteger(numeric) &&
+    numeric >= INDICATOR_PRECISION_MIN &&
+    numeric <= INDICATOR_PRECISION_MAX
+  ) {
+    return []
+  }
+  return [`显示精度必须在 ${INDICATOR_PRECISION_MIN}-${INDICATOR_PRECISION_MAX} 之间`]
+}
+
+export function validateIndicatorStyles(name: IndicatorName, styles: IndicatorVisualSettings): string[] {
+  const definition = getIndicatorDefinition(name)
+  const errors: string[] = []
+  const lineCount = getIndicatorLineStyleLabels(name, definition.defaultParams).length
+
+  if (lineCount > 0) {
+    if (!Array.isArray(styles.lines) || styles.lines.length !== lineCount) {
+      errors.push('线条样式数量不匹配')
+    } else {
+      styles.lines.forEach((line, index) => {
+        if (!isHexColor(line.color)) {
+          errors.push(`线条${index + 1}颜色必须为 #RRGGBB`)
+        }
+        if (!indicatorLineStyleValues.includes(line.lineStyle)) {
+          errors.push(`线条${index + 1}线型无效`)
+        }
+      })
+    }
+  }
+
+  if (definition.hasBarStyle) {
+    const bar = styles.bar
+    if (!bar || !isHexColor(bar.upColor) || !isHexColor(bar.downColor) || !isHexColor(bar.noChangeColor)) {
+      errors.push('柱体颜色必须为 #RRGGBB')
+    }
+  }
+
+  if (definition.hasMarkerStyle) {
+    const marker = styles.marker
+    if (!marker || !isHexColor(marker.buyColor) || !isHexColor(marker.sellColor)) {
+      errors.push('标记颜色必须为 #RRGGBB')
+    }
+  }
+
+  return errors
+}
+
 export function countEnabledSubIndicators(settings: IndicatorSettingsMap): number {
   return subIndicatorNames.filter((name) => settings[name]?.enabled).length
 }
@@ -262,6 +467,60 @@ function normalizeParamValue(value: unknown, definition: IndicatorParamDefinitio
   }
   const precision = definition.precision ?? 0
   return Number(numeric.toFixed(precision))
+}
+
+function normalizeLineStyle(
+  value: unknown,
+  fallback: IndicatorLineVisualStyle | undefined
+): IndicatorLineVisualStyle {
+  const source = isRecord(value) ? value : {}
+  const defaultValue = fallback ?? {
+    color: defaultIndicatorLineColors[0],
+    lineStyle: 'solid' as const
+  }
+  return {
+    color: normalizeColor(source.color, defaultValue.color),
+    lineStyle: indicatorLineStyleValues.includes(source.lineStyle as IndicatorLineStyle)
+      ? (source.lineStyle as IndicatorLineStyle)
+      : defaultValue.lineStyle
+  }
+}
+
+function normalizeBarStyle(
+  value: unknown,
+  fallback: IndicatorBarVisualStyle | undefined
+): IndicatorBarVisualStyle {
+  const source = isRecord(value) ? value : {}
+  const defaultValue = fallback ?? defaultIndicatorBarStyle
+  return {
+    upColor: normalizeColor(source.upColor, defaultValue.upColor),
+    downColor: normalizeColor(source.downColor, defaultValue.downColor),
+    noChangeColor: normalizeColor(source.noChangeColor, defaultValue.noChangeColor)
+  }
+}
+
+function normalizeMarkerStyle(
+  value: unknown,
+  fallback: IndicatorMarkerVisualStyle | undefined
+): IndicatorMarkerVisualStyle {
+  const source = isRecord(value) ? value : {}
+  const defaultValue = fallback ?? defaultIndicatorMarkerStyle
+  return {
+    buyColor: normalizeColor(source.buyColor, defaultValue.buyColor),
+    sellColor: normalizeColor(source.sellColor, defaultValue.sellColor)
+  }
+}
+
+function normalizeColor(value: unknown, fallback: string): string {
+  return typeof value === 'string' && isHexColor(value) ? value : fallback
+}
+
+function isHexColor(value: unknown): value is string {
+  return typeof value === 'string' && /^#[0-9a-fA-F]{6}$/.test(value)
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null
 }
 
 function enforceSubIndicatorLimit(settings: IndicatorSettingsMap): void {
