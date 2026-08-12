@@ -1,7 +1,10 @@
-import { Button, InputNumber, Modal, Space, Switch, Tooltip } from 'antd'
+import { Button, ColorPicker, InputNumber, Modal, Popover, Select, Space, Switch, Tooltip } from 'antd'
 import { observer } from 'mobx-react-lite'
 import {
+  INDICATOR_PRECISION_MAX,
+  INDICATOR_PRECISION_MIN,
   SUB_INDICATOR_LIMIT,
+  getIndicatorLineStyleLabels,
   indicatorDefinitions,
   isSubIndicator
 } from '../models/indicator-definitions'
@@ -12,7 +15,13 @@ import {
   timeshareIndicatorDefinitions
 } from '../models/timeshare-indicator-definitions'
 import type { TimeshareIndicatorDefinition } from '../models/timeshare-indicator-definitions'
-import type { IndicatorName, TimeshareIndicatorName } from '../models/stock-types'
+import type {
+  IndicatorBarVisualStyle,
+  IndicatorLineStyle,
+  IndicatorName,
+  IndicatorSettings,
+  TimeshareIndicatorName
+} from '../models/stock-types'
 import type { StockWorkspaceViewModel } from '../view-models/StockWorkspaceViewModel'
 
 interface IndicatorSettingsModalProps {
@@ -139,14 +148,14 @@ const KLineIndicatorRow = observer(({ definition, stock }: KLineIndicatorRowProp
   const errors = chart.indicatorDraftErrors[definition.name] ?? []
 
   return (
-    <div className="indicator-row">
+    <div className="indicator-row indicator-row-kline">
       <div className="indicator-row-main">
         <Tooltip title={disabledByLimit ? '副图指标最多开启 3 个' : ''}>
           <Switch
             size="small"
             checked={enabled}
             disabled={disabledByLimit}
-            onChange={(checked) => chart.setIndicatorDraftEnabled(definition.name, checked)}
+            onChange={(checked) => stock.setKLineIndicatorDraftEnabled(definition.name, checked)}
           />
         </Tooltip>
         <div className="indicator-name">{definition.label}</div>
@@ -155,11 +164,23 @@ const KLineIndicatorRow = observer(({ definition, stock }: KLineIndicatorRowProp
         params={definition.params}
         values={draft.params}
         enabled={enabled}
-        onChange={(index, value) => chart.setIndicatorDraftParam(definition.name, index, value)}
+        onChange={(index, value) => stock.setKLineIndicatorDraftParam(definition.name, index, value)}
+      />
+      <IndicatorPrecision
+        visible={definition.defaultPrecision !== undefined}
+        value={draft.precision}
+        enabled={enabled}
+        onChange={(value) => stock.setKLineIndicatorDraftPrecision(definition.name, value)}
+      />
+      <KLineIndicatorStyleButton
+        definition={definition}
+        draft={draft}
+        enabled={enabled}
+        stock={stock}
       />
       <ResetParamsButton
         visible={definition.params.length > 0}
-        onClick={() => chart.resetIndicatorDraftParams(definition.name)}
+        onClick={() => stock.resetKLineIndicatorDraftParams(definition.name)}
       />
       <div className="indicator-error">{formatIndicatorErrors(definition.name, errors)}</div>
     </div>
@@ -242,6 +263,190 @@ const IndicatorParams = ({ params, values, enabled, onChange }: IndicatorParamsP
   </Space>
 )
 
+interface IndicatorPrecisionProps {
+  visible: boolean
+  value?: number
+  enabled: boolean
+  onChange: (value: number) => void
+}
+
+const IndicatorPrecision = ({ visible, value, enabled, onChange }: IndicatorPrecisionProps) =>
+  visible ? (
+    <div className="indicator-precision">
+      <span>精度</span>
+      <InputNumber
+        size="small"
+        min={INDICATOR_PRECISION_MIN}
+        max={INDICATOR_PRECISION_MAX}
+        step={1}
+        precision={0}
+        value={value}
+        disabled={!enabled}
+        onChange={(nextValue) => onChange(normalizeInputNumber(nextValue))}
+      />
+    </div>
+  ) : (
+    <span className="indicator-precision-placeholder" />
+  )
+
+interface KLineIndicatorStyleButtonProps {
+  definition: IndicatorDefinition
+  draft: IndicatorSettings
+  enabled: boolean
+  stock: StockWorkspaceViewModel
+}
+
+const KLineIndicatorStyleButton = ({
+  definition,
+  draft,
+  enabled,
+  stock
+}: KLineIndicatorStyleButtonProps) => {
+  const hasStyles =
+    (draft.styles.lines?.length ?? 0) > 0 || Boolean(draft.styles.bar) || Boolean(draft.styles.marker)
+
+  if (!hasStyles) {
+    return <span className="indicator-style-placeholder" />
+  }
+
+  return (
+    <Popover
+      trigger="click"
+      placement="left"
+      content={
+        <KLineIndicatorStyleEditor
+          definition={definition}
+          draft={draft}
+          enabled={enabled}
+          stock={stock}
+        />
+      }
+    >
+      <Button size="small" disabled={!enabled}>
+        <span className="indicator-style-summary">
+          {collectStyleColors(draft).map((color, index) => (
+            <span
+              className="indicator-style-swatch"
+              style={{ backgroundColor: color }}
+              key={`${color}-${index}`}
+            />
+          ))}
+        </span>
+        样式
+      </Button>
+    </Popover>
+  )
+}
+
+const KLineIndicatorStyleEditor = ({
+  definition,
+  draft,
+  enabled,
+  stock
+}: KLineIndicatorStyleButtonProps) => {
+  const lineLabels = getIndicatorLineStyleLabels(definition.name, draft.params)
+
+  return (
+    <div className="indicator-style-editor">
+      {draft.styles.lines && draft.styles.lines.length > 0 ? (
+        <div className="indicator-style-section">
+          {lineLabels.map((label, index) => {
+            const line = draft.styles.lines?.[index]
+            if (!line) {
+              return null
+            }
+            return (
+              <div className="indicator-style-line" key={`${definition.name}-${label}-${index}`}>
+                <span className="indicator-style-label">{label}</span>
+                <ColorPicker
+                  size="small"
+                  value={line.color}
+                  disabled={!enabled}
+                  onChange={(_, hex) =>
+                    stock.setKLineIndicatorDraftLineColor(definition.name, index, normalizeHexColor(hex))
+                  }
+                />
+                <Select<IndicatorLineStyle>
+                  size="small"
+                  value={line.lineStyle}
+                  disabled={!enabled}
+                  options={lineStyleOptions}
+                  onChange={(value) =>
+                    stock.setKLineIndicatorDraftLineStyle(definition.name, index, value)
+                  }
+                />
+              </div>
+            )
+          })}
+        </div>
+      ) : null}
+      {draft.styles.bar ? (
+        <div className="indicator-style-section">
+          {barStyleFields.map((field) => (
+            <div className="indicator-style-line" key={`${definition.name}-${field.key}`}>
+              <span className="indicator-style-label">{field.label}</span>
+              <ColorPicker
+                size="small"
+                value={draft.styles.bar?.[field.key]}
+                disabled={!enabled}
+                onChange={(_, hex) =>
+                  stock.setKLineIndicatorDraftBarColor(
+                    definition.name,
+                    field.key,
+                    normalizeHexColor(hex)
+                  )
+                }
+              />
+            </div>
+          ))}
+        </div>
+      ) : null}
+      {draft.styles.marker ? (
+        <div className="indicator-style-section">
+          <div className="indicator-style-line">
+            <span className="indicator-style-label">买入</span>
+            <ColorPicker
+              size="small"
+              value={draft.styles.marker.buyColor}
+              disabled={!enabled}
+              onChange={(_, hex) =>
+                stock.setKLineIndicatorDraftMarkerColor(
+                  definition.name,
+                  'buyColor',
+                  normalizeHexColor(hex)
+                )
+              }
+            />
+          </div>
+          <div className="indicator-style-line">
+            <span className="indicator-style-label">卖出</span>
+            <ColorPicker
+              size="small"
+              value={draft.styles.marker.sellColor}
+              disabled={!enabled}
+              onChange={(_, hex) =>
+                stock.setKLineIndicatorDraftMarkerColor(
+                  definition.name,
+                  'sellColor',
+                  normalizeHexColor(hex)
+                )
+              }
+            />
+          </div>
+        </div>
+      ) : null}
+      <Button
+        size="small"
+        type="link"
+        disabled={!enabled}
+        onClick={() => stock.resetKLineIndicatorDraftStyle(definition.name)}
+      >
+        恢复样式
+      </Button>
+    </div>
+  )
+}
+
 interface ResetParamsButtonProps {
   visible: boolean
   onClick: () => void
@@ -255,6 +460,32 @@ const ResetParamsButton = ({ visible, onClick }: ResetParamsButtonProps) =>
   ) : (
     <span className="indicator-reset-placeholder" />
   )
+
+const lineStyleOptions: Array<{ label: string; value: IndicatorLineStyle }> = [
+  { label: '实线', value: 'solid' },
+  { label: '虚线', value: 'dashed' },
+  { label: '点线', value: 'dotted' }
+]
+
+const barStyleFields: Array<{ key: keyof IndicatorBarVisualStyle; label: string }> = [
+  { key: 'upColor', label: '上涨' },
+  { key: 'downColor', label: '下跌' },
+  { key: 'noChangeColor', label: '平盘' }
+]
+
+function collectStyleColors(draft: IndicatorSettings): string[] {
+  return [
+    ...(draft.styles.lines?.map((line) => line.color) ?? []),
+    ...(draft.styles.bar
+      ? [draft.styles.bar.upColor, draft.styles.bar.downColor, draft.styles.bar.noChangeColor]
+      : []),
+    ...(draft.styles.marker ? [draft.styles.marker.buyColor, draft.styles.marker.sellColor] : [])
+  ]
+}
+
+function normalizeHexColor(value: string): string {
+  return value.startsWith('#') ? value : `#${value}`
+}
 
 function normalizeInputNumber(value: string | number | null): number {
   return value === null ? Number.NaN : Number(value)

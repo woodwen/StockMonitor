@@ -12,9 +12,35 @@ export type IndicatorName =
 
 export type IndicatorPane = 'main' | 'sub' | 'overlay'
 
+export type IndicatorLineStyle = 'solid' | 'dashed' | 'dotted'
+
+export interface IndicatorLineVisualStyle {
+  color: string
+  lineStyle: IndicatorLineStyle
+}
+
+export interface IndicatorBarVisualStyle {
+  upColor: string
+  downColor: string
+  noChangeColor: string
+}
+
+export interface IndicatorMarkerVisualStyle {
+  buyColor: string
+  sellColor: string
+}
+
+export interface IndicatorVisualSettings {
+  lines?: IndicatorLineVisualStyle[]
+  bar?: IndicatorBarVisualStyle
+  marker?: IndicatorMarkerVisualStyle
+}
+
 export interface IndicatorSettings {
   enabled: boolean
   params: number[]
+  precision?: number
+  styles: IndicatorVisualSettings
 }
 
 export type IndicatorSettingsMap = Record<IndicatorName, IndicatorSettings>

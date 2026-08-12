@@ -518,6 +518,10 @@ body {
   border-bottom: 1px solid #263241;
 }
 
+.indicator-row-kline {
+  grid-template-columns: 96px minmax(0, 1fr) 88px 86px 74px;
+}
+
 .indicator-row-main {
   display: flex;
   align-items: center;
@@ -551,8 +555,68 @@ body {
   width: 72px;
 }
 
+.indicator-precision {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #95a3b8;
+  font-size: 12px;
+}
+
+.indicator-precision .ant-input-number {
+  width: 54px;
+}
+
+.indicator-style-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-right: 5px;
+  vertical-align: -1px;
+}
+
+.indicator-style-swatch {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.32);
+  border-radius: 50%;
+}
+
+.indicator-style-editor {
+  display: flex;
+  width: 240px;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.indicator-style-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.indicator-style-line {
+  display: grid;
+  grid-template-columns: 54px 36px minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+}
+
+.indicator-style-line .ant-select {
+  width: 94px;
+}
+
+.indicator-style-label {
+  overflow: hidden;
+  color: #d7e0ea;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .indicator-error {
-  grid-column: 2 / 4;
+  grid-column: 2 / -1;
   min-height: 16px;
   color: #ff7875;
   font-size: 12px;

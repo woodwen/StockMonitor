@@ -12,11 +12,14 @@ interface ActiveIndicator {
   paneId: string
   name: string
   calcParams: number[]
+  precision?: number
+  styles?: any
 }
 
 class FakeChart {
   readonly indicators: ActiveIndicator[] = []
-  readonly overlays: Array<{ id: string; groupId?: string; name: string }> = []
+  readonly overlays: Array<{ id: string; groupId?: string; name: string; extendData?: any }> = []
+  readonly overriddenIndicators: Array<{ value: any; paneId?: string }> = []
   private nextIndicatorId = 1
   private nextOverlayId = 1
 
@@ -25,13 +28,30 @@ class FakeChart {
   }
 
   createIndicator(
-    value: { name: string; paneId?: string; calcParams?: number[] },
+    value: { name: string; paneId?: string; calcParams?: number[]; precision?: number; styles?: any },
     _isStack?: boolean,
     paneOptions?: { id?: string }
   ): string {
     const paneId = paneOptions?.id ?? value.paneId ?? `${value.name}-${this.nextIndicatorId++}`
-    this.indicators.push({ paneId, name: value.name, calcParams: value.calcParams ?? [] })
+    this.indicators.push({
+      paneId,
+      name: value.name,
+      calcParams: value.calcParams ?? [],
+      precision: value.precision,
+      styles: value.styles
+    })
     return paneId
+  }
+
+  overrideIndicator(value: { name: string; calcParams?: number[]; precision?: number; styles?: any }, paneId?: string): void {
+    this.overriddenIndicators.push({ value, paneId })
+    const indicator = this.indicators.find((item) => item.paneId === paneId && item.name === value.name)
+    if (!indicator) {
+      return
+    }
+    indicator.calcParams = value.calcParams ?? indicator.calcParams
+    indicator.precision = value.precision
+    indicator.styles = value.styles
   }
 
   removeIndicator(paneId: string, name?: string): void {
@@ -47,13 +67,14 @@ class FakeChart {
     }
   }
 
-  createOverlay(values: Array<{ name: string; groupId?: string }>): string[] {
+  createOverlay(values: Array<{ name: string; groupId?: string; extendData?: any }>): string[] {
     return values.map((value) => {
       const id = `overlay-${this.nextOverlayId++}`
       this.overlays.push({
         id,
         name: value.name,
-        groupId: value.groupId
+        groupId: value.groupId,
+        extendData: value.extendData
       })
       return id
     })
@@ -112,6 +133,104 @@ describe('KLineChartsAdapter', () => {
     expect(bollIndicators).toHaveLength(1)
     expect(bollIndicators[0].calcParams).toEqual([30, 2])
   })
+
+  it('passes precision and styles to klinecharts indicators', () => {
+    const { adapter, fakeChart } = createAdapterWithChart()
+    const settings = createIndicatorSettings({
+      boll: {
+        precision: 3,
+        styles: {
+          lines: [
+            { color: '#111111', lineStyle: 'solid' },
+            { color: '#222222', lineStyle: 'dashed' },
+            { color: '#333333', lineStyle: 'dotted' }
+          ]
+        }
+      },
+      volumeMa: {
+        styles: {
+          lines: [
+            { color: '#444444', lineStyle: 'solid' },
+            { color: '#555555', lineStyle: 'solid' },
+            { color: '#666666', lineStyle: 'solid' }
+          ],
+          bar: {
+            upColor: '#aaaaaa',
+            downColor: '#bbbbbb',
+            noChangeColor: '#cccccc'
+          }
+        }
+      }
+    })
+
+    adapter.setDataset(sampleDataset, settings)
+
+    const boll = fakeChart.indicators.find((item) => item.name === 'BOLL')
+    const volume = fakeChart.indicators.find((item) => item.name === 'VOL')
+    expect(boll?.precision).toBe(3)
+    expect(boll?.styles.lines[1]).toMatchObject({
+      color: '#222222',
+      style: 'dashed',
+      dashedValue: [6, 4]
+    })
+    expect(boll?.styles.lines[2]).toMatchObject({
+      color: '#333333',
+      style: 'dashed',
+      dashedValue: [2, 3]
+    })
+    expect(volume?.styles.bars[0]).toMatchObject({
+      upColor: '#aaaaaa',
+      downColor: '#bbbbbb',
+      noChangeColor: '#cccccc'
+    })
+  })
+
+  it('overrides indicators when only styles change', () => {
+    const { adapter, fakeChart } = createAdapterWithChart()
+
+    adapter.setDataset(sampleDataset, createIndicatorSettings())
+    adapter.setDataset(
+      sampleDataset,
+      createIndicatorSettings({
+        boll: {
+          styles: {
+            lines: [
+              { color: '#111111', lineStyle: 'solid' },
+              { color: '#935EBD', lineStyle: 'solid' },
+              { color: '#1677FF', lineStyle: 'solid' }
+            ]
+          }
+        }
+      })
+    )
+
+    expect(fakeChart.indicators.filter((item) => item.name === 'BOLL')).toHaveLength(1)
+    expect(fakeChart.overriddenIndicators.find((item) => item.value.name === 'BOLL')).toBeDefined()
+  })
+
+  it('uses configured B/S marker colors for overlays', () => {
+    const { adapter, fakeChart } = createAdapterWithChart()
+
+    adapter.setDataset(
+      sampleDataset,
+      createIndicatorSettings({
+        bsSignal: {
+          styles: {
+            marker: {
+              buyColor: '#123456',
+              sellColor: '#654321'
+            }
+          }
+        }
+      })
+    )
+
+    expect(fakeChart.overlays[0].extendData).toMatchObject({
+      side: 'buy',
+      buyColor: '#123456',
+      sellColor: '#654321'
+    })
+  })
 })
 
 function createAdapterWithChart(): { adapter: KLineChartsAdapter; fakeChart: FakeChart } {
@@ -130,7 +249,13 @@ function createIndicatorSettings(
     settings[indicatorName] = {
       ...settings[indicatorName],
       ...value,
-      params: value.params ? [...value.params] : [...settings[indicatorName].params]
+      params: value.params ? [...value.params] : [...settings[indicatorName].params],
+      styles: value.styles
+        ? {
+            ...settings[indicatorName].styles,
+            ...value.styles
+          }
+        : settings[indicatorName].styles
     }
   })
   return settings

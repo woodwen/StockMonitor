@@ -4,7 +4,10 @@ import { enrichStockDataset, getLatestCandle } from '../models/indicator-engine'
 import { cloneIndicatorSettings } from '../models/indicator-definitions'
 import { cloneTimeshareIndicatorSettings } from '../models/timeshare-indicator-definitions'
 import type {
+  IndicatorBarVisualStyle,
+  IndicatorLineStyle,
   IndicatorName,
+  IndicatorSettingsMap,
   StockAdjust,
   StockDataSourceMeta,
   StockPeriod,
@@ -146,7 +149,7 @@ export class StockWorkspaceViewModel {
 
   private async loadQuery(query: StockQuery): Promise<void> {
     const dataset = await this.dataAdapter.fetchStockDataset(query)
-    const enriched = enrichStockDataset(dataset, this.chart.indicatorSettings)
+    const enriched = enrichStockDataset(dataset, this.chart.effectiveIndicatorSettings)
     let shouldSaveWatchlist = false
     runInAction(() => {
       this.query = query
@@ -416,7 +419,11 @@ export class StockWorkspaceViewModel {
       this.timeshare.closeIndicatorDialog()
       return
     }
+    const hadPreview = Boolean(this.chart.previewIndicatorSettings)
     this.chart.closeIndicatorDialog()
+    if (hadPreview) {
+      this.reenrichCurrentDataset()
+    }
   }
 
   applyIndicatorSettingsDraft(): void {
@@ -431,6 +438,60 @@ export class StockWorkspaceViewModel {
     }
     this.reenrichCurrentDataset()
     this.saveWorkspaceSettingsNow()
+  }
+
+  setKLineIndicatorDraftEnabled(name: IndicatorName, enabled: boolean): void {
+    const previousRevision = this.chart.revision
+    this.chart.setIndicatorDraftEnabled(name, enabled)
+    this.reenrichPreviewDatasetIfNeeded(name, previousRevision)
+  }
+
+  setKLineIndicatorDraftParam(name: IndicatorName, index: number, value: number): void {
+    const previousRevision = this.chart.revision
+    this.chart.setIndicatorDraftParam(name, index, value)
+    this.reenrichPreviewDatasetIfNeeded(name, previousRevision)
+  }
+
+  setKLineIndicatorDraftPrecision(name: IndicatorName, precision: number): void {
+    this.chart.setIndicatorDraftPrecision(name, precision)
+  }
+
+  setKLineIndicatorDraftLineColor(name: IndicatorName, index: number, color: string): void {
+    this.chart.setIndicatorDraftLineColor(name, index, color)
+  }
+
+  setKLineIndicatorDraftLineStyle(
+    name: IndicatorName,
+    index: number,
+    lineStyle: IndicatorLineStyle
+  ): void {
+    this.chart.setIndicatorDraftLineStyle(name, index, lineStyle)
+  }
+
+  setKLineIndicatorDraftBarColor(
+    name: IndicatorName,
+    key: keyof IndicatorBarVisualStyle,
+    color: string
+  ): void {
+    this.chart.setIndicatorDraftBarColor(name, key, color)
+  }
+
+  setKLineIndicatorDraftMarkerColor(
+    name: IndicatorName,
+    key: 'buyColor' | 'sellColor',
+    color: string
+  ): void {
+    this.chart.setIndicatorDraftMarkerColor(name, key, color)
+  }
+
+  resetKLineIndicatorDraftParams(name: IndicatorName): void {
+    const previousRevision = this.chart.revision
+    this.chart.resetIndicatorDraftParams(name)
+    this.reenrichPreviewDatasetIfNeeded(name, previousRevision)
+  }
+
+  resetKLineIndicatorDraftStyle(name: IndicatorName): void {
+    this.chart.resetIndicatorDraftStyle(name)
   }
 
   openSourceTestDialog(): void {
@@ -879,11 +940,18 @@ export class StockWorkspaceViewModel {
     }
   }
 
-  private reenrichCurrentDataset(): void {
+  private reenrichCurrentDataset(settings: IndicatorSettingsMap = this.chart.indicatorSettings): void {
     if (!this.chart.dataset) {
       return
     }
-    this.chart.setDataset(enrichStockDataset(this.chart.dataset, this.chart.indicatorSettings))
+    this.chart.setDataset(enrichStockDataset(this.chart.dataset, settings))
+  }
+
+  private reenrichPreviewDatasetIfNeeded(name: IndicatorName, previousRevision: number): void {
+    if (name !== 'bsSignal' || this.chart.revision === previousRevision) {
+      return
+    }
+    this.reenrichCurrentDataset(this.chart.effectiveIndicatorSettings)
   }
 
   private exitWatchlistManageMode(): void {

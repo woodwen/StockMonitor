@@ -2,23 +2,29 @@ import { makeAutoObservable } from 'mobx'
 import {
   canEnableIndicator as canEnableIndicatorInSettings,
   cloneIndicatorSettings,
+  cloneIndicatorStyles,
   countEnabledSubIndicators,
   createDefaultIndicatorSettings,
+  createDefaultIndicatorStyles,
   getIndicatorDefinition,
   indicatorDefinitions,
   normalizeIndicatorSettings,
-  validateIndicatorParams
+  validateIndicatorSettings
 } from '../models/indicator-definitions'
 import type {
   EnrichedStockDataset,
+  IndicatorBarVisualStyle,
+  IndicatorLineStyle,
   IndicatorName,
   IndicatorSettings,
-  IndicatorSettingsMap
+  IndicatorSettingsMap,
+  IndicatorVisualSettings
 } from '../models/stock-types'
 
 export class KLineChartViewModel {
   dataset: EnrichedStockDataset | null = null
   indicatorSettings: IndicatorSettingsMap = createDefaultIndicatorSettings()
+  previewIndicatorSettings: IndicatorSettingsMap | null = null
   indicatorDialogOpen = false
   indicatorDraft: IndicatorSettingsMap = createDefaultIndicatorSettings()
   revision = 0
@@ -39,11 +45,13 @@ export class KLineChartViewModel {
     this.indicatorSettings = patchIndicatorSetting(this.indicatorSettings, name, {
       enabled
     })
+    this.previewIndicatorSettings = null
     this.revision += 1
   }
 
   setIndicators(enabledIndicators: Partial<Record<IndicatorName, boolean>>): void {
     this.indicatorSettings = normalizeIndicatorSettings(null, enabledIndicators)
+    this.previewIndicatorSettings = null
     this.revision += 1
   }
 
@@ -52,17 +60,21 @@ export class KLineChartViewModel {
     legacyEnabledIndicators?: Partial<Record<IndicatorName, boolean>> | null
   ): void {
     this.indicatorSettings = normalizeIndicatorSettings(indicatorSettings, legacyEnabledIndicators)
+    this.previewIndicatorSettings = null
     this.revision += 1
   }
 
   openIndicatorDialog(): void {
     this.indicatorDraft = cloneIndicatorSettings(this.indicatorSettings)
+    this.previewIndicatorSettings = null
     this.indicatorDialogOpen = true
   }
 
   closeIndicatorDialog(): void {
     this.indicatorDialogOpen = false
     this.indicatorDraft = cloneIndicatorSettings(this.indicatorSettings)
+    this.previewIndicatorSettings = null
+    this.revision += 1
   }
 
   applyIndicatorDraft(): boolean {
@@ -70,6 +82,8 @@ export class KLineChartViewModel {
       return false
     }
     this.indicatorSettings = normalizeIndicatorSettings(this.indicatorDraft)
+    this.previewIndicatorSettings = null
+    this.indicatorDraft = cloneIndicatorSettings(this.indicatorSettings)
     this.indicatorDialogOpen = false
     this.revision += 1
     return true
@@ -82,6 +96,7 @@ export class KLineChartViewModel {
     this.indicatorDraft = patchIndicatorSetting(this.indicatorDraft, name, {
       enabled
     })
+    this.syncIndicatorPreview()
   }
 
   setIndicatorDraftParam(name: IndicatorName, index: number, value: number): void {
@@ -94,17 +109,91 @@ export class KLineChartViewModel {
     this.indicatorDraft = patchIndicatorSetting(this.indicatorDraft, name, {
       params
     })
+    this.syncIndicatorPreview()
   }
 
   setIndicatorDraftParams(name: IndicatorName, params: number[]): void {
     this.indicatorDraft = patchIndicatorSetting(this.indicatorDraft, name, {
       params: [...params]
     })
+    this.syncIndicatorPreview()
   }
 
   resetIndicatorDraftParams(name: IndicatorName): void {
     const definition = getIndicatorDefinition(name)
     this.setIndicatorDraftParams(name, definition.defaultParams)
+  }
+
+  setIndicatorDraftPrecision(name: IndicatorName, precision: number): void {
+    this.indicatorDraft = patchIndicatorSetting(this.indicatorDraft, name, {
+      precision
+    })
+    this.syncIndicatorPreview()
+  }
+
+  setIndicatorDraftLineColor(name: IndicatorName, index: number, color: string): void {
+    const line = this.indicatorDraft[name].styles.lines?.[index]
+    if (!line) {
+      return
+    }
+    this.patchIndicatorDraftStyles(name, {
+      lines: this.indicatorDraft[name].styles.lines?.map((item, itemIndex) =>
+        itemIndex === index ? { ...item, color } : { ...item }
+      )
+    })
+  }
+
+  setIndicatorDraftLineStyle(name: IndicatorName, index: number, lineStyle: IndicatorLineStyle): void {
+    const line = this.indicatorDraft[name].styles.lines?.[index]
+    if (!line) {
+      return
+    }
+    this.patchIndicatorDraftStyles(name, {
+      lines: this.indicatorDraft[name].styles.lines?.map((item, itemIndex) =>
+        itemIndex === index ? { ...item, lineStyle } : { ...item }
+      )
+    })
+  }
+
+  setIndicatorDraftBarColor(
+    name: IndicatorName,
+    key: keyof IndicatorBarVisualStyle,
+    color: string
+  ): void {
+    const bar = this.indicatorDraft[name].styles.bar
+    if (!bar) {
+      return
+    }
+    this.patchIndicatorDraftStyles(name, {
+      bar: {
+        ...bar,
+        [key]: color
+      }
+    })
+  }
+
+  setIndicatorDraftMarkerColor(
+    name: IndicatorName,
+    key: 'buyColor' | 'sellColor',
+    color: string
+  ): void {
+    const marker = this.indicatorDraft[name].styles.marker
+    if (!marker) {
+      return
+    }
+    this.patchIndicatorDraftStyles(name, {
+      marker: {
+        ...marker,
+        [key]: color
+      }
+    })
+  }
+
+  resetIndicatorDraftStyle(name: IndicatorName): void {
+    this.indicatorDraft = patchIndicatorSetting(this.indicatorDraft, name, {
+      styles: createDefaultIndicatorStyles(name)
+    })
+    this.syncIndicatorPreview()
   }
 
   canEnableIndicator(name: IndicatorName): boolean {
@@ -138,6 +227,10 @@ export class KLineChartViewModel {
     ) as Record<IndicatorName, boolean>
   }
 
+  get effectiveIndicatorSettings(): IndicatorSettingsMap {
+    return this.previewIndicatorSettings ?? this.indicatorSettings
+  }
+
   get enabledSubIndicatorCount(): number {
     return countEnabledSubIndicators(this.indicatorSettings)
   }
@@ -149,10 +242,7 @@ export class KLineChartViewModel {
   get indicatorDraftErrors(): Partial<Record<IndicatorName, string[]>> {
     const errors: Partial<Record<IndicatorName, string[]>> = {}
     indicatorDefinitions.forEach((definition) => {
-      const indicatorErrors = validateIndicatorParams(
-        definition.name,
-        this.indicatorDraft[definition.name].params
-      )
+      const indicatorErrors = validateIndicatorSettings(definition.name, this.indicatorDraft[definition.name])
       if (indicatorErrors.length > 0) {
         errors[definition.name] = indicatorErrors
       }
@@ -162,6 +252,24 @@ export class KLineChartViewModel {
 
   get indicatorDraftHasErrors(): boolean {
     return Object.values(this.indicatorDraftErrors).some((errors) => (errors?.length ?? 0) > 0)
+  }
+
+  private patchIndicatorDraftStyles(name: IndicatorName, stylesPatch: IndicatorVisualSettings): void {
+    this.indicatorDraft = patchIndicatorSetting(this.indicatorDraft, name, {
+      styles: {
+        ...this.indicatorDraft[name].styles,
+        ...stylesPatch
+      }
+    })
+    this.syncIndicatorPreview()
+  }
+
+  private syncIndicatorPreview(): void {
+    if (this.indicatorDraftHasErrors) {
+      return
+    }
+    this.previewIndicatorSettings = normalizeIndicatorSettings(this.indicatorDraft)
+    this.revision += 1
   }
 }
 
@@ -175,7 +283,8 @@ function patchIndicatorSetting(
     [name]: {
       ...settings[name],
       ...patch,
-      params: patch.params ? [...patch.params] : [...settings[name].params]
+      params: patch.params ? [...patch.params] : [...settings[name].params],
+      styles: patch.styles ? cloneIndicatorStyles(patch.styles) : cloneIndicatorStyles(settings[name].styles)
     }
   }
 }

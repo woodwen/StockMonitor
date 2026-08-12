@@ -1,6 +1,14 @@
 import { dispose, init, registerOverlay } from 'klinecharts'
 import { indicatorDefinitions } from '../models/indicator-definitions'
-import type { EnrichedStockDataset, IndicatorName, IndicatorSettingsMap } from '../models/stock-types'
+import type {
+  EnrichedStockDataset,
+  IndicatorBarVisualStyle,
+  IndicatorLineStyle,
+  IndicatorLineVisualStyle,
+  IndicatorName,
+  IndicatorSettings,
+  IndicatorSettingsMap
+} from '../models/stock-types'
 
 const CANDLE_PANE_ID = 'candle_pane'
 const BS_SIGNAL_GROUP_ID = 'bs-signal'
@@ -14,6 +22,7 @@ interface ActiveIndicator {
   paneId: string
   name: string
   paramsSignature: string
+  styleSignature: string
 }
 
 export class KLineChartsAdapter {
@@ -21,6 +30,7 @@ export class KLineChartsAdapter {
   private container: HTMLElement | null = null
   private readonly indicatorStates = new Map<ChartIndicatorName, ActiveIndicator>()
   private overlayIds: string[] = []
+  private overlaySignature = ''
   private currentDataset: EnrichedStockDataset | null = null
 
   mount(container: HTMLElement): void {
@@ -96,7 +106,7 @@ export class KLineChartsAdapter {
       true
     )
     this.syncIndicators(indicatorSettings)
-    this.syncSignalOverlays(dataset, indicatorSettings.bsSignal.enabled, datasetChanged)
+    this.syncSignalOverlays(dataset, indicatorSettings.bsSignal, datasetChanged)
   }
 
   resize(): void {
@@ -111,6 +121,7 @@ export class KLineChartsAdapter {
     this.container = null
     this.indicatorStates.clear()
     this.overlayIds = []
+    this.overlaySignature = ''
     this.currentDataset = null
   }
 
@@ -124,7 +135,7 @@ export class KLineChartsAdapter {
         }
         this.syncIndicator(definition.name as ChartIndicatorName, indicatorSettings[definition.name].enabled, {
           name: chartName,
-          calcParams: indicatorSettings[definition.name].params,
+          setting: indicatorSettings[definition.name],
           isStack: definition.pane === 'main',
           paneOptions: definition.pane === 'main' ? { id: CANDLE_PANE_ID } : undefined
         })
@@ -136,13 +147,14 @@ export class KLineChartsAdapter {
     enabled: boolean,
     options: {
       name: string
-      calcParams: number[]
+      setting: IndicatorSettings
       isStack: boolean
       paneOptions?: { id: string }
     }
   ): void {
     const activeIndicator = this.indicatorStates.get(key)
-    const paramsSignature = options.calcParams.join(',')
+    const paramsSignature = options.setting.params.join(',')
+    const styleSignature = createIndicatorStyleSignature(options.setting)
 
     if (!enabled) {
       if (activeIndicator) {
@@ -153,6 +165,14 @@ export class KLineChartsAdapter {
     }
 
     if (activeIndicator?.paramsSignature === paramsSignature) {
+      if (activeIndicator.styleSignature === styleSignature) {
+        return
+      }
+      this.chart.overrideIndicator?.(createChartIndicator(options.name, options.setting), activeIndicator.paneId)
+      this.indicatorStates.set(key, {
+        ...activeIndicator,
+        styleSignature
+      })
       return
     }
 
@@ -162,10 +182,7 @@ export class KLineChartsAdapter {
     }
 
     const createdPaneId = this.chart.createIndicator?.(
-      {
-        name: options.name,
-        calcParams: [...options.calcParams]
-      },
+      createChartIndicator(options.name, options.setting),
       options.isStack,
       options.paneOptions
     )
@@ -174,22 +191,24 @@ export class KLineChartsAdapter {
       this.indicatorStates.set(key, {
         paneId: createdPaneId,
         name: options.name,
-        paramsSignature
+        paramsSignature,
+        styleSignature
       })
     }
   }
 
   private syncSignalOverlays(
     dataset: EnrichedStockDataset,
-    enabled: boolean,
+    setting: IndicatorSettings,
     datasetChanged: boolean
   ): void {
-    if (!enabled) {
+    if (!setting.enabled) {
       this.removeSignalOverlays()
       return
     }
 
-    if (this.overlayIds.length > 0 && !datasetChanged) {
+    const overlaySignature = createSignalOverlaySignature(dataset, setting)
+    if (this.overlayIds.length > 0 && !datasetChanged && this.overlaySignature === overlaySignature) {
       return
     }
 
@@ -211,7 +230,9 @@ export class KLineChartsAdapter {
           }
         ],
         extendData: {
-          side: item.bsSignal?.side
+          side: item.bsSignal?.side,
+          buyColor: setting.styles.marker?.buyColor,
+          sellColor: setting.styles.marker?.sellColor
         }
       }))
 
@@ -225,17 +246,94 @@ export class KLineChartsAdapter {
       : typeof createdIds === 'string'
         ? [createdIds]
         : []
+    this.overlaySignature = overlaySignature
   }
 
   private removeSignalOverlays(): void {
     if (this.overlayIds.length === 0) {
       this.chart.removeOverlay?.({ groupId: BS_SIGNAL_GROUP_ID })
+      this.overlaySignature = ''
       return
     }
 
     this.overlayIds.forEach((id) => this.chart.removeOverlay?.(id))
     this.overlayIds = []
+    this.overlaySignature = ''
   }
+}
+
+function createChartIndicator(name: string, setting: IndicatorSettings): Record<string, unknown> {
+  return {
+    name,
+    calcParams: [...setting.params],
+    precision: setting.precision,
+    styles: createChartIndicatorStyles(setting)
+  }
+}
+
+function createChartIndicatorStyles(setting: IndicatorSettings): Record<string, unknown> {
+  const styles: Record<string, unknown> = {}
+
+  if (setting.styles.lines && setting.styles.lines.length > 0) {
+    styles.lines = setting.styles.lines.map(createChartLineStyle)
+  }
+
+  if (setting.styles.bar) {
+    styles.bars = [createChartBarStyle(setting.styles.bar)]
+  }
+
+  return styles
+}
+
+function createChartLineStyle(style: IndicatorLineVisualStyle): Record<string, unknown> {
+  return {
+    style: style.lineStyle === 'solid' ? 'solid' : 'dashed',
+    smooth: false,
+    size: 1,
+    dashedValue: getDashedValue(style.lineStyle),
+    color: style.color
+  }
+}
+
+function createChartBarStyle(style: IndicatorBarVisualStyle): Record<string, unknown> {
+  return {
+    style: 'fill',
+    borderStyle: 'solid',
+    borderSize: 1,
+    borderDashedValue: [2, 2],
+    upColor: style.upColor,
+    downColor: style.downColor,
+    noChangeColor: style.noChangeColor
+  }
+}
+
+function getDashedValue(lineStyle: IndicatorLineStyle): number[] {
+  if (lineStyle === 'dashed') {
+    return [6, 4]
+  }
+  if (lineStyle === 'dotted') {
+    return [2, 3]
+  }
+  return [2, 2]
+}
+
+function createIndicatorStyleSignature(setting: IndicatorSettings): string {
+  return JSON.stringify({
+    precision: setting.precision,
+    styles: setting.styles
+  })
+}
+
+function createSignalOverlaySignature(
+  dataset: EnrichedStockDataset,
+  setting: IndicatorSettings
+): string {
+  return JSON.stringify({
+    marker: setting.styles.marker,
+    signals: dataset.candles
+      .filter((item) => item.bsSignal)
+      .map((item) => [item.timestamp, item.bsSignal?.value, item.bsSignal?.side])
+  })
 }
 
 function registerSignalOverlay(): void {
@@ -259,7 +357,10 @@ function registerSignalOverlay(): void {
 
       const side = overlay.extendData?.side === 'sell' ? 'sell' : 'buy'
       const label = side === 'buy' ? 'B' : 'S'
-      const color = side === 'buy' ? '#ff4d4f' : '#13c2c2'
+      const color =
+        side === 'buy'
+          ? (overlay.extendData?.buyColor ?? '#ff4d4f')
+          : (overlay.extendData?.sellColor ?? '#13c2c2')
       const offsetY = side === 'buy' ? 18 : -18
       const y = coordinate.y + offsetY
 
