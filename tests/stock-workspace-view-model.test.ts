@@ -11,6 +11,7 @@ import type {
   KlineCacheSeriesRequestItem,
   KlineCacheStatusRequest,
   KlineCacheStatusRow,
+  KlineStrategySettings,
   StockDataset,
   StockDataSourceMeta,
   StockQuery,
@@ -28,8 +29,14 @@ class FakeDataAdapter implements StockDataAdapter {
   klineCacheStatusRequests: KlineCacheStatusRequest[] = []
   klineCacheRefreshRequests: KlineCacheRefreshRequest[] = []
   klineCacheClearRequests: KlineCacheClearRequest[] = []
+  klineCacheJobQueries: string[] = []
   nextKlineCacheRows: KlineCacheStatusRow[] | null = null
   nextKlineCacheJob: KlineCacheJob | null = null
+  nextKlineCacheRefreshError: Error | null = null
+  nextStockDataset: StockDataset | null = null
+  nextCachedKlineDatasetResult: KlineCachedDatasetResult | null = null
+  cachedKlineDatasetResults: KlineCachedDatasetResult[] = []
+  cachedKlineQueries: StockQuery[] = []
 
   constructor(private readonly failingSourceIds: string[] = [], settings?: AppSettings) {
     if (settings) {
@@ -87,7 +94,7 @@ class FakeDataAdapter implements StockDataAdapter {
     if (this.failingSourceIds.includes(query.sourceId)) {
       throw new Error(`${query.sourceId} failed`)
     }
-    const dataset = createSampleStockDataset()
+    const dataset = this.nextStockDataset ?? createSampleStockDataset()
 
     return {
       ...dataset,
@@ -146,10 +153,14 @@ class FakeDataAdapter implements StockDataAdapter {
 
   async startKlineCacheRefresh(request: KlineCacheRefreshRequest): Promise<KlineCacheJob> {
     this.klineCacheRefreshRequests.push(request)
+    if (this.nextKlineCacheRefreshError) {
+      throw this.nextKlineCacheRefreshError
+    }
     return this.nextKlineCacheJob ?? createCompletedKlineCacheJob(request)
   }
 
   async getKlineCacheJob(jobId: string): Promise<KlineCacheJob | null> {
+    this.klineCacheJobQueries.push(jobId)
     return this.nextKlineCacheJob?.id === jobId ? this.nextKlineCacheJob : null
   }
 
@@ -165,7 +176,8 @@ class FakeDataAdapter implements StockDataAdapter {
   }
 
   async getCachedKlineDataset(query: StockQuery): Promise<KlineCachedDatasetResult> {
-    return {
+    this.cachedKlineQueries.push(query)
+    return this.cachedKlineDatasetResults.shift() ?? this.nextCachedKlineDatasetResult ?? {
       status: 'empty' as const,
       query,
       missingRanges: []
@@ -1100,6 +1112,507 @@ describe('StockWorkspaceViewModel', () => {
     })
   })
 
+  it('restores strategy settings on startup', async () => {
+    const strategySettings: KlineStrategySettings = {
+      selectedTemplateIds: ['ma-cross'],
+      paramsByTemplate: {
+        'ma-cross': {
+          shortPeriod: 3,
+          longPeriod: 8
+        }
+      },
+      assumptions: {
+        initialCapital: 50000,
+        feeRate: 0.001,
+        slippageRate: 0.002
+      },
+      dateRange: {
+        startDate: '20240110',
+        endDate: '20240210'
+      }
+    }
+    const viewModel = new StockWorkspaceViewModel(
+      new FakeDataAdapter([], {
+        ...createKlineSettings(),
+        workspace: {
+          ...createKlineSettings().workspace,
+          klineStrategySettings: strategySettings
+        }
+      })
+    )
+
+    await viewModel.initialize()
+
+    expect(viewModel.strategySettings.selectedTemplateIds).toEqual(['ma-cross'])
+    expect(viewModel.strategySettings.paramsByTemplate['ma-cross']).toMatchObject({
+      shortPeriod: 3,
+      longPeriod: 8
+    })
+    expect(viewModel.strategySettings.assumptions).toEqual({
+      initialCapital: 50000,
+      feeRate: 0.001,
+      slippageRate: 0.002
+    })
+    expect(viewModel.strategySettings.dateRange).toEqual({
+      startDate: '20240110',
+      endDate: '20240210'
+    })
+    viewModel.openStrategyPanel()
+    expect(viewModel.strategyStartDateInput).toBe('20240110')
+    expect(viewModel.strategyEndDateInput).toBe('20240210')
+  })
+
+  it('derives strategy template display rows in the view model', async () => {
+    const viewModel = new StockWorkspaceViewModel(new FakeDataAdapter([], createKlineSettings()))
+
+    await viewModel.initialize()
+    viewModel.openStrategyPanel()
+    viewModel.setStrategySelectedTemplateIds(['ma-cross'])
+    viewModel.setStrategyDraftParam('ma-cross', 'shortPeriod', 30)
+    viewModel.setStrategyDraftParam('ma-cross', 'longPeriod', 5)
+
+    expect(viewModel.strategyTemplateDraftRows).toHaveLength(1)
+    expect(viewModel.strategyTemplateDraftRows[0]).toMatchObject({
+      id: 'ma-cross',
+      minSampleSize: 30,
+      compatiblePeriodLabel: '日线/周线/月线',
+      signalDescription: expect.stringContaining('买入信号'),
+      errors: ['短期均线必须小于长期均线']
+    })
+  })
+
+  it('runs strategy backtest from the cached kline dataset and saves preferences', async () => {
+    const adapter = new FakeDataAdapter([], createKlineSettings())
+    adapter.nextStockDataset = createCrossingStockDataset()
+    adapter.nextCachedKlineDatasetResult = createCompleteCachedKlineDatasetResult()
+    const viewModel = new StockWorkspaceViewModel(adapter)
+
+    await viewModel.initialize()
+    viewModel.openStrategyPanel()
+    viewModel.setStrategySelectedTemplateIds(['ma-cross'])
+    viewModel.setStrategyDraftParam('ma-cross', 'shortPeriod', 3)
+    viewModel.setStrategyDraftParam('ma-cross', 'longPeriod', 8)
+    viewModel.setStrategyInitialCapital(50000)
+    await viewModel.runStrategyBacktest()
+
+    expect(adapter.cachedKlineQueries).toHaveLength(1)
+    expect(adapter.cachedKlineQueries[0]).toMatchObject({
+      sourceId: 'eastmoney',
+      symbol: 'sh000001',
+      period: 'day',
+      adjust: 'qfq',
+      startDate: '20240101',
+      endDate: '20260101'
+    })
+    expect(viewModel.strategyError).toBe('')
+    expect(viewModel.strategyResults[0]).toMatchObject({
+      status: 'success',
+      templateId: 'ma-cross'
+    })
+    expect(viewModel.strategyResults[0].signals.length).toBeGreaterThan(0)
+    expect(adapter.savedWorkspaceSettings.at(-1)?.klineStrategySettings).toMatchObject({
+      selectedTemplateIds: ['ma-cross'],
+      dateRange: {
+        startDate: '20240101',
+        endDate: '20260101'
+      },
+      assumptions: {
+        initialCapital: 50000
+      }
+    })
+  })
+
+  it('keeps invalid template params scoped to the affected strategy result', async () => {
+    const adapter = new FakeDataAdapter([], createKlineSettings())
+    adapter.nextStockDataset = createCrossingStockDataset()
+    adapter.nextCachedKlineDatasetResult = createCompleteCachedKlineDatasetResult()
+    const viewModel = new StockWorkspaceViewModel(adapter)
+
+    await viewModel.initialize()
+    viewModel.openStrategyPanel()
+    viewModel.setStrategySelectedTemplateIds(['ma-cross', 'breakout-pullback'])
+    viewModel.setStrategyDraftParam('ma-cross', 'shortPeriod', 3)
+    viewModel.setStrategyDraftParam('ma-cross', 'longPeriod', 8)
+    viewModel.setStrategyDraftParam('breakout-pullback', 'lookbackPeriod', 0)
+    await viewModel.runStrategyBacktest()
+
+    const valid = viewModel.strategyResults.find((result) => result.templateId === 'ma-cross')
+    const invalid = viewModel.strategyResults.find((result) => result.templateId === 'breakout-pullback')
+    expect(viewModel.strategyError).toBe('')
+    expect(valid).toMatchObject({
+      status: 'success',
+      rank: 1
+    })
+    expect(invalid).toMatchObject({
+      status: 'unavailable',
+      unavailableReason: expect.stringContaining('突破观察必须在 5 到 250 之间')
+    })
+  })
+
+  it('runs strategy backtest with a selected date range without changing the chart query', async () => {
+    const adapter = new FakeDataAdapter([], createKlineSettings())
+    adapter.nextStockDataset = createCrossingStockDataset()
+    adapter.nextCachedKlineDatasetResult = createCompleteCachedKlineDatasetResult({
+      ...createKlineSettings().workspace.query,
+      startDate: '20240101',
+      endDate: '20240214'
+    })
+    const viewModel = new StockWorkspaceViewModel(adapter)
+
+    await viewModel.initialize()
+    const chartStartDate = viewModel.query.startDate
+    const chartEndDate = viewModel.query.endDate
+    viewModel.openStrategyPanel()
+    viewModel.setStrategySelectedTemplateIds(['ma-cross'])
+    viewModel.setStrategyDraftParam('ma-cross', 'shortPeriod', 3)
+    viewModel.setStrategyDraftParam('ma-cross', 'longPeriod', 8)
+    viewModel.setStrategyEndDate('20240214')
+    await viewModel.runStrategyBacktest()
+
+    expect(adapter.cachedKlineQueries).toHaveLength(1)
+    expect(adapter.cachedKlineQueries[0]).toMatchObject({
+      startDate: '20240101',
+      endDate: '20240214'
+    })
+    expect(viewModel.query.startDate).toBe(chartStartDate)
+    expect(viewModel.query.endDate).toBe(chartEndDate)
+    expect(viewModel.strategyResults[0]).toMatchObject({
+      status: 'success',
+      query: {
+        startDate: '20240101',
+        endDate: '20240214'
+      },
+      dataStartDate: '20240101',
+      dataEndDate: '20240214'
+    })
+    expect(adapter.savedWorkspaceSettings.at(-1)?.klineStrategySettings?.dateRange).toEqual({
+      startDate: '20240101',
+      endDate: '20240214'
+    })
+  })
+
+  it('blocks strategy backtest when the selected date range is invalid', async () => {
+    const adapter = new FakeDataAdapter([], createKlineSettings())
+    const viewModel = new StockWorkspaceViewModel(adapter)
+
+    await viewModel.initialize()
+    viewModel.openStrategyPanel()
+    viewModel.setStrategyStartDate('20240210')
+    viewModel.setStrategyEndDate('20240110')
+    await viewModel.runStrategyBacktest()
+
+    expect(viewModel.strategyFormErrors).toContain('回测开始日期不能晚于结束日期')
+    expect(viewModel.strategyError).toBe('回测开始日期不能晚于结束日期')
+    expect(adapter.cachedKlineQueries).toHaveLength(0)
+  })
+
+  it('keeps strategy assumption inputs empty while users are editing numeric fields', async () => {
+    const viewModel = new StockWorkspaceViewModel(new FakeDataAdapter([], createKlineSettings()))
+
+    await viewModel.initialize()
+    viewModel.openStrategyPanel()
+    viewModel.setStrategyFeeRatePercent(0.125)
+    viewModel.setStrategyFeeRatePercent(null)
+
+    expect((viewModel as unknown as { strategyFeeRatePercentInput: number | null }).strategyFeeRatePercentInput).toBeNull()
+    expect(viewModel.strategyFormErrors).toContain('费用率必须在 0 到 20% 之间')
+    expect(viewModel.canRunStrategyBacktest).toBe(false)
+  })
+
+  it('uses cached kline data when the current chart dataset no longer matches the query', async () => {
+    const adapter = new FakeDataAdapter([], createKlineSettings())
+    adapter.nextCachedKlineDatasetResult = {
+      status: 'complete',
+      query: {
+        ...createKlineSettings().workspace.query,
+        startDate: '20230101'
+      },
+      dataset: createCrossingStockDatasetCoveringQuery({
+        ...createKlineSettings().workspace.query,
+        startDate: '20230101'
+      }),
+      missingRanges: []
+    }
+    const viewModel = new StockWorkspaceViewModel(adapter)
+
+    await viewModel.initialize()
+    viewModel.setStartDate('20230101')
+    viewModel.openStrategyPanel()
+    viewModel.setStrategySelectedTemplateIds(['ma-cross'])
+    viewModel.setStrategyDraftParam('ma-cross', 'shortPeriod', 3)
+    viewModel.setStrategyDraftParam('ma-cross', 'longPeriod', 8)
+    await viewModel.runStrategyBacktest()
+
+    expect(adapter.cachedKlineQueries).toHaveLength(1)
+    expect(adapter.cachedKlineQueries[0]).toMatchObject({
+      startDate: '20230101',
+      period: 'day'
+    })
+    expect(viewModel.strategyResults[0].status).toBe('success')
+  })
+
+  it('refreshes missing kline cache before running a strategy backtest', async () => {
+    const adapter = new FakeDataAdapter([], createKlineSettings())
+    adapter.cachedKlineDatasetResults = [
+      {
+        status: 'partial',
+        query: createKlineSettings().workspace.query,
+        missingRanges: [{ startDate: '20230101', endDate: '20231231' }]
+      },
+      {
+        status: 'complete',
+        query: createKlineSettings().workspace.query,
+        dataset: createCrossingStockDatasetCoveringQuery({
+          ...createKlineSettings().workspace.query,
+          startDate: '20230101'
+        }),
+        missingRanges: []
+      }
+    ]
+    const viewModel = new StockWorkspaceViewModel(adapter)
+
+    await viewModel.initialize()
+    const stockQueryCount = adapter.stockQueries.length
+    viewModel.openStrategyPanel()
+    viewModel.setStrategySelectedTemplateIds(['ma-cross'])
+    viewModel.setStrategyDraftParam('ma-cross', 'shortPeriod', 3)
+    viewModel.setStrategyDraftParam('ma-cross', 'longPeriod', 8)
+    viewModel.setStrategyStartDate('20230101')
+    await viewModel.runStrategyBacktest()
+
+    expect(adapter.cachedKlineQueries).toHaveLength(2)
+    expect(adapter.klineCacheRefreshRequests).toHaveLength(1)
+    expect(adapter.klineCacheRefreshRequests[0]).toMatchObject({
+      query: {
+        sourceId: 'eastmoney',
+        periods: ['day'],
+        adjusts: ['qfq'],
+        startDate: '20230101',
+        endDate: '20260101'
+      },
+      items: [
+        {
+          symbol: 'sh000001'
+        }
+      ]
+    })
+    expect(adapter.stockQueries).toHaveLength(stockQueryCount)
+    expect(viewModel.klineCacheJob).toBeNull()
+    expect(viewModel.klineCacheError).toBe('')
+    expect(viewModel.strategyStatusMessage).toBe('')
+    expect(viewModel.strategyError).toBe('')
+    expect(viewModel.strategyResults[0]).toMatchObject({
+      status: 'success',
+      query: {
+        startDate: '20230101',
+        endDate: '20260101'
+      }
+    })
+  })
+
+  it('rejects strategy backtests when cached candles do not cover the selected range', async () => {
+    const adapter = new FakeDataAdapter([], createKlineSettings())
+    adapter.nextStockDataset = createCrossingStockDataset()
+    adapter.cachedKlineDatasetResults = [
+      {
+        status: 'complete',
+        query: {
+          ...createKlineSettings().workspace.query,
+          startDate: '20160810',
+          endDate: '20260810'
+        },
+        dataset: createCrossingStockDataset(),
+        missingRanges: []
+      },
+      {
+        status: 'complete',
+        query: {
+          ...createKlineSettings().workspace.query,
+          startDate: '20160810',
+          endDate: '20260810'
+        },
+        dataset: createCrossingStockDataset(),
+        missingRanges: []
+      }
+    ]
+    const viewModel = new StockWorkspaceViewModel(adapter)
+
+    await viewModel.initialize()
+    viewModel.openStrategyPanel()
+    viewModel.setStrategySelectedTemplateIds(['ma-cross'])
+    viewModel.setStrategyDraftParam('ma-cross', 'shortPeriod', 3)
+    viewModel.setStrategyDraftParam('ma-cross', 'longPeriod', 8)
+    viewModel.setStrategyStartDate('20160810')
+    viewModel.setStrategyEndDate('20260810')
+    await viewModel.runStrategyBacktest()
+
+    expect(adapter.klineCacheRefreshRequests).toHaveLength(1)
+    expect(viewModel.strategyResults).toEqual([])
+    expect(viewModel.chart.strategySignals).toEqual([])
+    expect(viewModel.strategyError).toBe(
+      '历史 K 线缓存未覆盖所选回测区间：20160810-20231231；20240215-20260810'
+    )
+  })
+
+  it('keeps previous strategy results when kline cache refresh fails', async () => {
+    const adapter = new FakeDataAdapter([], createKlineSettings())
+    adapter.nextStockDataset = createCrossingStockDataset()
+    adapter.nextCachedKlineDatasetResult = createCompleteCachedKlineDatasetResult({
+      ...createKlineSettings().workspace.query,
+      startDate: '20240101',
+      endDate: '20240214'
+    })
+    const viewModel = new StockWorkspaceViewModel(adapter)
+
+    await viewModel.initialize()
+    viewModel.openStrategyPanel()
+    viewModel.setStrategySelectedTemplateIds(['ma-cross'])
+    viewModel.setStrategyDraftParam('ma-cross', 'shortPeriod', 3)
+    viewModel.setStrategyDraftParam('ma-cross', 'longPeriod', 8)
+    viewModel.setStrategyEndDate('20240214')
+    await viewModel.runStrategyBacktest()
+    const previousResults = viewModel.strategyResults
+    const stockQueryCount = adapter.stockQueries.length
+
+    adapter.nextStockDataset = null
+    adapter.nextCachedKlineDatasetResult = {
+      status: 'empty',
+      query: createKlineSettings().workspace.query,
+      missingRanges: [{ startDate: '20230101', endDate: '20231231' }]
+    }
+    adapter.nextKlineCacheRefreshError = new Error('cache refresh failed')
+    viewModel.setStrategyStartDate('20230101')
+    viewModel.setStrategyEndDate('20260101')
+    await viewModel.runStrategyBacktest()
+
+    expect(adapter.klineCacheRefreshRequests).toHaveLength(1)
+    expect(adapter.stockQueries).toHaveLength(stockQueryCount)
+    expect(viewModel.klineCacheJob).toBeNull()
+    expect(viewModel.klineCacheError).toBe('')
+    expect(viewModel.strategyError).toBe('cache refresh failed；缺失范围：20230101-20231231')
+    expect(viewModel.strategyStatusMessage).toBe('')
+    expect(viewModel.strategyResults).toBe(previousResults)
+    expect(viewModel.chart.strategySignals.length).toBeGreaterThan(0)
+  })
+
+  it('stops polling an in-flight strategy cache job when the kline query changes', async () => {
+    vi.useFakeTimers()
+    const adapter = new FakeDataAdapter([], createKlineSettings())
+    adapter.cachedKlineDatasetResults = [
+      {
+        status: 'empty',
+        query: createKlineSettings().workspace.query,
+        missingRanges: [{ startDate: '20230101', endDate: '20231231' }]
+      }
+    ]
+    adapter.nextKlineCacheJob = {
+      id: 'job-active',
+      status: 'running',
+      total: 1,
+      completed: 0,
+      rows: [],
+      startedAt: 1
+    }
+    const viewModel = new StockWorkspaceViewModel(adapter)
+
+    await viewModel.initialize()
+    viewModel.openStrategyPanel()
+    viewModel.setStrategySelectedTemplateIds(['ma-cross'])
+    viewModel.setStrategyDraftParam('ma-cross', 'shortPeriod', 3)
+    viewModel.setStrategyDraftParam('ma-cross', 'longPeriod', 8)
+    viewModel.setStrategyStartDate('20230101')
+    const runPromise = viewModel.runStrategyBacktest()
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(adapter.klineCacheRefreshRequests).toHaveLength(1)
+    expect(viewModel.strategyRunning).toBe(true)
+
+    viewModel.setSymbol('sh600519')
+    await vi.advanceTimersByTimeAsync(1000)
+    await runPromise
+
+    expect(viewModel.strategyRunning).toBe(false)
+    expect(adapter.klineCacheJobQueries).toHaveLength(0)
+    expect(viewModel.strategyResults).toEqual([])
+    expect(viewModel.strategyError).toBe('')
+  })
+
+  it('blocks strategy backtest for minute kline periods without reading cache', async () => {
+    const adapter = new FakeDataAdapter([], createKlineSettings())
+    const viewModel = new StockWorkspaceViewModel(adapter)
+
+    await viewModel.initialize()
+    viewModel.setPeriod('5')
+    viewModel.openStrategyPanel()
+    await viewModel.runStrategyBacktest()
+
+    expect(viewModel.strategyError).toBe('策略回测暂不支持分钟 K 线周期')
+    expect(adapter.cachedKlineQueries).toHaveLength(0)
+    expect(viewModel.strategyResults).toEqual([])
+  })
+
+  it('clears stale strategy results when the kline query changes', async () => {
+    const adapter = new FakeDataAdapter([], createKlineSettings())
+    adapter.nextStockDataset = createCrossingStockDataset()
+    adapter.nextCachedKlineDatasetResult = createCompleteCachedKlineDatasetResult()
+    const viewModel = new StockWorkspaceViewModel(adapter)
+
+    await viewModel.initialize()
+    viewModel.openStrategyPanel()
+    viewModel.setStrategySelectedTemplateIds(['ma-cross'])
+    viewModel.setStrategyDraftParam('ma-cross', 'shortPeriod', 3)
+    viewModel.setStrategyDraftParam('ma-cross', 'longPeriod', 8)
+    await viewModel.runStrategyBacktest()
+
+    expect(viewModel.strategyResults.length).toBeGreaterThan(0)
+    expect(viewModel.chart.strategySignals.length).toBeGreaterThan(0)
+
+    viewModel.setSymbol('sh600519')
+
+    expect(viewModel.strategyResults).toEqual([])
+    expect(viewModel.selectedStrategyResultId).toBe('')
+    expect(viewModel.chart.strategySignals).toEqual([])
+  })
+
+  it('restores selected strategy signals when returning to kline mode', async () => {
+    const adapter = new FakeDataAdapter([], createKlineSettings())
+    adapter.nextStockDataset = createCrossingStockDataset()
+    adapter.nextCachedKlineDatasetResult = createCompleteCachedKlineDatasetResult()
+    const viewModel = new StockWorkspaceViewModel(adapter)
+
+    await viewModel.initialize()
+    viewModel.openStrategyPanel()
+    viewModel.setStrategySelectedTemplateIds(['ma-cross'])
+    viewModel.setStrategyDraftParam('ma-cross', 'shortPeriod', 3)
+    viewModel.setStrategyDraftParam('ma-cross', 'longPeriod', 8)
+    await viewModel.runStrategyBacktest()
+
+    const signalCount = viewModel.chart.strategySignals.length
+    expect(signalCount).toBeGreaterThan(0)
+
+    viewModel.setViewMode('timeshare')
+    expect(viewModel.strategyResults.length).toBeGreaterThan(0)
+    expect(viewModel.chart.strategySignals).toEqual([])
+
+    viewModel.setViewMode('kline')
+    expect(viewModel.chart.strategySignals).toHaveLength(signalCount)
+  })
+
+  it('does not run strategy backtest in timeshare mode', async () => {
+    const adapter = new FakeDataAdapter()
+    const viewModel = new StockWorkspaceViewModel(adapter)
+
+    await viewModel.initialize()
+    viewModel.openStrategyPanel()
+    await viewModel.runStrategyBacktest()
+
+    expect(viewModel.viewMode).toBe('timeshare')
+    expect(viewModel.strategyError).toBe('请切换到 K 线模式后查看历史回测')
+    expect(adapter.cachedKlineQueries).toHaveLength(0)
+    expect(adapter.timeshareQueries.length).toBeGreaterThan(0)
+  })
+
   it('saves proxy settings from the workspace state', async () => {
     const viewModel = new StockWorkspaceViewModel(new FakeDataAdapter([], createKlineSettings()))
 
@@ -1303,6 +1816,68 @@ function createSampleStockDataset(): StockDataset {
   }
 }
 
+function createCrossingStockDataset(): StockDataset {
+  return {
+    ...createSampleStockDataset(),
+    candles: Array.from({ length: 45 }, (_, index) => {
+      const date = new Date(2024, 0, index + 1)
+      const close =
+        index < 12
+          ? 30 - index
+          : index < 28
+            ? 18 + (index - 12) * 1.4
+            : 40 - (index - 28) * 1.8
+      return {
+        timeKey: formatDateKey(date),
+        timestamp: date.getTime(),
+        open: close - 0.2,
+        high: close + 1,
+        low: close - 1,
+        close,
+        volume: 1000 + index,
+        turnover: 2000 + index
+      }
+    })
+  }
+}
+
+function createCompleteCachedKlineDatasetResult(
+  query: StockQuery = createKlineSettings().workspace.query,
+  dataset: StockDataset = createCrossingStockDatasetCoveringQuery(query)
+): KlineCachedDatasetResult {
+  return {
+    status: 'complete',
+    query,
+    dataset,
+    missingRanges: []
+  }
+}
+
+function createCrossingStockDatasetCoveringQuery(query: StockQuery): StockDataset {
+  const dataset = createCrossingStockDataset()
+  const candles = [...dataset.candles]
+  const first = candles[0]
+  const last = candles.at(-1)
+  if (first && query.startDate < first.timeKey) {
+    candles.unshift({
+      ...first,
+      timeKey: query.startDate,
+      timestamp: timestampFromDateKey(query.startDate)
+    })
+  }
+  if (last && query.endDate > last.timeKey) {
+    candles.push({
+      ...last,
+      timeKey: query.endDate,
+      timestamp: timestampFromDateKey(query.endDate)
+    })
+  }
+  return {
+    ...dataset,
+    candles
+  }
+}
+
 function createKlineCacheRows(
   request: KlineCacheStatusRequest | KlineCacheRefreshRequest | KlineCacheClearRequest
 ): KlineCacheStatusRow[] {
@@ -1356,4 +1931,12 @@ function formatDateKey(date: Date): string {
   const month = String(date.getMonth() + 1).padStart(2, '0')
   const day = String(date.getDate()).padStart(2, '0')
   return `${year}${month}${day}`
+}
+
+function timestampFromDateKey(dateKey: string): number {
+  return new Date(
+    Number(dateKey.slice(0, 4)),
+    Number(dateKey.slice(4, 6)) - 1,
+    Number(dateKey.slice(6, 8))
+  ).getTime()
 }

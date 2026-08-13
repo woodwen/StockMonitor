@@ -13,6 +13,7 @@ import type {
   KlineCacheRefreshRequest,
   KlineCacheStatusRequest,
   KlineCacheStatusRow,
+  KlineStrategySettings,
   TimeshareIndicatorSettingsMap,
   WatchlistItem,
   WorkspaceViewMode
@@ -41,6 +42,7 @@ export interface WorkspaceSettings {
   viewMode?: WorkspaceViewMode
   indicatorSettings?: IndicatorSettingsMap
   timeshareIndicatorSettings?: TimeshareIndicatorSettingsMap
+  klineStrategySettings?: KlineStrategySettings
   watchlist?: WatchlistItem[]
   enabledIndicators?: Partial<Record<IndicatorName, boolean>>
 }

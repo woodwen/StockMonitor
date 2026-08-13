@@ -8,6 +8,7 @@ import { TradeProfitCalculatorDrawer } from '../../trade-profit-calculator/views
 import { DataSourceStatusModal } from './DataSourceStatusModal'
 import { IndicatorSettingsModal } from './IndicatorSettingsModal'
 import { KlineCacheManagementModal } from './KlineCacheManagementModal'
+import { KlineStrategyPanel } from './KlineStrategyPanel'
 import { KLineChartView } from './KLineChartView'
 import { NetworkProxyModal } from './NetworkProxyModal'
 import { StatusBar } from './StatusBar'
@@ -51,6 +52,7 @@ export const WorkspacePage = observer(({ root }: WorkspacePageProps) => {
       </Layout.Footer>
       <IndicatorSettingsModal stock={stock} />
       <KlineCacheManagementModal stock={stock} />
+      <KlineStrategyPanel stock={stock} />
       <DataSourceStatusModal stock={stock} />
       <NetworkProxyModal stock={stock} />
       <UpdateStatusView viewModel={root.appUpdate} />

@@ -472,3 +472,128 @@ export interface StockDataset {
 export interface EnrichedStockDataset extends Omit<StockDataset, 'candles'> {
   candles: EnrichedStockCandle[]
 }
+
+export type KlineStrategyPeriod = 'day' | 'week' | 'month'
+
+export type KlineStrategyTemplateId =
+  | 'ma-cross'
+  | 'breakout-pullback'
+  | 'rsi-reversion'
+  | 'macd-trend-confirmation'
+
+export interface KlineStrategyParameterDefinition {
+  key: string
+  label: string
+  defaultValue: number
+  min: number
+  max: number
+  step: number
+  precision?: number
+}
+
+export type KlineStrategyParams = Record<string, number>
+
+export interface KlineStrategyTemplateDefinition {
+  id: KlineStrategyTemplateId
+  name: string
+  description: string
+  signalDescription: string
+  parameters: KlineStrategyParameterDefinition[]
+  defaultParams: KlineStrategyParams
+  minSampleSize: number
+  compatiblePeriods: KlineStrategyPeriod[]
+}
+
+export interface KlineBacktestAssumptions {
+  initialCapital: number
+  feeRate: number
+  slippageRate: number
+}
+
+export interface KlineStrategyDateRange {
+  startDate: string
+  endDate: string
+}
+
+export interface KlineStrategySettings {
+  selectedTemplateIds: KlineStrategyTemplateId[]
+  paramsByTemplate: Partial<Record<KlineStrategyTemplateId, KlineStrategyParams>>
+  dateRange?: KlineStrategyDateRange
+  assumptions: KlineBacktestAssumptions
+  assumptionDefaultsVersion?: number
+}
+
+export interface KlineStrategySignal {
+  side: SignalSide
+  timeKey: string
+  timestamp: number
+  price: number
+  templateId: KlineStrategyTemplateId
+  templateName: string
+  explanation: string
+  indicatorValues: Record<string, number>
+}
+
+export interface KlineStrategyTrade {
+  id: string
+  templateId: KlineStrategyTemplateId
+  entryTimeKey: string
+  entryTimestamp: number
+  entryPrice: number
+  entrySignal: KlineStrategySignal
+  exitTimeKey?: string
+  exitTimestamp?: number
+  exitPrice?: number
+  exitSignal?: KlineStrategySignal
+  holdingBars: number
+  profit: number
+  returnRate: number
+  closed: boolean
+}
+
+export interface KlineStrategyEquityPoint {
+  timeKey: string
+  timestamp: number
+  equity: number
+  drawdown: number
+}
+
+export interface KlineStrategyMetrics {
+  totalReturn: number
+  annualizedReturn: number
+  maxDrawdown: number
+  winRate?: number
+  tradeCount: number
+  profitLossRatio?: number
+  averageHoldingBars?: number
+  finalEquity: number
+  benchmarkReturn: number
+}
+
+export type KlineStrategyResultStatus = 'success' | 'unavailable'
+
+export interface KlineStrategyBacktestResult {
+  id: string
+  status: KlineStrategyResultStatus
+  templateId: KlineStrategyTemplateId
+  templateName: string
+  description: string
+  query: StockQuery
+  params: KlineStrategyParams
+  assumptions: KlineBacktestAssumptions
+  dataStartDate?: string
+  dataEndDate?: string
+  signals: KlineStrategySignal[]
+  trades: KlineStrategyTrade[]
+  equityCurve: KlineStrategyEquityPoint[]
+  metrics?: KlineStrategyMetrics
+  score?: number
+  rank?: number
+  unavailableReason?: string
+}
+
+export interface KlineStrategyComparisonResult {
+  query: StockQuery
+  assumptions: KlineBacktestAssumptions
+  results: KlineStrategyBacktestResult[]
+}

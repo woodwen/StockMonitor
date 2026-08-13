@@ -15,6 +15,10 @@ import {
   createDefaultTimeshareIndicatorSettings,
   normalizeTimeshareIndicatorSettings
 } from '../renderer/features/stock-workspace/models/timeshare-indicator-definitions'
+import {
+  createDefaultKlineStrategySettings,
+  normalizeKlineStrategySettings
+} from '../renderer/features/stock-workspace/models/kline-strategy-backtesting'
 import { normalizeWatchlist } from '../renderer/features/stock-workspace/models/watchlist'
 import {
   createDefaultTradeProfitSettings,
@@ -136,6 +140,7 @@ function normalizeWorkspaceSettings(workspace: Partial<WorkspaceSettings> | unde
     timeshareIndicatorSettings: normalizeTimeshareIndicatorSettings(
       workspace?.timeshareIndicatorSettings
     ),
+    klineStrategySettings: normalizeKlineStrategySettings(workspace?.klineStrategySettings),
     watchlist: normalizeWatchlist(workspace?.watchlist)
   }
 }
@@ -169,6 +174,7 @@ function getDefaultWorkspaceSettings(): WorkspaceSettings {
     },
     indicatorSettings: createDefaultIndicatorSettings(),
     timeshareIndicatorSettings: createDefaultTimeshareIndicatorSettings(),
+    klineStrategySettings: createDefaultKlineStrategySettings(),
     watchlist: []
   }
 }

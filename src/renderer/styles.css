@@ -674,6 +674,128 @@ body {
   font-size: 12px;
 }
 
+.strategy-drawer .ant-drawer-body {
+  padding-top: 14px;
+}
+
+.strategy-shell {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.strategy-section {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.strategy-section-title {
+  color: #d7e0ea;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.strategy-template-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.strategy-template-row {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 0;
+  border-bottom: 1px solid #263241;
+}
+
+.strategy-template-meta,
+.strategy-result-name {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.strategy-result-name span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.strategy-param {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #95a3b8;
+  font-size: 12px;
+}
+
+.strategy-param .ant-input-number {
+  width: 112px;
+}
+
+.strategy-date-input {
+  width: 104px;
+}
+
+.strategy-error {
+  display: block;
+  font-size: 12px;
+}
+
+.strategy-status {
+  display: block;
+  font-size: 12px;
+}
+
+.strategy-subtitle {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.strategy-row-selected > td {
+  background: rgb(22 119 255 / 14%) !important;
+}
+
+.strategy-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.strategy-assumptions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.strategy-metric {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 1px solid #263241;
+  border-radius: 6px;
+  background: #111a26;
+}
+
+.strategy-metric strong {
+  overflow: hidden;
+  color: #d7e0ea;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.strategy-assumptions .strategy-metric strong {
+  white-space: normal;
+}
+
 @media (max-width: 760px) {
   .kline-cache-source-select,
   .kline-cache-date-input {
@@ -687,6 +809,14 @@ body {
 
   .kline-cache-actions > .ant-space {
     width: 100%;
+  }
+
+  .strategy-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .strategy-assumptions {
+    grid-template-columns: repeat(1, minmax(0, 1fr));
   }
 }
 

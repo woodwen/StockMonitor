@@ -1,29 +1,4 @@
-# stock-workspace Specification
-
-## Purpose
-TBD - created by archiving change adopt-openspec-workflow. Update Purpose after archive.
-## Requirements
-### Requirement: 工作区视图模式
-系统 SHALL 提供分时和 K 线两种工作区模式，并以分时作为默认启动视图。
-
-#### Scenario: 应用启动
-- **WHEN** 应用使用默认设置启动
-- **THEN** 工作区 SHALL 进入分时模式
-
-#### Scenario: 用户切换视图模式
-- **WHEN** 用户在分时和 K 线模式之间切换
-- **THEN** 工作区 SHALL 展示与当前模式匹配的控件和图表行为
-
-### Requirement: K 线和分时数据源选择互相独立
-系统 SHALL 保持 K 线数据源选择和分时数据源选择互相独立，同时共享当前证券代码。
-
-#### Scenario: 用户切换 K 线数据源
-- **WHEN** 用户选择 K 线数据源
-- **THEN** 分时数据源 SHALL 保持不变
-
-#### Scenario: 用户切换分时数据源
-- **WHEN** 用户选择分时数据源
-- **THEN** K 线数据源 SHALL 保持不变
+## MODIFIED Requirements
 
 ### Requirement: 工作区设置本地持久化
 系统 SHALL 通过应用设置存储持久化工作区查询状态、按视图区分的数据源选择、指标设置、策略回测偏好、代理设置、启动检查更新设置和本地用户工作流状态。
@@ -32,76 +7,7 @@ TBD - created by archiving change adopt-openspec-workflow. Update Purpose after 
 - **WHEN** 应用在设置保存后重启
 - **THEN** 工作区 SHALL 恢复已保存的兼容设置，包括策略模板、策略参数、回测区间和回测假设，或恢复 normalize 后的默认值
 
-### Requirement: 刷新行为感知当前模式
-系统 SHALL 支持当前工作区模式的手动刷新，并且 SHALL 只在窗口可见且本地 A 股交易时段条件满足时自动刷新分时数据。
-
-#### Scenario: 用户点击刷新
-- **WHEN** 用户点击刷新
-- **THEN** 工作区 SHALL 刷新当前视图模式的数据
-
-#### Scenario: 分时自动刷新定时器触发
-- **WHEN** 工作区处于分时模式、窗口可见且交易时段条件满足
-- **THEN** 系统 SHALL 执行静默分时刷新，并且不改变 K 线查询状态
-
-### Requirement: 工作区展示可操作状态
-系统 SHALL 在工作区状态区域展示当前数据源、证券代码、记录数或点数、最新行情、加载状态和更新状态。
-
-#### Scenario: 数据刷新成功
-- **WHEN** 行情数据刷新成功
-- **THEN** 状态区域 SHALL 反映 active source、symbol、已加载数据量、最新数据和非错误加载状态
-
-#### Scenario: 数据刷新失败
-- **WHEN** 行情数据刷新失败
-- **THEN** 工作区 SHALL 展示清晰失败状态，并且不清空无关用户设置
-
-### Requirement: 工作区编排 K 线缓存管理弹窗
-系统 SHALL 由工作区 ViewModel 编排 K 线缓存管理弹窗的打开状态、查询条件草稿、缓存状态加载和刷新任务状态。
-
-#### Scenario: 打开缓存管理弹窗
-- **WHEN** 用户从自选股面板打开 K 线缓存管理弹窗
-- **THEN** 工作区 SHALL 使用当前 K 线 query 的 `sourceId`、`startDate` 和 `endDate` 作为弹窗默认查询条件，并 SHALL 默认选中支持的 `day`、`week`、`month` 周期和 `qfq`、`none`、`hfq` 复权口径
-
-#### Scenario: 周期和复权使用复选框组
-- **WHEN** 用户打开 K 线缓存管理弹窗
-- **THEN** 弹窗 SHALL 将 `日线`、`周线`、`月线` 展示为周期复选框组，并将 `前复权`、`不复权`、`后复权` 展示为复权复选框组
-
-#### Scenario: 当前处于分时模式
-- **WHEN** 工作区处于分时模式且用户打开 K 线缓存管理弹窗
-- **THEN** 工作区 SHALL 保持当前视图模式不变，并 SHALL NOT 因打开弹窗触发图表刷新
-
-### Requirement: 缓存任务不破坏当前工作区行情状态
-系统 SHALL 将 K 线缓存任务状态与当前图表加载状态分离。
-
-#### Scenario: 缓存刷新成功
-- **WHEN** K 线缓存刷新任务成功写入一个或多个 symbol 的缓存
-- **THEN** 工作区 SHALL 更新缓存弹窗内的行级状态，并 SHALL NOT 替换当前图表 dataset
-
-#### Scenario: 缓存刷新失败
-- **WHEN** K 线缓存刷新任务中的一个或多个 symbol 失败
-- **THEN** 工作区 SHALL 在缓存弹窗内展示失败原因，并 SHALL NOT 清空当前图表错误状态、查询设置或已加载数据
-
-### Requirement: 缓存管理控件遵守数据源能力
-系统 SHALL 在缓存管理弹窗中只允许用户选择当前 K 线数据源支持的周期和复权选项，并以多选数组保存查询条件。
-
-#### Scenario: 数据源保持单选
-- **WHEN** 用户在缓存管理弹窗中配置查询条件
-- **THEN** 弹窗 SHALL 只允许选择一个 K 线数据源，并 SHALL 将多个周期和多个复权组合展开到该数据源下查询和刷新
-
-#### Scenario: 用户切换缓存数据源
-- **WHEN** 用户在缓存管理弹窗中切换 K 线数据源
-- **THEN** 工作区 SHALL 只保留该数据源支持的已选 periods 和 adjusts，并重新加载缓存状态
-
-#### Scenario: 切换数据源后没有能力交集
-- **WHEN** 用户切换 K 线数据源后，已选 periods 或 adjusts 与该数据源能力没有交集
-- **THEN** 工作区 SHALL 清空对应选择、展示清晰错误，并 SHALL 阻止查询和刷新直到用户重新选择支持项
-
-#### Scenario: 未选择周期或复权
-- **WHEN** 用户清空所有周期或所有复权口径
-- **THEN** 工作区 SHALL 展示清晰错误，并 SHALL 阻止查询缓存状态和启动缓存刷新
-
-#### Scenario: 查询条件日期无效
-- **WHEN** 用户输入无效或倒置的缓存日期范围
-- **THEN** 工作区 SHALL 阻止启动缓存刷新，并展示清晰的表单错误
+## ADDED Requirements
 
 ### Requirement: K 线工作区暴露策略回测入口
 系统 SHALL 在 K 线工作区提供策略回测面板入口，用于基于当前 K 线 query 运行策略模板和查看历史回测结果。

@@ -18,13 +18,17 @@ import type {
   IndicatorName,
   IndicatorSettings,
   IndicatorSettingsMap,
-  IndicatorVisualSettings
+  IndicatorVisualSettings,
+  KlineStrategySignal,
+  StockQuery
 } from '../models/stock-types'
 
 export class KLineChartViewModel {
   dataset: EnrichedStockDataset | null = null
+  datasetQuery: StockQuery | null = null
   indicatorSettings: IndicatorSettingsMap = createDefaultIndicatorSettings()
   previewIndicatorSettings: IndicatorSettingsMap | null = null
+  strategySignals: KlineStrategySignal[] = []
   indicatorDialogOpen = false
   indicatorDraft: IndicatorSettingsMap = createDefaultIndicatorSettings()
   revision = 0
@@ -33,8 +37,17 @@ export class KLineChartViewModel {
     makeAutoObservable(this, {}, { autoBind: true })
   }
 
-  setDataset(dataset: EnrichedStockDataset): void {
+  setDataset(dataset: EnrichedStockDataset, query: StockQuery | null = this.datasetQuery): void {
     this.dataset = dataset
+    this.datasetQuery = query ? { ...query } : null
+    this.revision += 1
+  }
+
+  setStrategySignals(signals: KlineStrategySignal[]): void {
+    this.strategySignals = signals.map((signal) => ({
+      ...signal,
+      indicatorValues: { ...signal.indicatorValues }
+    }))
     this.revision += 1
   }
 

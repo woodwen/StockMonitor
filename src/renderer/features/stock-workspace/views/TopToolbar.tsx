@@ -5,6 +5,7 @@ import {
   BarChartOutlined,
   CalculatorOutlined,
   CloudDownloadOutlined,
+  FundProjectionScreenOutlined,
   GlobalOutlined,
   LineChartOutlined,
   ReloadOutlined,
@@ -109,6 +110,13 @@ export const TopToolbar = observer(({ stock, updates, tradeProfit }: TopToolbarP
             做T
           </Button>
         </Tooltip>
+        {stock.viewMode === 'kline' ? (
+          <Tooltip title="查看 K 线历史回测和候选策略">
+            <Button icon={<FundProjectionScreenOutlined />} onClick={stock.openStrategyPanel}>
+              策略
+            </Button>
+          </Tooltip>
+        ) : null}
         <div className="toolbar-symbol-title" title={stock.activeTitle}>
           <BarChartOutlined />
           <span>{stock.activeTitle}</span>
