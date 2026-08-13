@@ -8,6 +8,11 @@ import type {
   IndicatorLineStyle,
   IndicatorName,
   IndicatorSettingsMap,
+  KlineCacheJob,
+  KlineCacheRequestQuery,
+  KlineCacheSeriesRequestItem,
+  KlineCacheStatusRequest,
+  KlineCacheStatusRow,
   StockAdjust,
   StockDataSourceMeta,
   StockPeriod,
@@ -29,6 +34,14 @@ import {
   parseWatchlistText,
   removeWatchlistSymbols
 } from '../models/watchlist'
+import {
+  DEFAULT_KLINE_CACHE_ADJUSTS,
+  DEFAULT_KLINE_CACHE_PERIODS,
+  createKlineCacheRequestQuery,
+  getKlineCacheRequestError,
+  normalizeKlineCacheAdjusts,
+  normalizeKlineCachePeriods
+} from '../models/kline-cache'
 import type { StockDataAdapter } from '../adapters/ElectronStockDataAdapter'
 import { KLineChartViewModel } from './KLineChartViewModel'
 import { TimeshareChartViewModel } from './TimeshareChartViewModel'
@@ -51,6 +64,7 @@ export interface SourceTestResult {
 
 const WORKSPACE_SAVE_DEBOUNCE_MS = 500
 const TIMESHARE_REFRESH_INTERVAL_MS = 15_000
+const KLINE_CACHE_JOB_POLL_INTERVAL_MS = 1_000
 
 export class StockWorkspaceViewModel {
   readonly chart = new KLineChartViewModel()
@@ -76,20 +90,36 @@ export class StockWorkspaceViewModel {
   watchlistAddText = ''
   watchlistAddPreview: WatchlistParseResult = createEmptyWatchlistParseResult()
   watchlistPasteError = ''
+  klineCacheDialogOpen = false
+  klineCacheLoading = false
+  klineCacheError = ''
+  klineCacheRows: KlineCacheStatusRow[] = []
+  klineCacheSelectedRowIds: string[] = []
+  klineCacheQuery: KlineCacheRequestQuery = createKlineCacheRequestQuery(createDefaultStockQuery())
+  klineCacheJob: KlineCacheJob | null = null
   private workspaceSaveTimer?: ReturnType<typeof setTimeout>
   private timeshareRefreshTimer?: ReturnType<typeof setTimeout>
+  private klineCacheJobTimer?: ReturnType<typeof setTimeout>
+  private klineCacheStatusRequestId = 0
   private timeshareRequestId = 0
 
   constructor(private readonly dataAdapter: StockDataAdapter) {
     makeAutoObservable<
       this,
-      'dataAdapter' | 'workspaceSaveTimer' | 'timeshareRefreshTimer' | 'timeshareRequestId'
+      | 'dataAdapter'
+      | 'workspaceSaveTimer'
+      | 'timeshareRefreshTimer'
+      | 'klineCacheJobTimer'
+      | 'klineCacheStatusRequestId'
+      | 'timeshareRequestId'
     >(
       this,
       {
         dataAdapter: false,
         workspaceSaveTimer: false,
         timeshareRefreshTimer: false,
+        klineCacheJobTimer: false,
+        klineCacheStatusRequestId: false,
         timeshareRequestId: false
       },
       { autoBind: true }
@@ -110,6 +140,7 @@ export class StockWorkspaceViewModel {
   dispose(): void {
     this.removeVisibilityListener()
     this.stopTimeshareAutoRefresh()
+    this.stopKlineCacheJobPolling()
     if (this.workspaceSaveTimer) {
       clearTimeout(this.workspaceSaveTimer)
       this.workspaceSaveTimer = undefined
@@ -395,8 +426,237 @@ export class StockWorkspaceViewModel {
       return
     }
     this.watchlist = removeWatchlistSymbols(this.watchlist, this.selectedWatchlistSymbols)
+    this.klineCacheSelectedRowIds = this.klineCacheSelectedRowIds.filter((rowId) =>
+      this.klineCacheRows.some(
+        (row) => row.id === rowId && this.watchlist.some((item) => item.symbol === row.symbol)
+      )
+    )
     this.exitWatchlistManageMode()
     this.saveWorkspaceSettingsNow()
+  }
+
+  openKlineCacheDialog(): void {
+    this.klineCacheQuery = this.normalizeKlineCacheQuery(createKlineCacheRequestQuery(this.query))
+    this.klineCacheSelectedRowIds = []
+    this.klineCacheError = ''
+    this.klineCacheDialogOpen = true
+    if (this.watchlist.length === 0) {
+      this.klineCacheRows = []
+      return
+    }
+    void this.loadKlineCacheStatus()
+    if (this.klineCacheJob && isKlineCacheJobActive(this.klineCacheJob)) {
+      this.scheduleKlineCacheJobPolling()
+    }
+  }
+
+  closeKlineCacheDialog(): void {
+    this.klineCacheDialogOpen = false
+    this.klineCacheError = ''
+    this.stopKlineCacheJobPolling()
+  }
+
+  setKlineCacheSourceId(sourceId: StockSourceId): void {
+    this.klineCacheQuery = this.normalizeKlineCacheQuery({
+      ...this.klineCacheQuery,
+      sourceId
+    })
+    this.resetKlineCacheRowsForQueryChange()
+    void this.loadKlineCacheStatus()
+  }
+
+  setKlineCachePeriods(periods: StockPeriod[]): void {
+    this.klineCacheQuery = this.normalizeKlineCacheQuery({
+      ...this.klineCacheQuery,
+      periods
+    })
+    this.resetKlineCacheRowsForQueryChange()
+    void this.loadKlineCacheStatus()
+  }
+
+  setKlineCacheAdjusts(adjusts: StockAdjust[]): void {
+    this.klineCacheQuery = this.normalizeKlineCacheQuery({
+      ...this.klineCacheQuery,
+      adjusts
+    })
+    this.resetKlineCacheRowsForQueryChange()
+    void this.loadKlineCacheStatus()
+  }
+
+  setKlineCachePeriod(period: StockPeriod): void {
+    this.setKlineCachePeriods([period])
+  }
+
+  setKlineCacheAdjust(adjust: StockAdjust): void {
+    this.setKlineCacheAdjusts([adjust])
+  }
+
+  setKlineCacheStartDate(startDate: string): void {
+    this.klineCacheStatusRequestId += 1
+    this.klineCacheLoading = false
+    this.klineCacheQuery = {
+      ...this.klineCacheQuery,
+      startDate: normalizeDateInput(startDate)
+    }
+    this.resetKlineCacheRowsForQueryChange()
+  }
+
+  setKlineCacheEndDate(endDate: string): void {
+    this.klineCacheStatusRequestId += 1
+    this.klineCacheLoading = false
+    this.klineCacheQuery = {
+      ...this.klineCacheQuery,
+      endDate: normalizeDateInput(endDate)
+    }
+    this.resetKlineCacheRowsForQueryChange()
+  }
+
+  async loadKlineCacheStatus(): Promise<void> {
+    if (this.watchlist.length === 0) {
+      runInAction(() => {
+        this.klineCacheRows = []
+        this.klineCacheLoading = false
+        this.klineCacheError = ''
+      })
+      return
+    }
+    const formError = this.klineCacheFormError
+    if (formError) {
+      runInAction(() => {
+        this.klineCacheLoading = false
+        this.klineCacheError = formError
+      })
+      return
+    }
+
+    const request = this.createKlineCacheRequest(this.watchlist)
+    const requestId = ++this.klineCacheStatusRequestId
+    this.klineCacheLoading = true
+    this.klineCacheError = ''
+    try {
+      const rows = await this.dataAdapter.getKlineCacheStatus(request)
+      runInAction(() => {
+        if (this.klineCacheStatusRequestId !== requestId) {
+          return
+        }
+        this.klineCacheRows = rows
+        this.klineCacheSelectedRowIds = this.klineCacheSelectedRowIds.filter((rowId) =>
+          rows.some((row) => row.id === rowId)
+        )
+        this.klineCacheLoading = false
+        this.klineCacheError = ''
+      })
+    } catch (error) {
+      runInAction(() => {
+        if (this.klineCacheStatusRequestId !== requestId) {
+          return
+        }
+        this.klineCacheLoading = false
+        this.klineCacheError = formatErrorMessage(error)
+      })
+    }
+  }
+
+  async refreshAllKlineCache(): Promise<void> {
+    await this.startKlineCacheRefresh(this.watchlist)
+  }
+
+  async refreshSelectedKlineCache(): Promise<void> {
+    const selectedRows = this.selectedKlineCacheRows
+    if (selectedRows.length === 0) {
+      return
+    }
+    await this.startKlineCacheRefresh(this.watchlist, selectedRows)
+  }
+
+  async cancelKlineCacheRefresh(): Promise<void> {
+    if (!this.klineCacheJob || !isKlineCacheJobActive(this.klineCacheJob)) {
+      return
+    }
+    try {
+      const job = await this.dataAdapter.cancelKlineCacheJob(this.klineCacheJob.id)
+      runInAction(() => {
+        this.klineCacheJob = job
+      })
+      if (job && isKlineCacheJobActive(job)) {
+        this.scheduleKlineCacheJobPolling()
+      }
+    } catch (error) {
+      runInAction(() => {
+        this.klineCacheError = formatErrorMessage(error)
+      })
+    }
+  }
+
+  async clearSelectedKlineCache(): Promise<void> {
+    const selectedRows = this.selectedKlineCacheRows
+    if (selectedRows.length === 0 || this.klineCacheFormError) {
+      return
+    }
+
+    this.klineCacheLoading = true
+    this.klineCacheError = ''
+    try {
+      const rows = await this.dataAdapter.clearKlineCache(
+        this.createKlineCacheRequest(this.watchlist, selectedRows)
+      )
+      runInAction(() => {
+        const updatedRows = new Map(rows.map((row) => [row.id, row]))
+        this.klineCacheRows = this.klineCacheRows.map((row) => updatedRows.get(row.id) ?? row)
+        this.klineCacheSelectedRowIds = []
+        this.klineCacheLoading = false
+      })
+    } catch (error) {
+      runInAction(() => {
+        this.klineCacheLoading = false
+        this.klineCacheError = formatErrorMessage(error)
+      })
+    }
+  }
+
+  toggleKlineCacheSelection(rowId: string, selected: boolean): void {
+    if (!this.klineCacheRows.some((row) => row.id === rowId)) {
+      return
+    }
+    if (selected) {
+      if (!this.klineCacheSelectedRowIds.includes(rowId)) {
+        this.klineCacheSelectedRowIds = [...this.klineCacheSelectedRowIds, rowId]
+      }
+      return
+    }
+    this.klineCacheSelectedRowIds = this.klineCacheSelectedRowIds.filter((item) => item !== rowId)
+  }
+
+  setKlineCacheSelectedRowIds(rowIds: string[]): void {
+    const available = new Set(this.klineCacheRows.map((row) => row.id))
+    const next: string[] = []
+    rowIds.forEach((rowId) => {
+      if (available.has(rowId) && !next.includes(rowId)) {
+        next.push(rowId)
+      }
+    })
+    this.klineCacheSelectedRowIds = next
+  }
+
+  setKlineCacheSelectedSymbols(symbols: string[]): void {
+    const normalizedSymbols = new Set(
+      symbols
+        .map((symbol) => normalizeWatchlistSymbol(symbol))
+        .filter((symbol): symbol is string => Boolean(symbol))
+    )
+    this.setKlineCacheSelectedRowIds(
+      this.klineCacheRows
+        .filter((row) => normalizedSymbols.has(row.symbol))
+        .map((row) => row.id)
+    )
+  }
+
+  selectAllKlineCacheRows(): void {
+    this.klineCacheSelectedRowIds = this.klineCacheRows.map((row) => row.id)
+  }
+
+  clearKlineCacheSelection(): void {
+    this.klineCacheSelectedRowIds = []
   }
 
   toggleIndicator(name: IndicatorName, enabled: boolean): void {
@@ -696,6 +956,58 @@ export class StockWorkspaceViewModel {
     return this.selectedWatchlistSymbols.length > 0
   }
 
+  get selectedKlineCacheCount(): number {
+    return this.klineCacheSelectedRowIds.length
+  }
+
+  get selectedKlineCacheRows(): KlineCacheStatusRow[] {
+    const selected = new Set(this.klineCacheSelectedRowIds)
+    return this.klineCacheRows.filter((row) => selected.has(row.id))
+  }
+
+  get klineCacheFormError(): string {
+    return getKlineCacheRequestError(this.klineCacheQuery)
+  }
+
+  get klineCacheRunning(): boolean {
+    return Boolean(this.klineCacheJob && isKlineCacheJobActive(this.klineCacheJob))
+  }
+
+  get klineCacheProgressPercent(): number {
+    if (!this.klineCacheJob || this.klineCacheJob.total === 0) {
+      return 0
+    }
+    return Math.round((this.klineCacheJob.completed / this.klineCacheJob.total) * 100)
+  }
+
+  get canRefreshKlineCache(): boolean {
+    return this.watchlist.length > 0 && !this.klineCacheRunning && !this.klineCacheFormError
+  }
+
+  get canRefreshSelectedKlineCache(): boolean {
+    return this.selectedKlineCacheCount > 0 && !this.klineCacheRunning && !this.klineCacheFormError
+  }
+
+  get canClearSelectedKlineCache(): boolean {
+    return this.selectedKlineCacheCount > 0 && !this.klineCacheRunning && !this.klineCacheFormError
+  }
+
+  get klineCachePeriodOptions(): Array<{ value: StockPeriod; label: string }> {
+    const source = this.sources.find((item) => item.id === this.klineCacheQuery.sourceId)
+    const supported = source?.capabilities.periods ?? []
+    return DEFAULT_KLINE_CACHE_PERIODS.filter((period) => supported.includes(period)).map(
+      (period) => periodOptions.find((option) => option.value === period) ?? { value: period, label: period }
+    )
+  }
+
+  get klineCacheAdjustOptions(): Array<{ value: StockAdjust; label: string }> {
+    const source = this.sources.find((item) => item.id === this.klineCacheQuery.sourceId)
+    const supported = source?.capabilities.adjusts ?? []
+    return DEFAULT_KLINE_CACHE_ADJUSTS.filter((adjust) => supported.includes(adjust)).map(
+      (adjust) => adjustOptions.find((option) => option.value === adjust) ?? { value: adjust, label: adjust }
+    )
+  }
+
   get currentStockName(): string {
     const dataset = this.viewMode === 'timeshare' ? this.timeshare.dataset : this.chart.dataset
     const name = normalizeWatchlistName(dataset?.meta.name)
@@ -816,6 +1128,23 @@ export class StockWorkspaceViewModel {
     }
   }
 
+  private normalizeKlineCacheQuery(query: KlineCacheRequestQuery): KlineCacheRequestQuery {
+    const source = this.sources.find((item) => item.id === query.sourceId)
+    const periods = normalizeKlineCachePeriods(query.periods).filter((period) =>
+      source ? source.capabilities.periods.includes(period) : true
+    )
+    const adjusts = normalizeKlineCacheAdjusts(query.adjusts).filter((adjust) =>
+      source ? source.capabilities.adjusts.includes(adjust) : true
+    )
+    return {
+      sourceId: query.sourceId,
+      periods,
+      adjusts,
+      startDate: normalizeDateInput(query.startDate),
+      endDate: normalizeDateInput(query.endDate)
+    }
+  }
+
   private normalizeTimeshareSourceId(sourceId: StockSourceId | undefined): StockSourceId {
     const source = this.sources.find((item) => item.id === sourceId)
     return source?.capabilities.timeshare ? source.id : 'eastmoney'
@@ -928,6 +1257,115 @@ export class StockWorkspaceViewModel {
     }
     clearTimeout(this.timeshareRefreshTimer)
     this.timeshareRefreshTimer = undefined
+  }
+
+  private async startKlineCacheRefresh(
+    items: WatchlistItem[],
+    rows: KlineCacheStatusRow[] = []
+  ): Promise<void> {
+    const normalizedItems = normalizeWatchlist(items)
+    if (normalizedItems.length === 0 && rows.length === 0) {
+      return
+    }
+    const formError = this.klineCacheFormError
+    if (formError) {
+      this.klineCacheError = formError
+      return
+    }
+
+    this.stopKlineCacheJobPolling()
+    this.klineCacheError = ''
+    try {
+      const job = await this.dataAdapter.startKlineCacheRefresh(
+        this.createKlineCacheRequest(normalizedItems, rows)
+      )
+      runInAction(() => {
+        this.klineCacheJob = job
+      })
+      if (isKlineCacheJobActive(job)) {
+        this.scheduleKlineCacheJobPolling()
+      } else {
+        await this.loadKlineCacheStatus()
+      }
+    } catch (error) {
+      runInAction(() => {
+        this.klineCacheError = formatErrorMessage(error)
+      })
+    }
+  }
+
+  private scheduleKlineCacheJobPolling(): void {
+    this.stopKlineCacheJobPolling()
+    this.klineCacheJobTimer = setTimeout(() => {
+      this.klineCacheJobTimer = undefined
+      void this.pollKlineCacheJob()
+    }, KLINE_CACHE_JOB_POLL_INTERVAL_MS)
+  }
+
+  private stopKlineCacheJobPolling(): void {
+    if (!this.klineCacheJobTimer) {
+      return
+    }
+    clearTimeout(this.klineCacheJobTimer)
+    this.klineCacheJobTimer = undefined
+  }
+
+  private resetKlineCacheRowsForQueryChange(): void {
+    this.klineCacheRows = []
+    this.klineCacheSelectedRowIds = []
+    this.klineCacheError = ''
+  }
+
+  private async pollKlineCacheJob(): Promise<void> {
+    const jobId = this.klineCacheJob?.id
+    if (!jobId) {
+      return
+    }
+    try {
+      const job = await this.dataAdapter.getKlineCacheJob(jobId)
+      runInAction(() => {
+        this.klineCacheJob = job
+      })
+      if (job && isKlineCacheJobActive(job)) {
+        this.scheduleKlineCacheJobPolling()
+        return
+      }
+      await this.loadKlineCacheStatus()
+    } catch (error) {
+      runInAction(() => {
+        this.klineCacheError = formatErrorMessage(error)
+      })
+    }
+  }
+
+  private createKlineCacheRequest(
+    items: WatchlistItem[],
+    rows: KlineCacheStatusRow[] = []
+  ): KlineCacheStatusRequest {
+    const request: KlineCacheStatusRequest & { rows?: KlineCacheSeriesRequestItem[] } = {
+      query: {
+        sourceId: this.klineCacheQuery.sourceId,
+        periods: [...this.klineCacheQuery.periods],
+        adjusts: [...this.klineCacheQuery.adjusts],
+        startDate: this.klineCacheQuery.startDate,
+        endDate: this.klineCacheQuery.endDate
+      },
+      items: normalizeWatchlist(items).map((item) => ({
+        symbol: item.symbol,
+        name: item.name,
+        createdAt: item.createdAt,
+        ...(item.updatedAt === undefined ? {} : { updatedAt: item.updatedAt })
+      }))
+    }
+    if (rows.length > 0) {
+      request.rows = rows.map((row) => ({
+        id: row.id,
+        symbol: row.symbol,
+        name: row.name,
+        query: { ...row.query }
+      }))
+    }
+    return request
   }
 
   private addVisibilityListener(): void {
@@ -1122,6 +1560,10 @@ function adjustLabel(adjust: StockAdjust): string {
 
 function formatErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
+}
+
+function isKlineCacheJobActive(job: KlineCacheJob): boolean {
+  return job.status === 'queued' || job.status === 'running'
 }
 
 function isDocumentVisible(): boolean {

@@ -7,7 +7,10 @@ import type {
 import type { TradeProfitSettings } from '../renderer/features/trade-profit-calculator/models/trade-profit'
 import type {
   StockQuery,
-  StockTimeshareQuery
+  StockTimeshareQuery,
+  KlineCacheStatusRequest,
+  KlineCacheRefreshRequest,
+  KlineCacheClearRequest
 } from '../renderer/features/stock-workspace/models/stock-types'
 import {
   getSettings,
@@ -24,6 +27,14 @@ import {
   quitAndInstallUpdate
 } from './update-manager'
 import { logger } from './logger'
+import {
+  cancelKlineCacheJob,
+  clearKlineCache,
+  getCachedKlineDataset,
+  getKlineCacheJob,
+  getKlineCacheStatus,
+  startKlineCacheRefresh
+} from './kline-cache'
 import {
   fetchRemoteStockDataset,
   fetchRemoteStockTimeshareDataset,
@@ -46,6 +57,27 @@ export function registerIpcHandlers(): void {
   registerIpcHandler('stock:fetchTimeshareDataset', async (_event, query: StockTimeshareQuery) => {
     logger.info('Fetching remote stock timeshare dataset', query)
     return fetchRemoteStockTimeshareDataset(query, { proxy: getSettings().networkProxy })
+  })
+  registerIpcHandler('stock:getKlineCacheStatus', async (_event, request: KlineCacheStatusRequest) => {
+    return getKlineCacheStatus(request)
+  })
+  registerIpcHandler(
+    'stock:startKlineCacheRefresh',
+    (_event, request: KlineCacheRefreshRequest) => {
+      return startKlineCacheRefresh(request)
+    }
+  )
+  registerIpcHandler('stock:getKlineCacheJob', (_event, jobId: string) => {
+    return getKlineCacheJob(jobId)
+  })
+  registerIpcHandler('stock:cancelKlineCacheJob', (_event, jobId: string) => {
+    return cancelKlineCacheJob(jobId)
+  })
+  registerIpcHandler('stock:getCachedKlineDataset', async (_event, query: StockQuery) => {
+    return getCachedKlineDataset(query)
+  })
+  registerIpcHandler('stock:clearKlineCache', async (_event, request: KlineCacheClearRequest) => {
+    return clearKlineCache(request)
   })
 
   registerIpcHandler('settings:get', (): AppSettings => getSettings())

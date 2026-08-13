@@ -78,6 +78,24 @@ function createFakeStockApi(): StockApi & {
     downloadUpdate: vi.fn(async () => undefined),
     fetchStockDataset: vi.fn(),
     fetchStockTimeshareDataset: vi.fn(),
+    getKlineCacheStatus: vi.fn(async () => []),
+    startKlineCacheRefresh: vi.fn(async () => ({
+      id: 'job-1',
+      status: 'completed' as const,
+      total: 0,
+      completed: 0,
+      rows: [],
+      startedAt: 1,
+      finishedAt: 1
+    })),
+    getKlineCacheJob: vi.fn(async () => null),
+    cancelKlineCacheJob: vi.fn(async () => null),
+    getCachedKlineDataset: vi.fn(async (query) => ({
+      status: 'empty' as const,
+      query,
+      missingRanges: []
+    })),
+    clearKlineCache: vi.fn(async () => []),
     getSettings: vi.fn(async () => settings),
     getStockDataSources: vi.fn(),
     onMenuCommand: vi.fn(() => () => undefined),

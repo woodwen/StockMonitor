@@ -4,13 +4,25 @@ import type {
   StockDataset,
   StockQuery,
   StockTimeshareDataset,
-  StockTimeshareQuery
+  StockTimeshareQuery,
+  KlineCachedDatasetResult,
+  KlineCacheClearRequest,
+  KlineCacheJob,
+  KlineCacheRefreshRequest,
+  KlineCacheStatusRequest,
+  KlineCacheStatusRow
 } from '../models/stock-types'
 
 export interface StockDataAdapter {
   getStockDataSources(): Promise<StockDataSourceMeta[]>
   fetchStockDataset(query: StockQuery): Promise<StockDataset>
   fetchStockTimeshareDataset(query: StockTimeshareQuery): Promise<StockTimeshareDataset>
+  getKlineCacheStatus(request: KlineCacheStatusRequest): Promise<KlineCacheStatusRow[]>
+  startKlineCacheRefresh(request: KlineCacheRefreshRequest): Promise<KlineCacheJob>
+  getKlineCacheJob(jobId: string): Promise<KlineCacheJob | null>
+  cancelKlineCacheJob(jobId: string): Promise<KlineCacheJob | null>
+  getCachedKlineDataset(query: StockQuery): Promise<KlineCachedDatasetResult>
+  clearKlineCache(request: KlineCacheClearRequest): Promise<KlineCacheStatusRow[]>
   getSettings(): Promise<AppSettings>
   setNetworkProxy(proxy: NetworkProxySettings): Promise<AppSettings>
   setWorkspaceSettings(workspace: WorkspaceSettings): Promise<AppSettings>
@@ -27,6 +39,30 @@ export class ElectronStockDataAdapter implements StockDataAdapter {
 
   fetchStockTimeshareDataset(query: StockTimeshareQuery): Promise<StockTimeshareDataset> {
     return window.stockApi.fetchStockTimeshareDataset(query)
+  }
+
+  getKlineCacheStatus(request: KlineCacheStatusRequest): Promise<KlineCacheStatusRow[]> {
+    return window.stockApi.getKlineCacheStatus(request)
+  }
+
+  startKlineCacheRefresh(request: KlineCacheRefreshRequest): Promise<KlineCacheJob> {
+    return window.stockApi.startKlineCacheRefresh(request)
+  }
+
+  getKlineCacheJob(jobId: string): Promise<KlineCacheJob | null> {
+    return window.stockApi.getKlineCacheJob(jobId)
+  }
+
+  cancelKlineCacheJob(jobId: string): Promise<KlineCacheJob | null> {
+    return window.stockApi.cancelKlineCacheJob(jobId)
+  }
+
+  getCachedKlineDataset(query: StockQuery): Promise<KlineCachedDatasetResult> {
+    return window.stockApi.getCachedKlineDataset(query)
+  }
+
+  clearKlineCache(request: KlineCacheClearRequest): Promise<KlineCacheStatusRow[]> {
+    return window.stockApi.clearKlineCache(request)
   }
 
   getSettings(): Promise<AppSettings> {

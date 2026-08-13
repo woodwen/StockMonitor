@@ -1,20 +1,41 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => {
-  const registeredHandlers = new Set<string>()
+  const registeredHandlers = new Map<string, (...args: unknown[]) => unknown>()
+  const klineCacheMock = {
+    getKlineCacheStatus: vi.fn(async (request: unknown) => [{ request }]),
+    startKlineCacheRefresh: vi.fn((request: unknown) => ({
+      id: 'job-1',
+      status: 'completed',
+      total: 1,
+      completed: 1,
+      rows: [],
+      startedAt: 1,
+      finishedAt: 2,
+      request
+    })),
+    getKlineCacheJob: vi.fn((jobId: string) => ({ id: jobId })),
+    cancelKlineCacheJob: vi.fn((jobId: string) => ({ id: jobId, status: 'cancelled' })),
+    getCachedKlineDataset: vi.fn(async (query: unknown) => ({
+      status: 'empty',
+      query,
+      missingRanges: []
+    })),
+    clearKlineCache: vi.fn(async (request: unknown) => [{ request }])
+  }
   const ipcMainMock = {
-    handle: vi.fn((channel: string) => {
+    handle: vi.fn((channel: string, handler: (...args: unknown[]) => unknown) => {
       if (registeredHandlers.has(channel)) {
         throw new Error(`Attempted to register a second handler for '${channel}'`)
       }
-      registeredHandlers.add(channel)
+      registeredHandlers.set(channel, handler)
     }),
     removeHandler: vi.fn((channel: string) => {
       registeredHandlers.delete(channel)
     })
   }
 
-  return { ipcMainMock, registeredHandlers }
+  return { ipcMainMock, klineCacheMock, registeredHandlers }
 })
 
 vi.mock('electron', () => ({
@@ -79,6 +100,15 @@ vi.mock('electron-updater', () => ({
   }
 }))
 
+vi.mock('../src/main/kline-cache', () => ({
+  cancelKlineCacheJob: mocks.klineCacheMock.cancelKlineCacheJob,
+  clearKlineCache: mocks.klineCacheMock.clearKlineCache,
+  getCachedKlineDataset: mocks.klineCacheMock.getCachedKlineDataset,
+  getKlineCacheJob: mocks.klineCacheMock.getKlineCacheJob,
+  getKlineCacheStatus: mocks.klineCacheMock.getKlineCacheStatus,
+  startKlineCacheRefresh: mocks.klineCacheMock.startKlineCacheRefresh
+}))
+
 import { registerIpcHandlers } from '../src/main/ipc'
 
 describe('IPC handlers', () => {
@@ -86,14 +116,78 @@ describe('IPC handlers', () => {
     mocks.registeredHandlers.clear()
     mocks.ipcMainMock.handle.mockClear()
     mocks.ipcMainMock.removeHandler.mockClear()
+    Object.values(mocks.klineCacheMock).forEach((mock) => mock.mockClear())
   })
 
   it('can be registered more than once without duplicate-handler startup errors', () => {
     expect(() => registerIpcHandlers()).not.toThrow()
     expect(() => registerIpcHandlers()).not.toThrow()
 
-    expect(mocks.registeredHandlers).toContain('stock:getDataSources')
-    expect(mocks.registeredHandlers).toContain('settings:setTradeProfitSettings')
-    expect(mocks.registeredHandlers).toContain('update:openDownloadPage')
+    expect(mocks.registeredHandlers.has('stock:getDataSources')).toBe(true)
+    expect(mocks.registeredHandlers.has('stock:getKlineCacheStatus')).toBe(true)
+    expect(mocks.registeredHandlers.has('stock:startKlineCacheRefresh')).toBe(true)
+    expect(mocks.registeredHandlers.has('stock:getKlineCacheJob')).toBe(true)
+    expect(mocks.registeredHandlers.has('stock:cancelKlineCacheJob')).toBe(true)
+    expect(mocks.registeredHandlers.has('stock:getCachedKlineDataset')).toBe(true)
+    expect(mocks.registeredHandlers.has('stock:clearKlineCache')).toBe(true)
+    expect(mocks.registeredHandlers.has('settings:setTradeProfitSettings')).toBe(true)
+    expect(mocks.registeredHandlers.has('update:openDownloadPage')).toBe(true)
+  })
+
+  it('delegates kline cache IPC handlers to the cache service', async () => {
+    registerIpcHandlers()
+
+    const statusRequest = createKlineCacheRequest()
+    const query = {
+      sourceId: statusRequest.query.sourceId,
+      symbol: 'sh600519',
+      period: 'day',
+      adjust: 'qfq',
+      startDate: statusRequest.query.startDate,
+      endDate: statusRequest.query.endDate
+    }
+
+    await getHandler('stock:getKlineCacheStatus')({}, statusRequest)
+    expect(mocks.klineCacheMock.getKlineCacheStatus).toHaveBeenCalledWith(statusRequest)
+
+    getHandler('stock:startKlineCacheRefresh')({}, statusRequest)
+    expect(mocks.klineCacheMock.startKlineCacheRefresh).toHaveBeenCalledWith(statusRequest)
+
+    getHandler('stock:getKlineCacheJob')({}, 'job-1')
+    expect(mocks.klineCacheMock.getKlineCacheJob).toHaveBeenCalledWith('job-1')
+
+    getHandler('stock:cancelKlineCacheJob')({}, 'job-1')
+    expect(mocks.klineCacheMock.cancelKlineCacheJob).toHaveBeenCalledWith('job-1')
+
+    await getHandler('stock:getCachedKlineDataset')({}, query)
+    expect(mocks.klineCacheMock.getCachedKlineDataset).toHaveBeenCalledWith(query)
+
+    await getHandler('stock:clearKlineCache')({}, statusRequest)
+    expect(mocks.klineCacheMock.clearKlineCache).toHaveBeenCalledWith(statusRequest)
   })
 })
+
+function getHandler(channel: string): (...args: unknown[]) => unknown {
+  const handler = mocks.registeredHandlers.get(channel)
+  expect(handler).toBeTypeOf('function')
+  return handler as (...args: unknown[]) => unknown
+}
+
+function createKlineCacheRequest() {
+  return {
+    query: {
+      sourceId: 'eastmoney',
+      periods: ['day'],
+      adjusts: ['qfq'],
+      startDate: '20260801',
+      endDate: '20260810'
+    },
+    items: [
+      {
+        symbol: 'sh600519',
+        name: '贵州茅台',
+        createdAt: 1
+      }
+    ]
+  }
+}

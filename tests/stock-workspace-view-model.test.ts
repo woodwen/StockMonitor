@@ -4,11 +4,19 @@ import type { StockDataAdapter } from '../src/renderer/features/stock-workspace/
 import { createDefaultIndicatorSettings } from '../src/renderer/features/stock-workspace/models/indicator-definitions'
 import { createDefaultTimeshareIndicatorSettings } from '../src/renderer/features/stock-workspace/models/timeshare-indicator-definitions'
 import type {
+  KlineCacheClearRequest,
+  KlineCachedDatasetResult,
+  KlineCacheJob,
+  KlineCacheRefreshRequest,
+  KlineCacheSeriesRequestItem,
+  KlineCacheStatusRequest,
+  KlineCacheStatusRow,
   StockDataset,
   StockDataSourceMeta,
   StockQuery,
   StockTimeshareQuery
 } from '../src/renderer/features/stock-workspace/models/stock-types'
+import { expandKlineCacheStockQueries } from '../src/renderer/features/stock-workspace/models/kline-cache'
 import { createDefaultTradeProfitSettings } from '../src/renderer/features/trade-profit-calculator/models/trade-profit'
 import { StockWorkspaceViewModel } from '../src/renderer/features/stock-workspace/view-models/StockWorkspaceViewModel'
 
@@ -17,6 +25,11 @@ class FakeDataAdapter implements StockDataAdapter {
   savedWorkspaceSettings: WorkspaceSettings[] = []
   stockQueries: StockQuery[] = []
   timeshareQueries: StockTimeshareQuery[] = []
+  klineCacheStatusRequests: KlineCacheStatusRequest[] = []
+  klineCacheRefreshRequests: KlineCacheRefreshRequest[] = []
+  klineCacheClearRequests: KlineCacheClearRequest[] = []
+  nextKlineCacheRows: KlineCacheStatusRow[] | null = null
+  nextKlineCacheJob: KlineCacheJob | null = null
 
   constructor(private readonly failingSourceIds: string[] = [], settings?: AppSettings) {
     if (settings) {
@@ -126,6 +139,44 @@ class FakeDataAdapter implements StockDataAdapter {
     }
   }
 
+  async getKlineCacheStatus(request: KlineCacheStatusRequest): Promise<KlineCacheStatusRow[]> {
+    this.klineCacheStatusRequests.push(request)
+    return this.nextKlineCacheRows ?? createKlineCacheRows(request)
+  }
+
+  async startKlineCacheRefresh(request: KlineCacheRefreshRequest): Promise<KlineCacheJob> {
+    this.klineCacheRefreshRequests.push(request)
+    return this.nextKlineCacheJob ?? createCompletedKlineCacheJob(request)
+  }
+
+  async getKlineCacheJob(jobId: string): Promise<KlineCacheJob | null> {
+    return this.nextKlineCacheJob?.id === jobId ? this.nextKlineCacheJob : null
+  }
+
+  async cancelKlineCacheJob(jobId: string): Promise<KlineCacheJob | null> {
+    if (!this.nextKlineCacheJob || this.nextKlineCacheJob.id !== jobId) {
+      return null
+    }
+    this.nextKlineCacheJob = {
+      ...this.nextKlineCacheJob,
+      status: 'cancelled'
+    }
+    return this.nextKlineCacheJob
+  }
+
+  async getCachedKlineDataset(query: StockQuery): Promise<KlineCachedDatasetResult> {
+    return {
+      status: 'empty' as const,
+      query,
+      missingRanges: []
+    }
+  }
+
+  async clearKlineCache(request: KlineCacheClearRequest): Promise<KlineCacheStatusRow[]> {
+    this.klineCacheClearRequests.push(request)
+    return createKlineCacheRows(request)
+  }
+
   async getSettings(): Promise<AppSettings> {
     return this.settings
   }
@@ -145,6 +196,23 @@ class FakeDataAdapter implements StockDataAdapter {
       workspace
     }
     return this.settings
+  }
+}
+
+class StructuredCloneCacheAdapter extends FakeDataAdapter {
+  override async getKlineCacheStatus(request: KlineCacheStatusRequest): Promise<KlineCacheStatusRow[]> {
+    structuredClone(request)
+    return super.getKlineCacheStatus(request)
+  }
+
+  override async startKlineCacheRefresh(request: KlineCacheRefreshRequest): Promise<KlineCacheJob> {
+    structuredClone(request)
+    return super.startKlineCacheRefresh(request)
+  }
+
+  override async clearKlineCache(request: KlineCacheClearRequest): Promise<KlineCacheStatusRow[]> {
+    structuredClone(request)
+    return super.clearKlineCache(request)
   }
 }
 
@@ -799,6 +867,239 @@ describe('StockWorkspaceViewModel', () => {
     expect(viewModel.selectedWatchlistSymbols).toEqual([])
   })
 
+  it('opens kline cache dialog with current source/date and default period/adjust selections without switching timeshare mode', async () => {
+    const adapter = new FakeDataAdapter([], {
+      ...createDefaultSettings(),
+      workspace: {
+        ...createDefaultSettings().workspace,
+        viewMode: 'timeshare',
+        query: {
+          ...createDefaultSettings().workspace.query,
+          symbol: 'sh600519',
+          period: 'week',
+          adjust: 'hfq',
+          startDate: '20250101',
+          endDate: '20251231'
+        },
+        watchlist: [{ symbol: 'sh600519', name: '贵州茅台', createdAt: 1 }]
+      }
+    })
+    const viewModel = new StockWorkspaceViewModel(adapter)
+
+    await viewModel.initialize()
+    const timeshareRequestCount = adapter.timeshareQueries.length
+    viewModel.openKlineCacheDialog()
+    await Promise.resolve()
+
+    expect(viewModel.klineCacheDialogOpen).toBe(true)
+    expect(viewModel.viewMode).toBe('timeshare')
+    expect(adapter.timeshareQueries).toHaveLength(timeshareRequestCount)
+    expect(adapter.stockQueries).toHaveLength(0)
+    expect(adapter.klineCacheRefreshRequests).toHaveLength(0)
+    expect(adapter.klineCacheStatusRequests[0]).toMatchObject({
+      query: {
+        sourceId: 'eastmoney',
+        periods: ['day', 'week', 'month'],
+        adjusts: ['qfq', 'none', 'hfq'],
+        startDate: '20250101',
+        endDate: '20251231'
+      },
+      items: [{ symbol: 'sh600519' }]
+    })
+  })
+
+  it('keeps supported cache query selections when switching cache data sources', async () => {
+    const adapter = new FakeDataAdapter([], {
+      ...createKlineSettings(),
+      workspace: {
+        ...createKlineSettings().workspace,
+        watchlist: [{ symbol: 'sh600519', name: '贵州茅台', createdAt: 1 }]
+      }
+    })
+    const viewModel = new StockWorkspaceViewModel(adapter)
+
+    await viewModel.initialize()
+    viewModel.openKlineCacheDialog()
+    viewModel.setKlineCacheSourceId('sina')
+    await Promise.resolve()
+
+    expect(viewModel.klineCacheQuery).toMatchObject({
+      sourceId: 'sina',
+      periods: ['day', 'week'],
+      adjusts: ['none']
+    })
+  })
+
+  it('blocks cache status and refresh when source switching leaves no supported period or adjust selections', async () => {
+    const adapter = new FakeDataAdapter([], {
+      ...createKlineSettings(),
+      workspace: {
+        ...createKlineSettings().workspace,
+        watchlist: [{ symbol: 'sh600519', name: '贵州茅台', createdAt: 1 }]
+      }
+    })
+    const viewModel = new StockWorkspaceViewModel(adapter)
+
+    await viewModel.initialize()
+    viewModel.openKlineCacheDialog()
+    await Promise.resolve()
+    viewModel.setKlineCachePeriod('5')
+    viewModel.setKlineCacheAdjust('hfq')
+    await Promise.resolve()
+    const statusRequestCount = adapter.klineCacheStatusRequests.length
+    viewModel.setKlineCacheSourceId('sina')
+    await Promise.resolve()
+    await viewModel.refreshAllKlineCache()
+
+    expect(viewModel.klineCacheQuery).toMatchObject({
+      sourceId: 'sina',
+      periods: [],
+      adjusts: []
+    })
+    expect(viewModel.klineCacheFormError).toBe('请至少选择一个周期')
+    expect(adapter.klineCacheStatusRequests).toHaveLength(statusRequestCount)
+    expect(adapter.klineCacheRefreshRequests).toHaveLength(0)
+  })
+
+  it('keeps cache refresh state separate from the current chart dataset', async () => {
+    const adapter = new FakeDataAdapter([], {
+      ...createKlineSettings(),
+      workspace: {
+        ...createKlineSettings().workspace,
+        watchlist: [{ symbol: 'sh600519', name: '贵州茅台', createdAt: 1 }]
+      }
+    })
+    const viewModel = new StockWorkspaceViewModel(adapter)
+
+    await viewModel.initialize()
+    const dataset = viewModel.chart.dataset
+    const stockRequestCount = adapter.stockQueries.length
+
+    viewModel.openKlineCacheDialog()
+    await viewModel.refreshAllKlineCache()
+
+    expect(adapter.klineCacheRefreshRequests).toHaveLength(1)
+    expect(adapter.klineCacheRefreshRequests[0].query).toMatchObject({
+      periods: ['day', 'week', 'month'],
+      adjusts: ['qfq', 'none', 'hfq']
+    })
+    expect(adapter.stockQueries).toHaveLength(stockRequestCount)
+    expect(viewModel.chart.dataset).toBe(dataset)
+    expect(viewModel.klineCacheJob?.status).toBe('completed')
+    expect(viewModel.klineCacheJob?.total).toBe(9)
+  })
+
+  it('blocks cache refresh when the date range is invalid', async () => {
+    const adapter = new FakeDataAdapter([], {
+      ...createKlineSettings(),
+      workspace: {
+        ...createKlineSettings().workspace,
+        watchlist: [{ symbol: 'sh600519', name: '贵州茅台', createdAt: 1 }]
+      }
+    })
+    const viewModel = new StockWorkspaceViewModel(adapter)
+
+    await viewModel.initialize()
+    viewModel.openKlineCacheDialog()
+    viewModel.setKlineCacheStartDate('20260810')
+    viewModel.setKlineCacheEndDate('20260801')
+    await viewModel.refreshAllKlineCache()
+
+    expect(adapter.klineCacheRefreshRequests).toHaveLength(0)
+    expect(viewModel.klineCacheError).toBe('缓存日期范围无效')
+  })
+
+  it('clears stale cache rows and selections when cache query changes', async () => {
+    const adapter = new FakeDataAdapter([], {
+      ...createKlineSettings(),
+      workspace: {
+        ...createKlineSettings().workspace,
+        watchlist: [{ symbol: 'sh600519', name: '贵州茅台', createdAt: 1 }]
+      }
+    })
+    const viewModel = new StockWorkspaceViewModel(adapter)
+
+    await viewModel.initialize()
+    viewModel.openKlineCacheDialog()
+    await Promise.resolve()
+    viewModel.setKlineCacheSelectedSymbols(['sh600519'])
+
+    expect(viewModel.klineCacheRows).toHaveLength(9)
+    expect(viewModel.selectedKlineCacheCount).toBe(9)
+
+    viewModel.setKlineCacheStartDate('20250101')
+    await viewModel.refreshSelectedKlineCache()
+    await viewModel.clearSelectedKlineCache()
+
+    expect(viewModel.klineCacheRows).toEqual([])
+    expect(viewModel.klineCacheSelectedRowIds).toEqual([])
+    expect(adapter.klineCacheRefreshRequests).toHaveLength(0)
+    expect(adapter.klineCacheClearRequests).toHaveLength(0)
+  })
+
+  it('blocks cache status and refresh when no period or adjust is selected', async () => {
+    const adapter = new FakeDataAdapter([], {
+      ...createKlineSettings(),
+      workspace: {
+        ...createKlineSettings().workspace,
+        watchlist: [{ symbol: 'sh600519', name: '贵州茅台', createdAt: 1 }]
+      }
+    })
+    const viewModel = new StockWorkspaceViewModel(adapter)
+
+    await viewModel.initialize()
+    viewModel.openKlineCacheDialog()
+    await Promise.resolve()
+    const statusRequestCount = adapter.klineCacheStatusRequests.length
+    viewModel.setKlineCachePeriods([])
+    await Promise.resolve()
+    await viewModel.refreshAllKlineCache()
+
+    expect(viewModel.klineCacheFormError).toBe('请至少选择一个周期')
+    expect(adapter.klineCacheStatusRequests).toHaveLength(statusRequestCount)
+    expect(adapter.klineCacheRefreshRequests).toHaveLength(0)
+
+    viewModel.setKlineCachePeriods(['day'])
+    viewModel.setKlineCacheAdjusts([])
+    await Promise.resolve()
+    await viewModel.refreshAllKlineCache()
+
+    expect(viewModel.klineCacheFormError).toBe('请至少选择一种复权')
+    expect(adapter.klineCacheRefreshRequests).toHaveLength(0)
+  })
+
+  it('passes plain cloneable cache requests to the data adapter', async () => {
+    const adapter = new StructuredCloneCacheAdapter([], {
+      ...createKlineSettings(),
+      workspace: {
+        ...createKlineSettings().workspace,
+        watchlist: [{ symbol: 'sh600519', name: '贵州茅台', createdAt: 1 }]
+      }
+    })
+    const viewModel = new StockWorkspaceViewModel(adapter)
+
+    await viewModel.initialize()
+    viewModel.openKlineCacheDialog()
+    await Promise.resolve()
+    await viewModel.refreshAllKlineCache()
+    viewModel.setKlineCacheSelectedSymbols(['sh600519'])
+    await viewModel.clearSelectedKlineCache()
+
+    expect(viewModel.klineCacheError).toBe('')
+    expect(adapter.klineCacheStatusRequests).toHaveLength(2)
+    expect(adapter.klineCacheRefreshRequests).toHaveLength(1)
+    expect(adapter.klineCacheClearRequests).toHaveLength(1)
+    expect(adapter.klineCacheClearRequests[0].rows).toHaveLength(9)
+    expect(adapter.klineCacheClearRequests[0].rows?.[0]).toMatchObject({
+      id: 'eastmoney__sh600519__day__qfq',
+      query: {
+        symbol: 'sh600519',
+        period: 'day',
+        adjust: 'qfq'
+      }
+    })
+  })
+
   it('saves proxy settings from the workspace state', async () => {
     const viewModel = new StockWorkspaceViewModel(new FakeDataAdapter([], createKlineSettings()))
 
@@ -999,6 +1300,54 @@ function createSampleStockDataset(): StockDataset {
         turnover: 2000 + index
       }
     })
+  }
+}
+
+function createKlineCacheRows(
+  request: KlineCacheStatusRequest | KlineCacheRefreshRequest | KlineCacheClearRequest
+): KlineCacheStatusRow[] {
+  const rows = 'rows' in request && request.rows?.length
+    ? request.rows
+    : expandKlineCacheStockQueries(request.query, request.items)
+  return rows.map((row) => createKlineCacheRow(row))
+}
+
+function createKlineCacheRow(item: KlineCacheSeriesRequestItem): KlineCacheStatusRow {
+  return {
+    id: item.id,
+    symbol: item.query.symbol,
+    name: item.name,
+    query: { ...item.query },
+    status: 'empty',
+    recordCount: 0,
+    coveredRanges: [],
+    missingRanges: [
+      {
+        startDate: item.query.startDate,
+        endDate: item.query.endDate
+      }
+    ]
+  }
+}
+
+function createCompletedKlineCacheJob(request: KlineCacheRefreshRequest): KlineCacheJob {
+  const rows = createKlineCacheRows(request)
+  return {
+    id: 'job-1',
+    status: 'completed',
+    total: rows.length,
+    completed: rows.length,
+    rows: rows.map((row) => ({
+      id: row.id,
+      symbol: row.symbol,
+      name: row.name,
+      query: { ...row.query },
+      status: 'success',
+      recordCount: 2,
+      missingRanges: []
+    })),
+    startedAt: 1,
+    finishedAt: 2
   }
 }
 

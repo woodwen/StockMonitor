@@ -142,6 +142,107 @@ export interface WatchlistItem {
   updatedAt?: number
 }
 
+export interface KlineCacheDateRange {
+  startDate: string
+  endDate: string
+}
+
+export interface KlineCacheRequestQuery {
+  sourceId: StockSourceId
+  periods: StockPeriod[]
+  adjusts: StockAdjust[]
+  startDate: string
+  endDate: string
+}
+
+export type KlineCacheStatus = 'complete' | 'partial' | 'empty' | 'unsupported' | 'error'
+
+export interface KlineCacheLastError {
+  message: string
+  occurredAt: number
+}
+
+export interface KlineCacheStatusRow {
+  id: string
+  symbol: string
+  name: string
+  query: StockQuery
+  status: KlineCacheStatus
+  recordCount: number
+  coveredRanges: KlineCacheDateRange[]
+  missingRanges: KlineCacheDateRange[]
+  cachedStartDate?: string
+  cachedEndDate?: string
+  lastRefreshedAt?: number
+  lastError?: KlineCacheLastError
+  cacheBytes?: number
+  message?: string
+}
+
+export interface KlineCacheStatusRequest {
+  query: KlineCacheRequestQuery
+  items: WatchlistItem[]
+}
+
+export interface KlineCacheSeriesRequestItem {
+  id: string
+  symbol: string
+  name: string
+  query: StockQuery
+}
+
+export interface KlineCacheRefreshRequest extends KlineCacheStatusRequest {
+  rows?: KlineCacheSeriesRequestItem[]
+}
+
+export interface KlineCacheClearRequest extends KlineCacheStatusRequest {
+  rows?: KlineCacheSeriesRequestItem[]
+}
+
+export type KlineCacheJobStatus = 'queued' | 'running' | 'completed' | 'cancelled'
+
+export type KlineCacheJobRowStatus =
+  | 'pending'
+  | 'running'
+  | 'success'
+  | 'error'
+  | 'unsupported'
+  | 'cancelled'
+
+export interface KlineCacheJobRow {
+  id: string
+  symbol: string
+  name: string
+  query: StockQuery
+  status: KlineCacheJobRowStatus
+  recordCount?: number
+  missingRanges?: KlineCacheDateRange[]
+  message?: string
+  startedAt?: number
+  finishedAt?: number
+}
+
+export interface KlineCacheJob {
+  id: string
+  status: KlineCacheJobStatus
+  total: number
+  completed: number
+  currentRowId?: string
+  currentSymbol?: string
+  rows: KlineCacheJobRow[]
+  startedAt: number
+  finishedAt?: number
+}
+
+export interface KlineCachedDatasetResult {
+  status: KlineCacheStatus
+  query: StockQuery
+  dataset?: StockDataset
+  missingRanges: KlineCacheDateRange[]
+  message?: string
+  lastError?: KlineCacheLastError
+}
+
 export type WatchlistAddPreviewStatus = 'ready' | 'duplicate' | 'invalid'
 
 export interface WatchlistAddPreview {
