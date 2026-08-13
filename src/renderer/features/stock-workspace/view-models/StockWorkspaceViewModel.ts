@@ -14,6 +14,8 @@ import type {
   StockQuery,
   StockSourceId,
   StockTimeshareQuery,
+  TimeshareAdvancedContextKey,
+  TimeshareIndicatorName,
   WatchlistItem,
   WatchlistParseResult,
   WorkspaceViewMode
@@ -707,6 +709,54 @@ export class StockWorkspaceViewModel {
     return Boolean(this.sources.find((source) => source.id === sourceId)?.capabilities.timeshare)
   }
 
+  getTimeshareIndicatorAvailability(name: TimeshareIndicatorName): {
+    available: boolean
+    message: string
+  } {
+    const datasetSymbol = normalizeWatchlistSymbol(this.timeshare.dataset?.meta.symbol ?? '')
+    const currentSymbol = normalizeWatchlistSymbol(this.query.symbol.trim())
+    const runtimeAvailability =
+      this.timeshare.dataset?.sourceId === this.timeshareSourceId &&
+      Boolean(datasetSymbol && currentSymbol && datasetSymbol === currentSymbol)
+        ? this.timeshare.getIndicatorAvailability(name)
+        : undefined
+    if (runtimeAvailability) {
+      return {
+        available: runtimeAvailability.status === 'available',
+        message:
+          runtimeAvailability.status === 'available'
+            ? `可用${runtimeAvailability.basis ? `：${runtimeAvailability.basis}` : ''}`
+            : runtimeAvailability.reason ?? '当前数据不可用'
+      }
+    }
+
+    const contextKey = timeshareIndicatorContextMap[name]
+    if (!contextKey) {
+      return {
+        available: true,
+        message: ''
+      }
+    }
+
+    const capability = this.selectedTimeshareSource?.capabilities.timeshareAdvanced?.[contextKey]
+    if (!capability) {
+      return {
+        available: false,
+        message: '当前数据源未声明高级上下文能力'
+      }
+    }
+    if (capability.status !== 'supported') {
+      return {
+        available: false,
+        message: capability.reason ?? '当前数据源暂不支持'
+      }
+    }
+    return {
+      available: true,
+      message: '当前数据源支持，刷新后确认本次数据'
+    }
+  }
+
   isSourceActiveForCurrentMode(sourceId: StockSourceId): boolean {
     return this.viewMode === 'timeshare'
       ? this.timeshareSourceId === sourceId
@@ -1085,4 +1135,15 @@ function isAshareTradingTime(date: Date): boolean {
   }
   const minutes = date.getHours() * 60 + date.getMinutes()
   return (minutes >= 9 * 60 + 30 && minutes <= 11 * 60 + 30) || (minutes >= 13 * 60 && minutes <= 15 * 60)
+}
+
+const timeshareIndicatorContextMap: Partial<
+  Record<TimeshareIndicatorName, TimeshareAdvancedContextKey>
+> = {
+  kdj: 'minuteOhlc',
+  volumeRatio: 'historicalVolume',
+  turnoverRate: 'floatShares',
+  orderRatio: 'orderBook',
+  inOutVolume: 'tradeDirection',
+  capitalFlow: 'capitalFlow'
 }

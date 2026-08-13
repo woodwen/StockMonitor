@@ -748,6 +748,17 @@ body {
   line-height: 16px;
 }
 
+.indicator-availability {
+  grid-column: 2 / -1;
+  min-height: 16px;
+  overflow: hidden;
+  color: #95a3b8;
+  font-size: 12px;
+  line-height: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .trade-profit-drawer .ant-drawer-body {
   padding: 14px;
 }

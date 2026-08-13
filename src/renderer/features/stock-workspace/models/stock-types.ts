@@ -54,10 +54,16 @@ export type TimeshareIndicatorName =
   | 'boll'
   | 'bsSignal'
   | 'volumeMa'
+  | 'kdj'
   | 'macd'
   | 'rsi'
+  | 'volumeRatio'
+  | 'turnoverRate'
+  | 'orderRatio'
+  | 'inOutVolume'
+  | 'capitalFlow'
 
-export type TimeshareIndicatorPane = 'base' | 'main' | 'signal' | 'volume' | 'sub'
+export type TimeshareIndicatorPane = 'base' | 'main' | 'signal' | 'volume' | 'sub' | 'advanced'
 
 export interface TimeshareIndicatorSettings {
   enabled: boolean
@@ -79,11 +85,33 @@ export type WorkspaceViewMode = 'kline' | 'timeshare'
 
 export type StockMarketScope = 'stock' | 'etf' | 'index'
 
+export type SourceCapabilitySupport = 'supported' | 'unsupported' | 'unknown'
+
+export type TimeshareAdvancedContextKey =
+  | 'minuteOhlc'
+  | 'historicalVolume'
+  | 'floatShares'
+  | 'orderBook'
+  | 'tradeDirection'
+  | 'capitalFlow'
+
+export interface TimeshareAdvancedContextCapability {
+  status: SourceCapabilitySupport
+  markets: StockMarketScope[]
+  reason?: string
+}
+
+export type TimeshareAdvancedCapabilities = Record<
+  TimeshareAdvancedContextKey,
+  TimeshareAdvancedContextCapability
+>
+
 export interface SourceCapabilities {
   periods: StockPeriod[]
   adjusts: StockAdjust[]
   markets: StockMarketScope[]
   timeshare: boolean
+  timeshareAdvanced?: TimeshareAdvancedCapabilities
 }
 
 export interface StockDataSourceMeta {
@@ -157,12 +185,82 @@ export interface StockTimesharePoint {
   avgPrice: number
   volume: number
   turnover: number
+  open?: number
+  high?: number
+  low?: number
+  close?: number
+}
+
+export type TimeshareIndicatorDisplayShape = 'series' | 'latest' | 'accumulative'
+
+export type TimeshareIndicatorAvailabilityStatus = 'available' | 'unavailable'
+
+export interface TimeshareIndicatorAvailability {
+  status: TimeshareIndicatorAvailabilityStatus
+  displayShape: TimeshareIndicatorDisplayShape
+  reason?: string
+  source?: string
+  basis?: string
+}
+
+export type TimeshareIndicatorAvailabilityMap = Partial<
+  Record<TimeshareIndicatorName, TimeshareIndicatorAvailability>
+>
+
+export interface TimeshareHistoricalVolumeBaseline {
+  basis: 'fiveDayAverageMinuteVolume' | 'sameMinuteCumulativeVolume'
+  averageMinuteVolume: number
+  tradeDays: number
+  sampleStartDate: string
+  sampleEndDate: string
+  source: string
+}
+
+export interface TimeshareOrderBookLevel {
+  price?: number
+  volume: number
+}
+
+export interface TimeshareOrderBookSnapshot {
+  bidLevels: TimeshareOrderBookLevel[]
+  askLevels: TimeshareOrderBookLevel[]
+  bidVolume: number
+  askVolume: number
+  timestamp: number
+  source: string
+}
+
+export interface TimeshareInOutVolumeAggregate {
+  inwardVolume: number
+  outwardVolume: number
+  source: 'tradeDirection' | 'sourceAggregate'
+  timestamp: number
+}
+
+export interface TimeshareCapitalFlowAggregate {
+  totalInflow: number
+  totalOutflow: number
+  netInflow: number
+  source: 'tradeDirection' | 'sourceAggregate'
+  timestamp: number
+}
+
+export interface StockTimeshareAdvancedContext {
+  tradeDate: string
+  historicalVolumeBaseline?: TimeshareHistoricalVolumeBaseline
+  floatShares?: number
+  orderBook?: TimeshareOrderBookSnapshot
+  inOutVolume?: TimeshareInOutVolumeAggregate
+  capitalFlow?: TimeshareCapitalFlowAggregate
+  unavailableReasons?: Partial<Record<TimeshareAdvancedContextKey, string>>
 }
 
 export interface StockTimeshareDataset {
   meta: StockMeta
   previousClose: number
   points: StockTimesharePoint[]
+  advanced?: StockTimeshareAdvancedContext
+  indicatorAvailability?: TimeshareIndicatorAvailabilityMap
   sourceId?: StockSourceId
   sourceName?: string
   sourceUrl?: string
@@ -193,14 +291,51 @@ export interface TimeshareMacdValue {
   macd: number
 }
 
+export interface TimeshareKdjValue {
+  k: number
+  d: number
+  j: number
+}
+
+export interface TimeshareVolumeRatioValue {
+  value: number
+  basis: string
+}
+
+export interface TimeshareTurnoverRateValue {
+  value: number
+  basis: string
+}
+
+export interface TimeshareOrderRatioValue {
+  value: number
+  bidVolume: number
+  askVolume: number
+  source: string
+  timestamp: number
+}
+
+export interface TimeshareInOutVolumeValue extends TimeshareInOutVolumeAggregate {}
+
+export interface TimeshareCapitalFlowValue extends TimeshareCapitalFlowAggregate {}
+
+export interface TimeshareLatestIndicatorValues {
+  orderRatio?: TimeshareOrderRatioValue
+  inOutVolume?: TimeshareInOutVolumeValue
+  capitalFlow?: TimeshareCapitalFlowValue
+}
+
 export interface TimeshareIndicatorValues {
   ma?: Record<string, number | undefined>
   ema?: Record<string, number | undefined>
   boll?: BollValue
   bsSignal?: BsSignal
   volumeMa?: Record<string, number | undefined>
+  kdj?: TimeshareKdjValue
   macd?: TimeshareMacdValue
   rsi?: Record<string, number | undefined>
+  volumeRatio?: TimeshareVolumeRatioValue
+  turnoverRate?: TimeshareTurnoverRateValue
 }
 
 export interface EnrichedStockTimesharePoint extends StockTimesharePoint {
@@ -210,6 +345,8 @@ export interface EnrichedStockTimesharePoint extends StockTimesharePoint {
 export interface EnrichedStockTimeshareDataset extends Omit<StockTimeshareDataset, 'points'> {
   points: EnrichedStockTimesharePoint[]
   indicatorSettings: TimeshareIndicatorSettingsMap
+  indicatorAvailability: TimeshareIndicatorAvailabilityMap
+  latestIndicators: TimeshareLatestIndicatorValues
 }
 
 export interface EnrichedStockCandle extends StockCandle {

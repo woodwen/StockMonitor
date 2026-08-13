@@ -14,6 +14,7 @@ import type {
   EnrichedStockTimeshareDataset,
   StockTimeshareDataset,
   StockTimesharePoint,
+  TimeshareIndicatorAvailability,
   TimeshareIndicatorName,
   TimeshareIndicatorSettings,
   TimeshareIndicatorSettingsMap
@@ -155,6 +156,10 @@ export class TimeshareChartViewModel {
     return Object.values(this.indicatorDraftErrors).some((errors) => (errors?.length ?? 0) > 0)
   }
 
+  getIndicatorAvailability(name: TimeshareIndicatorName): TimeshareIndicatorAvailability | undefined {
+    return this.dataset?.indicatorAvailability[name]
+  }
+
   get latestSummary(): string {
     const latest = this.latestPoint
     if (!latest || !this.dataset) {
@@ -164,7 +169,15 @@ export class TimeshareChartViewModel {
     const previousClose = this.dataset.previousClose
     const change = latest.price - previousClose
     const changePercent = previousClose > 0 ? (change / previousClose) * 100 : 0
-    return `价 ${formatNumber(latest.price)}  涨跌 ${formatSignedNumber(change)}  ${formatSignedNumber(changePercent)}%`
+    const advancedSummary = formatLatestAdvancedSummary(this.dataset, latest)
+    return [
+      `价 ${formatNumber(latest.price)}`,
+      `涨跌 ${formatSignedNumber(change)}`,
+      `${formatSignedNumber(changePercent)}%`,
+      advancedSummary
+    ]
+      .filter(Boolean)
+      .join('  ')
   }
 
   private reenrichCurrentDataset(): void {
@@ -206,4 +219,34 @@ function formatSignedNumber(value: number, digits = 2): string {
     return `-${formatted}`
   }
   return formatted
+}
+
+function formatLatestAdvancedSummary(
+  dataset: EnrichedStockTimeshareDataset,
+  latest: StockTimesharePoint & {
+    indicators?: {
+      volumeRatio?: { value: number }
+      turnoverRate?: { value: number }
+    }
+  }
+): string {
+  const parts: string[] = []
+  if (dataset.indicatorSettings.volumeRatio.enabled && latest.indicators?.volumeRatio) {
+    parts.push(`量比 ${formatNumber(latest.indicators.volumeRatio.value)}`)
+  }
+  if (dataset.indicatorSettings.turnoverRate.enabled && latest.indicators?.turnoverRate) {
+    parts.push(`换手 ${formatNumber(latest.indicators.turnoverRate.value)}%`)
+  }
+  if (dataset.indicatorSettings.orderRatio.enabled && dataset.latestIndicators.orderRatio) {
+    parts.push(`委比 ${formatSignedNumber(dataset.latestIndicators.orderRatio.value)}%`)
+  }
+  if (dataset.indicatorSettings.capitalFlow.enabled && dataset.latestIndicators.capitalFlow) {
+    parts.push(`净流入 ${formatSignedNumber(dataset.latestIndicators.capitalFlow.netInflow, 0)}`)
+  }
+  if (dataset.indicatorSettings.inOutVolume.enabled && dataset.latestIndicators.inOutVolume) {
+    parts.push(
+      `内 ${formatNumber(dataset.latestIndicators.inOutVolume.inwardVolume, 0)} 外 ${formatNumber(dataset.latestIndicators.inOutVolume.outwardVolume, 0)}`
+    )
+  }
+  return parts.slice(0, 3).join('  ')
 }

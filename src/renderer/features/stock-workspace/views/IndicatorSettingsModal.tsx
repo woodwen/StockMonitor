@@ -83,6 +83,9 @@ const TimeshareIndicatorSettings = observer(({ stock }: IndicatorSettingsProps) 
     (definition) => definition.pane === 'volume'
   )
   const subIndicators = timeshareIndicatorDefinitions.filter((definition) => definition.pane === 'sub')
+  const advancedIndicators = timeshareIndicatorDefinitions.filter(
+    (definition) => definition.pane === 'advanced'
+  )
 
   return (
     <div className="indicator-settings">
@@ -94,6 +97,7 @@ const TimeshareIndicatorSettings = observer(({ stock }: IndicatorSettingsProps) 
         分时副图 {timeshare.draftEnabledSubIndicatorCount}/{TIMESHARE_SUB_INDICATOR_LIMIT}
       </div>
       <TimeshareIndicatorGroup title="副图指标" definitions={subIndicators} stock={stock} />
+      <TimeshareIndicatorGroup title="高级指标" definitions={advancedIndicators} stock={stock} />
     </div>
   )
 })
@@ -200,16 +204,23 @@ const TimeshareIndicatorRow = observer(({ definition, stock }: TimeshareIndicato
     !enabled &&
     isTimeshareSubIndicator(definition.name) &&
     !timeshare.canEnableIndicator(definition.name)
+  const availability = stock.getTimeshareIndicatorAvailability(definition.name)
+  const disabledByAvailability = !enabled && !availability.available
   const errors = timeshare.indicatorDraftErrors[definition.name] ?? []
+  const tooltip = disabledByLimit
+    ? '分时副图最多开启 2 个'
+    : disabledByAvailability
+      ? availability.message
+      : ''
 
   return (
     <div className="indicator-row">
       <div className="indicator-row-main">
-        <Tooltip title={disabledByLimit ? '分时副图最多开启 2 个' : ''}>
+        <Tooltip title={tooltip}>
           <Switch
             size="small"
             checked={enabled}
-            disabled={disabledByLimit}
+            disabled={disabledByLimit || disabledByAvailability}
             onChange={(checked) => timeshare.setIndicatorDraftEnabled(definition.name, checked)}
           />
         </Tooltip>
@@ -225,7 +236,9 @@ const TimeshareIndicatorRow = observer(({ definition, stock }: TimeshareIndicato
         visible={definition.params.length > 0}
         onClick={() => timeshare.resetIndicatorDraftParams(definition.name)}
       />
-      <div className="indicator-error">{formatTimeshareIndicatorErrors(definition.name, errors)}</div>
+      <div className={errors.length > 0 ? 'indicator-error' : 'indicator-availability'}>
+        {formatTimeshareIndicatorStatus(definition.name, errors, availability.message)}
+      </div>
     </div>
   )
 })
@@ -497,4 +510,12 @@ function formatIndicatorErrors(_name: IndicatorName, errors: string[]): string {
 
 function formatTimeshareIndicatorErrors(_name: TimeshareIndicatorName, errors: string[]): string {
   return errors[0] ?? ''
+}
+
+function formatTimeshareIndicatorStatus(
+  _name: TimeshareIndicatorName,
+  errors: string[],
+  availabilityMessage: string
+): string {
+  return errors[0] ?? availabilityMessage
 }

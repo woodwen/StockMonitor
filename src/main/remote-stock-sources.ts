@@ -11,9 +11,16 @@ import type {
   StockPeriod,
   StockQuery,
   StockSourceId,
+  StockTimeshareAdvancedContext,
   StockTimeshareDataset,
   StockTimesharePoint,
-  StockTimeshareQuery
+  StockTimeshareQuery,
+  TimeshareAdvancedCapabilities,
+  TimeshareAdvancedContextKey,
+  TimeshareCapitalFlowAggregate,
+  TimeshareHistoricalVolumeBaseline,
+  TimeshareInOutVolumeAggregate,
+  TimeshareOrderBookSnapshot
 } from '../renderer/features/stock-workspace/models/stock-types'
 import { getElectronProxyRules, getHttpProxyUrl } from './network-proxy'
 
@@ -50,8 +57,79 @@ interface SecurityCode {
 
 const DEFAULT_COLUMNS = ['时间', '开盘价', '最高价', '最低价', '收盘价', '成交量', '成交额']
 const EASTMONEY_TIMESHARE_HOSTS = ['push2.eastmoney.com', 'push2delay.eastmoney.com'] as const
+const EASTMONEY_HISTORY_SAMPLE_DAYS = 5
+const ASHARE_TRADING_MINUTES = 240
 const USER_AGENT =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126 Safari/537.36'
+
+const unsupportedTimeshareAdvancedCapabilities: TimeshareAdvancedCapabilities = {
+  minuteOhlc: {
+    status: 'unsupported',
+    markets: [],
+    reason: '暂不支持分钟 OHLC'
+  },
+  historicalVolume: {
+    status: 'unsupported',
+    markets: [],
+    reason: '暂不支持历史成交量基准'
+  },
+  floatShares: {
+    status: 'unsupported',
+    markets: [],
+    reason: '暂不支持流通股本'
+  },
+  orderBook: {
+    status: 'unsupported',
+    markets: [],
+    reason: '暂不支持盘口档位'
+  },
+  tradeDirection: {
+    status: 'unsupported',
+    markets: [],
+    reason: '暂不支持逐笔方向或内外盘聚合'
+  },
+  capitalFlow: {
+    status: 'unsupported',
+    markets: [],
+    reason: '暂不支持资金流聚合'
+  }
+}
+
+const EASTMONEY_TIMESHARE_ADVANCED_CAPABILITIES: TimeshareAdvancedCapabilities = {
+  minuteOhlc: {
+    status: 'supported',
+    markets: ['stock', 'etf', 'index']
+  },
+  historicalVolume: {
+    status: 'supported',
+    markets: ['stock']
+  },
+  floatShares: {
+    status: 'supported',
+    markets: ['stock']
+  },
+  orderBook: {
+    status: 'supported',
+    markets: ['stock']
+  },
+  tradeDirection: {
+    status: 'supported',
+    markets: ['stock']
+  },
+  capitalFlow: {
+    status: 'supported',
+    markets: ['stock']
+  }
+}
+
+const TENCENT_TIMESHARE_ADVANCED_CAPABILITIES: TimeshareAdvancedCapabilities = {
+  ...unsupportedTimeshareAdvancedCapabilities,
+  minuteOhlc: {
+    status: 'unknown',
+    markets: ['stock', 'etf', 'index'],
+    reason: '腾讯高级分时上下文尚未作为第一版支持源确认'
+  }
+}
 
 const EASTMONEY_META: StockDataSourceMeta = {
   id: 'eastmoney',
@@ -60,7 +138,8 @@ const EASTMONEY_META: StockDataSourceMeta = {
     periods: ['day', 'week', 'month', '5', '15', '30', '60'],
     adjusts: ['none', 'qfq', 'hfq'],
     markets: ['stock', 'etf', 'index'],
-    timeshare: true
+    timeshare: true,
+    timeshareAdvanced: EASTMONEY_TIMESHARE_ADVANCED_CAPABILITIES
   }
 }
 
@@ -71,7 +150,8 @@ const SINA_META: StockDataSourceMeta = {
     periods: ['day', 'week', 'month', '5', '15', '30', '60'],
     adjusts: ['none'],
     markets: ['stock', 'etf', 'index'],
-    timeshare: false
+    timeshare: false,
+    timeshareAdvanced: unsupportedTimeshareAdvancedCapabilities
   }
 }
 
@@ -82,7 +162,8 @@ const NETEASE_META: StockDataSourceMeta = {
     periods: ['day'],
     adjusts: ['none'],
     markets: ['stock'],
-    timeshare: false
+    timeshare: false,
+    timeshareAdvanced: unsupportedTimeshareAdvancedCapabilities
   }
 }
 
@@ -93,7 +174,8 @@ const TENCENT_META: StockDataSourceMeta = {
     periods: ['day', 'week', 'month'],
     adjusts: ['none', 'qfq', 'hfq'],
     markets: ['stock', 'etf', 'index'],
-    timeshare: true
+    timeshare: true,
+    timeshareAdvanced: TENCENT_TIMESHARE_ADVANCED_CAPABILITIES
   }
 }
 
@@ -118,8 +200,16 @@ const sources: Record<StockSourceId, StockDataSource> = {
   }
 }
 
+const eastmoneyHistoricalVolumeCache = new Map<string, Promise<TimeshareHistoricalVolumeBaseline>>()
+const eastmoneyFloatSharesCache = new Map<string, number>()
+
 export function getStockDataSourceMetas(): StockDataSourceMeta[] {
   return Object.values(sources).map((source) => source.meta)
+}
+
+export function clearRemoteStockSourceCachesForTest(): void {
+  eastmoneyHistoricalVolumeCache.clear()
+  eastmoneyFloatSharesCache.clear()
 }
 
 const DIRECT_PROXY: NetworkProxySettings = {
@@ -219,7 +309,8 @@ async function fetchEastmoneyTimeshareDataset(
       const json = await requestJson<EastmoneyTimeshareResponse>(url, source.name, context, {
         Referer: 'https://quote.eastmoney.com/'
       })
-      return buildEastmoneyTimeshareDataset(source, security, url, json.data)
+      const dataset = buildEastmoneyTimeshareDataset(source, security, url, json.data)
+      return await attachEastmoneyTimeshareAdvancedContext(dataset, security, context)
     } catch (error) {
       errors.push(`${host}：${formatErrorMessage(error)}`)
     }
@@ -269,6 +360,349 @@ function buildEastmoneyTimeshareDataset(
     sourceId: source.id,
     sourceName: source.name,
     sourceUrl: sourceUrl.toString()
+  }
+}
+
+async function attachEastmoneyTimeshareAdvancedContext(
+  dataset: StockTimeshareDataset,
+  security: SecurityCode,
+  context: StockRequestContext
+): Promise<StockTimeshareDataset> {
+  const tradeDate = inferTimeshareTradeDate(dataset)
+  const advanced: StockTimeshareAdvancedContext = {
+    tradeDate,
+    unavailableReasons: {}
+  }
+  const unavailableReasons = advanced.unavailableReasons as Partial<
+    Record<TimeshareAdvancedContextKey, string>
+  >
+
+  if (!hasMinuteOhlc(dataset.points)) {
+    unavailableReasons.minuteOhlc = '东方财富分时响应缺少分钟 OHLC'
+  }
+
+  if (inferMarketScope(security) !== 'stock') {
+    const reason = '第一版高级上下文优先支持 A 股股票'
+    unavailableReasons.historicalVolume = reason
+    unavailableReasons.floatShares = reason
+    unavailableReasons.orderBook = reason
+    unavailableReasons.tradeDirection = reason
+    unavailableReasons.capitalFlow = reason
+    return {
+      ...dataset,
+      advanced
+    }
+  }
+
+  const [historicalVolume, quote] = await Promise.allSettled([
+    getEastmoneyHistoricalVolumeBaseline(security, tradeDate, context),
+    fetchEastmoneyQuoteAdvancedContext(security, tradeDate, context)
+  ])
+
+  if (historicalVolume.status === 'fulfilled') {
+    advanced.historicalVolumeBaseline = historicalVolume.value
+  } else {
+    unavailableReasons.historicalVolume = formatErrorMessage(historicalVolume.reason)
+  }
+
+  if (quote.status === 'fulfilled') {
+    const cachedFloatShares = eastmoneyFloatSharesCache.get(createAdvancedCacheKey(security, tradeDate))
+    const floatShares = cachedFloatShares ?? quote.value.floatShares
+    if (floatShares && Number.isFinite(floatShares) && floatShares > 0) {
+      advanced.floatShares = floatShares
+      eastmoneyFloatSharesCache.set(createAdvancedCacheKey(security, tradeDate), floatShares)
+    } else {
+      unavailableReasons.floatShares = '东方财富未返回有效流通股本'
+    }
+    if (quote.value.orderBook) {
+      advanced.orderBook = quote.value.orderBook
+    } else {
+      unavailableReasons.orderBook = '东方财富未返回有效买卖前 5 档'
+    }
+    if (quote.value.inOutVolume) {
+      advanced.inOutVolume = quote.value.inOutVolume
+    } else {
+      unavailableReasons.tradeDirection = '东方财富未返回逐笔方向或内外盘聚合字段'
+    }
+    if (quote.value.capitalFlow) {
+      advanced.capitalFlow = quote.value.capitalFlow
+    } else {
+      unavailableReasons.capitalFlow = '东方财富未返回总流入、总流出和净流入'
+    }
+  } else {
+    const reason = formatErrorMessage(quote.reason)
+    const cachedFloatShares = eastmoneyFloatSharesCache.get(createAdvancedCacheKey(security, tradeDate))
+    if (cachedFloatShares) {
+      advanced.floatShares = cachedFloatShares
+    } else {
+      unavailableReasons.floatShares = reason
+    }
+    unavailableReasons.orderBook = reason
+    unavailableReasons.tradeDirection = reason
+    unavailableReasons.capitalFlow = reason
+  }
+
+  return {
+    ...dataset,
+    advanced
+  }
+}
+
+function inferTimeshareTradeDate(dataset: StockTimeshareDataset): string {
+  const timeKey = dataset.points[0]?.timeKey
+  return /^\d{12}$/.test(timeKey ?? '') ? (timeKey as string).slice(0, 8) : formatDateKey(new Date())
+}
+
+function hasMinuteOhlc(points: StockTimesharePoint[]): boolean {
+  return (
+    points.length > 0 &&
+    points.every(
+      (point) =>
+        Number.isFinite(point.open) &&
+        Number.isFinite(point.high) &&
+        Number.isFinite(point.low) &&
+        Number.isFinite(point.close ?? point.price)
+    )
+  )
+}
+
+function getEastmoneyHistoricalVolumeBaseline(
+  security: SecurityCode,
+  tradeDate: string,
+  context: StockRequestContext
+): Promise<TimeshareHistoricalVolumeBaseline> {
+  const cacheKey = createAdvancedCacheKey(security, tradeDate)
+  const cached = eastmoneyHistoricalVolumeCache.get(cacheKey)
+  if (cached) {
+    return cached
+  }
+
+  const promise = fetchEastmoneyHistoricalVolumeBaseline(security, tradeDate, context).catch(
+    (error) => {
+      eastmoneyHistoricalVolumeCache.delete(cacheKey)
+      throw error
+    }
+  )
+  eastmoneyHistoricalVolumeCache.set(cacheKey, promise)
+  return promise
+}
+
+async function fetchEastmoneyHistoricalVolumeBaseline(
+  security: SecurityCode,
+  tradeDate: string,
+  context: StockRequestContext
+): Promise<TimeshareHistoricalVolumeBaseline> {
+  const url = createEastmoneyDailyHistoryUrl(security, offsetDateKey(tradeDate, -45), tradeDate)
+  const json = await requestJson<EastmoneyResponse>(url, EASTMONEY_META.name, context, {
+    Referer: 'https://quote.eastmoney.com/'
+  })
+  const candles = (json.data?.klines ?? [])
+    .map((line) => parseCommaKline(line, 'day'))
+    .filter((candle) => candle.timeKey < tradeDate && candle.volume > 0)
+    .sort((left, right) => left.timestamp - right.timestamp)
+    .slice(-EASTMONEY_HISTORY_SAMPLE_DAYS)
+
+  if (candles.length < EASTMONEY_HISTORY_SAMPLE_DAYS) {
+    throw new Error('东方财富历史成交量有效样本不足 5 个交易日')
+  }
+
+  const averageMinuteVolume =
+    candles.reduce((sum, candle) => sum + candle.volume, 0) /
+    candles.length /
+    ASHARE_TRADING_MINUTES
+
+  if (!Number.isFinite(averageMinuteVolume) || averageMinuteVolume <= 0) {
+    throw new Error('东方财富历史成交量基准无效')
+  }
+
+  return {
+    basis: 'fiveDayAverageMinuteVolume',
+    averageMinuteVolume,
+    tradeDays: candles.length,
+    sampleStartDate: candles[0].timeKey,
+    sampleEndDate: candles[candles.length - 1].timeKey,
+    source: EASTMONEY_META.name
+  }
+}
+
+function createEastmoneyDailyHistoryUrl(
+  security: SecurityCode,
+  beginDate: string,
+  endDate: string
+): URL {
+  const url = new URL('https://push2his.eastmoney.com/api/qt/stock/kline/get')
+  url.searchParams.set('fields1', 'f1,f2,f3,f4,f5,f6')
+  url.searchParams.set('fields2', 'f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61,f116')
+  url.searchParams.set('ut', '7eea3edcaed734bea9cbfc24409ed989')
+  url.searchParams.set('klt', '101')
+  url.searchParams.set('fqt', '0')
+  url.searchParams.set('secid', security.secid)
+  url.searchParams.set('beg', beginDate)
+  url.searchParams.set('end', endDate)
+  return url
+}
+
+async function fetchEastmoneyQuoteAdvancedContext(
+  security: SecurityCode,
+  tradeDate: string,
+  context: StockRequestContext
+): Promise<{
+  floatShares?: number
+  orderBook?: TimeshareOrderBookSnapshot
+  inOutVolume?: TimeshareInOutVolumeAggregate
+  capitalFlow?: TimeshareCapitalFlowAggregate
+}> {
+  const url = createEastmoneyQuoteUrl(security)
+  const json = await requestJson<EastmoneyQuoteResponse>(url, EASTMONEY_META.name, context, {
+    Referer: 'https://quote.eastmoney.com/'
+  })
+  const data = json.data
+  if (!data) {
+    throw new Error('东方财富未返回报价上下文')
+  }
+
+  const timestamp = Date.now()
+  const cacheKey = createAdvancedCacheKey(security, tradeDate)
+  const floatShares = parsePositiveNumber(data.f85)
+  if (floatShares) {
+    eastmoneyFloatSharesCache.set(cacheKey, floatShares)
+  }
+
+  return {
+    floatShares: floatShares ?? eastmoneyFloatSharesCache.get(cacheKey),
+    orderBook: parseEastmoneyOrderBook(data, timestamp),
+    inOutVolume: parseEastmoneyInOutVolume(data, timestamp),
+    capitalFlow: parseEastmoneyCapitalFlow(data, timestamp)
+  }
+}
+
+function createEastmoneyQuoteUrl(security: SecurityCode): URL {
+  const url = new URL('https://push2.eastmoney.com/api/qt/stock/get')
+  url.searchParams.set('secid', security.secid)
+  url.searchParams.set(
+    'fields',
+    [
+      'f43',
+      'f57',
+      'f58',
+      'f85',
+      'f11',
+      'f12',
+      'f13',
+      'f14',
+      'f15',
+      'f16',
+      'f17',
+      'f18',
+      'f19',
+      'f20',
+      'f31',
+      'f32',
+      'f33',
+      'f34',
+      'f35',
+      'f36',
+      'f37',
+      'f38',
+      'f39',
+      'f40',
+      'f49',
+      'f50',
+      'f161',
+      'f162',
+      'f163',
+      'f164'
+    ].join(',')
+  )
+  return url
+}
+
+function parseEastmoneyOrderBook(
+  data: EastmoneyQuoteData,
+  timestamp: number
+): TimeshareOrderBookSnapshot | undefined {
+  const bidLevels = parseOrderBookLevels(data, [
+    ['f19', 'f20'],
+    ['f17', 'f18'],
+    ['f15', 'f16'],
+    ['f13', 'f14'],
+    ['f11', 'f12']
+  ])
+  const askLevels = parseOrderBookLevels(data, [
+    ['f39', 'f40'],
+    ['f37', 'f38'],
+    ['f35', 'f36'],
+    ['f33', 'f34'],
+    ['f31', 'f32']
+  ])
+  const bidVolume = sumVolumes(bidLevels)
+  const askVolume = sumVolumes(askLevels)
+  if (bidVolume + askVolume <= 0) {
+    return undefined
+  }
+  return {
+    bidLevels,
+    askLevels,
+    bidVolume,
+    askVolume,
+    timestamp,
+    source: EASTMONEY_META.name
+  }
+}
+
+function parseOrderBookLevels(
+  data: EastmoneyQuoteData,
+  pairs: Array<[string, string]>
+): TimeshareOrderBookSnapshot['bidLevels'] {
+  return pairs
+    .map((pair): TimeshareOrderBookSnapshot['bidLevels'][number] | null => {
+      const [priceKey, volumeKey] = pair
+      const volume = parseNonNegativeNumber(data[volumeKey])
+      if (volume === null || volume <= 0) {
+        return null
+      }
+      const price = parsePositiveNumber(data[priceKey])
+      return {
+        ...(price ? { price } : {}),
+        volume
+      }
+    })
+    .filter((level): level is TimeshareOrderBookSnapshot['bidLevels'][number] => level !== null)
+}
+
+function parseEastmoneyInOutVolume(
+  data: EastmoneyQuoteData,
+  timestamp: number
+): TimeshareInOutVolumeAggregate | undefined {
+  const inwardVolume = parseNonNegativeNumber(data.inwardVolume)
+  const outwardVolume = parseNonNegativeNumber(data.outwardVolume)
+  if (inwardVolume === null || outwardVolume === null) {
+    return undefined
+  }
+  return {
+    inwardVolume,
+    outwardVolume,
+    source: 'sourceAggregate',
+    timestamp
+  }
+}
+
+function parseEastmoneyCapitalFlow(
+  data: EastmoneyQuoteData,
+  timestamp: number
+): TimeshareCapitalFlowAggregate | undefined {
+  const totalInflow = parseNonNegativeNumber(data.totalInflow)
+  const totalOutflow = parseNonNegativeNumber(data.totalOutflow)
+  const explicitNetInflow = parseNullableNumber(data.netInflow)
+  if (totalInflow === null || totalOutflow === null) {
+    return undefined
+  }
+  return {
+    totalInflow,
+    totalOutflow,
+    netInflow: explicitNetInflow ?? totalInflow - totalOutflow,
+    source: 'sourceAggregate',
+    timestamp
   }
 }
 
@@ -627,7 +1061,11 @@ function parseEastmoneyTimesharePoint(line: string): StockTimesharePoint | null 
     price,
     avgPrice,
     volume: parseFiniteNumber(cells[5]),
-    turnover: parseFiniteNumber(cells[6])
+    turnover: parseFiniteNumber(cells[6]),
+    open: parsePositiveNumber(cells[1]),
+    high: parsePositiveNumber(cells[3]),
+    low: parsePositiveNumber(cells[4]),
+    close: price
   }
 }
 
@@ -1023,6 +1461,33 @@ function parseNullableNumber(value: unknown): number | null {
   return Number.isFinite(parsed) ? parsed : null
 }
 
+function parsePositiveNumber(value: unknown): number | undefined {
+  const parsed = parseNullableNumber(value)
+  return parsed !== null && parsed > 0 ? parsed : undefined
+}
+
+function parseNonNegativeNumber(value: unknown): number | null {
+  const parsed = parseNullableNumber(value)
+  return parsed !== null && parsed >= 0 ? parsed : null
+}
+
+function sumVolumes(levels: TimeshareOrderBookSnapshot['bidLevels']): number {
+  return levels.reduce((sum, level) => sum + level.volume, 0)
+}
+
+function createAdvancedCacheKey(security: SecurityCode, tradeDate: string): string {
+  return `${EASTMONEY_META.id}:${security.prefixed}:${tradeDate}`
+}
+
+function offsetDateKey(dateKey: string, days: number): string {
+  const year = Number(dateKey.slice(0, 4))
+  const month = Number(dateKey.slice(4, 6))
+  const day = Number(dateKey.slice(6, 8))
+  const date = new Date(year, month - 1, day)
+  date.setDate(date.getDate() + days)
+  return formatDateKey(date)
+}
+
 function intervalFromPeriod(period: StockPeriod): IntervalType {
   if (period === 'day' || period === 'week' || period === 'month') {
     return period
@@ -1102,6 +1567,12 @@ interface EastmoneyTimeshareResponse {
     trends?: string[]
   }
 }
+
+interface EastmoneyQuoteResponse {
+  data?: EastmoneyQuoteData
+}
+
+type EastmoneyQuoteData = Record<string, unknown>
 
 type TencentSecurityData = {
   qt?: Record<string, string[]>

@@ -179,6 +179,21 @@ describe('StockWorkspaceViewModel', () => {
     expect(viewModel.selectedSourceName).toBe('东方财富')
   })
 
+  it('reports advanced timeshare indicator availability from the current dataset', async () => {
+    const viewModel = new StockWorkspaceViewModel(new FakeDataAdapter())
+
+    await viewModel.initialize()
+
+    expect(viewModel.getTimeshareIndicatorAvailability('kdj')).toMatchObject({
+      available: false,
+      message: '缺少分钟 OHLC'
+    })
+    expect(viewModel.getTimeshareIndicatorAvailability('volume')).toMatchObject({
+      available: true,
+      message: ''
+    })
+  })
+
   it('falls back to Tencent during startup when Eastmoney fails', async () => {
     const viewModel = new StockWorkspaceViewModel(
       new FakeDataAdapter(['eastmoney'], createKlineSettings())
