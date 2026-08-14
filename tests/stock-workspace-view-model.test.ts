@@ -876,6 +876,125 @@ describe('StockWorkspaceViewModel', () => {
     })
   })
 
+  it('filters the watchlist by name, full symbol and bare code without reordering', async () => {
+    const viewModel = new StockWorkspaceViewModel(
+      new FakeDataAdapter([], {
+        ...createDefaultSettings(),
+        workspace: {
+          ...createDefaultSettings().workspace,
+          watchlist: [
+            { symbol: 'sh600519', name: '贵州茅台', createdAt: 1 },
+            { symbol: 'sz000001', name: '平安银行', createdAt: 2 },
+            { symbol: 'sz000002', name: '万科A', createdAt: 3 }
+          ]
+        }
+      })
+    )
+
+    await viewModel.initialize()
+
+    viewModel.setWatchlistSearchText('600519')
+    expect(viewModel.filteredWatchlist.map((item) => item.symbol)).toEqual(['sh600519'])
+
+    viewModel.setWatchlistSearchText('SZ000')
+    expect(viewModel.filteredWatchlist.map((item) => item.symbol)).toEqual(['sz000001', 'sz000002'])
+
+    viewModel.setWatchlistSearchText('平安')
+    expect(viewModel.filteredWatchlist.map((item) => item.symbol)).toEqual(['sz000001'])
+  })
+
+  it('keeps watchlist search local and clears it when closing the panel', async () => {
+    const adapter = new FakeDataAdapter([], {
+      ...createDefaultSettings(),
+      workspace: {
+        ...createDefaultSettings().workspace,
+        watchlist: [
+          { symbol: 'sh600519', name: '贵州茅台', createdAt: 1 },
+          { symbol: 'sz000001', name: '平安银行', createdAt: 2 }
+        ]
+      }
+    })
+    const viewModel = new StockWorkspaceViewModel(adapter)
+
+    await viewModel.initialize()
+    const stockRequestCount = adapter.stockQueries.length
+    const timeshareRequestCount = adapter.timeshareQueries.length
+    const savedSettingsCount = adapter.savedWorkspaceSettings.length
+
+    viewModel.toggleWatchlistOpen()
+    viewModel.setWatchlistSearchText('不存在')
+
+    expect(viewModel.filteredWatchlist).toEqual([])
+    expect(adapter.stockQueries).toHaveLength(stockRequestCount)
+    expect(adapter.timeshareQueries).toHaveLength(timeshareRequestCount)
+    expect(adapter.savedWorkspaceSettings).toHaveLength(savedSettingsCount)
+
+    viewModel.toggleWatchlistOpen()
+    viewModel.toggleWatchlistOpen()
+
+    expect(viewModel.watchlistSearchText).toBe('')
+    expect(viewModel.filteredWatchlist.map((item) => item.symbol)).toEqual(['sh600519', 'sz000001'])
+  })
+
+  it('selects a filtered watchlist item without changing source selections', async () => {
+    const adapter = new FakeDataAdapter([], {
+      ...createDefaultSettings(),
+      workspace: {
+        ...createDefaultSettings().workspace,
+        viewMode: 'kline',
+        query: {
+          ...createDefaultSettings().workspace.query,
+          sourceId: 'sina'
+        },
+        watchlist: [
+          { symbol: 'sh600519', name: '贵州茅台', createdAt: 1 },
+          { symbol: 'sz000001', name: '平安银行', createdAt: 2 }
+        ]
+      }
+    })
+    const viewModel = new StockWorkspaceViewModel(adapter)
+
+    await viewModel.initialize()
+    viewModel.setWatchlistSearchText('平安')
+    await viewModel.selectWatchlistItem(viewModel.filteredWatchlist[0].symbol)
+
+    expect(viewModel.query.symbol).toBe('sz000001')
+    expect(viewModel.query.sourceId).toBe('sina')
+    expect(adapter.stockQueries.at(-1)).toMatchObject({
+      symbol: 'sz000001',
+      sourceId: 'sina'
+    })
+  })
+
+  it('applies watchlist select all and invert only to the filtered rows', async () => {
+    const viewModel = new StockWorkspaceViewModel(
+      new FakeDataAdapter([], {
+        ...createDefaultSettings(),
+        workspace: {
+          ...createDefaultSettings().workspace,
+          watchlist: [
+            { symbol: 'sh000001', name: '上证指数', createdAt: 1 },
+            { symbol: 'sh600519', name: '贵州茅台', createdAt: 2 },
+            { symbol: 'sz000001', name: '平安银行', createdAt: 3 }
+          ]
+        }
+      })
+    )
+
+    await viewModel.initialize()
+    viewModel.toggleWatchlistOpen()
+    viewModel.toggleWatchlistManageMode()
+    viewModel.setWatchlistSearchText('600')
+    viewModel.toggleWatchlistSelection('sz000001', true)
+    viewModel.selectAllWatchlistItems()
+
+    expect(viewModel.selectedWatchlistSymbols).toEqual(['sh600519', 'sz000001'])
+
+    viewModel.invertWatchlistSelection()
+
+    expect(viewModel.selectedWatchlistSymbols).toEqual(['sz000001'])
+  })
+
   it('clears watchlist selection when closing the panel', async () => {
     const viewModel = new StockWorkspaceViewModel(
       new FakeDataAdapter([], {
@@ -894,11 +1013,13 @@ describe('StockWorkspaceViewModel', () => {
     viewModel.toggleWatchlistOpen()
     viewModel.toggleWatchlistManageMode()
     viewModel.selectAllWatchlistItems()
+    viewModel.setWatchlistSearchText('600')
     viewModel.toggleWatchlistOpen()
 
     expect(viewModel.watchlistOpen).toBe(false)
     expect(viewModel.watchlistManageMode).toBe(false)
     expect(viewModel.selectedWatchlistSymbols).toEqual([])
+    expect(viewModel.watchlistSearchText).toBe('')
   })
 
   it('opens kline cache dialog with current source/date and default period/adjust selections without switching timeshare mode', async () => {
@@ -1358,6 +1479,9 @@ describe('StockWorkspaceViewModel', () => {
     expect(viewModel.strategyTemplateDraftRows).toHaveLength(1)
     expect(viewModel.strategyTemplateDraftRows[0]).toMatchObject({
       id: 'ma-cross',
+      typeLabel: '趋势',
+      basicLogic: '短期均线与长期均线交叉',
+      recommendationLevel: 4,
       minSampleSize: 30,
       compatiblePeriodLabel: '日线/周线/月线',
       signalDescription: expect.stringContaining('买入信号'),

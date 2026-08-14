@@ -1,5 +1,11 @@
 import { App, Button, Checkbox, Divider, Empty, Input, Space, Tag, Typography } from 'antd'
-import { CopyOutlined, DatabaseOutlined, PlusOutlined, StarFilled } from '@ant-design/icons'
+import {
+  CopyOutlined,
+  DatabaseOutlined,
+  PlusOutlined,
+  SearchOutlined,
+  StarFilled
+} from '@ant-design/icons'
 import { observer } from 'mobx-react-lite'
 import type { WatchlistAddPreviewStatus, WatchlistItem } from '../models/stock-types'
 import type { StockWorkspaceViewModel } from '../view-models/StockWorkspaceViewModel'
@@ -25,6 +31,7 @@ export const WatchlistPanel = observer(({ stock }: WatchlistPanelProps) => {
   const invalidCount = stock.watchlistAddPreview.previews.filter(
     (preview) => preview.status === 'invalid'
   ).length
+  const filteredWatchlist = stock.filteredWatchlist
 
   const confirmRemoveSelected = (): void => {
     modal.confirm({
@@ -132,6 +139,18 @@ export const WatchlistPanel = observer(({ stock }: WatchlistPanelProps) => {
 
       <Divider className="watchlist-divider" />
 
+      <div className="watchlist-search">
+        <Input
+          className="watchlist-search-input"
+          size="small"
+          allowClear
+          prefix={<SearchOutlined />}
+          value={stock.watchlistSearchText}
+          placeholder="搜索名称或代码"
+          onChange={(event) => stock.setWatchlistSearchText(event.target.value)}
+        />
+      </div>
+
       {stock.watchlistManageMode ? (
         <div className="watchlist-manage-bar">
           <Space size={6} wrap>
@@ -156,8 +175,14 @@ export const WatchlistPanel = observer(({ stock }: WatchlistPanelProps) => {
       <div className="watchlist-list">
         {stock.watchlist.length === 0 ? (
           <Empty className="watchlist-empty" image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无自选股" />
+        ) : filteredWatchlist.length === 0 ? (
+          <Empty
+            className="watchlist-empty"
+            image={Empty.PRESENTED_IMAGE_SIMPLE}
+            description="无匹配自选股"
+          />
         ) : (
-          stock.watchlist.map((item) => (
+          filteredWatchlist.map((item) => (
             <WatchlistRow key={item.symbol} stock={stock} item={item} />
           ))
         )}

@@ -517,6 +517,15 @@ body {
   margin: 0;
 }
 
+.watchlist-search {
+  padding: 8px 10px;
+  border-bottom: 1px solid #263241;
+}
+
+.watchlist-search-input {
+  width: 100%;
+}
+
 .watchlist-manage-bar {
   padding: 8px 10px;
   border-bottom: 1px solid #263241;
@@ -723,6 +732,10 @@ body {
   min-width: 0;
   flex-direction: column;
   gap: 2px;
+}
+
+.strategy-template-tags {
+  min-width: 0;
 }
 
 .strategy-result-name span {

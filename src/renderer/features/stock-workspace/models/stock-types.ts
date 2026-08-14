@@ -481,6 +481,16 @@ export type KlineStrategyTemplateId =
   | 'breakout-pullback'
   | 'rsi-reversion'
   | 'macd-trend-confirmation'
+  | 'ma-bullish-alignment'
+  | 'n-day-high-breakout'
+  | 'volume-breakout'
+  | 'bollinger-breakout'
+  | 'bollinger-mean-reversion'
+  | 'kdj-oversold-rebound'
+  | 'atr-trend-following'
+  | 'low-volume-ma-pullback'
+
+export type KlineStrategyRecommendationLevel = 1 | 2 | 3 | 4 | 5
 
 export interface KlineStrategyParameterDefinition {
   key: string
@@ -497,6 +507,9 @@ export type KlineStrategyParams = Record<string, number>
 export interface KlineStrategyTemplateDefinition {
   id: KlineStrategyTemplateId
   name: string
+  typeLabel: string
+  basicLogic: string
+  recommendationLevel: KlineStrategyRecommendationLevel
   description: string
   signalDescription: string
   parameters: KlineStrategyParameterDefinition[]

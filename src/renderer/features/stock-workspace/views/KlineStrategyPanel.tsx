@@ -172,6 +172,11 @@ export const KlineStrategyPanel = observer(({ stock }: KlineStrategyPanelProps) 
               <div className="strategy-template-row" key={template.id}>
                 <div className="strategy-template-meta">
                   <Typography.Text strong>{template.name}</Typography.Text>
+                  <Space className="strategy-template-tags" size={6} wrap>
+                    <Tag>{template.typeLabel}</Tag>
+                    <Tag color="gold">模板推荐程度 {template.recommendationLevel}/5</Tag>
+                    <Tag color="blue">{template.basicLogic}</Tag>
+                  </Space>
                   <Typography.Text type="secondary">
                     {template.description}；支持{template.compatiblePeriodLabel}；至少{' '}
                     {template.minSampleSize} 根 K 线

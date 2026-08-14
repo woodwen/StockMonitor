@@ -31,6 +31,7 @@ import type {
   KlineStrategyBacktestResult,
   KlineStrategyParameterDefinition,
   KlineStrategyParams,
+  KlineStrategyRecommendationLevel,
   KlineStrategySettings,
   KlineStrategyTemplateId,
   StockAdjust,
@@ -87,6 +88,9 @@ export interface SourceTestResult {
 export interface StrategyTemplateDraftRow {
   id: KlineStrategyTemplateId
   name: string
+  typeLabel: string
+  basicLogic: string
+  recommendationLevel: KlineStrategyRecommendationLevel
   description: string
   signalDescription: string
   minSampleSize: number
@@ -121,6 +125,7 @@ export class StockWorkspaceViewModel {
   watchlistOpen = false
   watchlistManageMode = false
   selectedWatchlistSymbols: string[] = []
+  watchlistSearchText = ''
   watchlistAddText = ''
   watchlistAddPreview: WatchlistParseResult = createEmptyWatchlistParseResult()
   watchlistPasteError = ''
@@ -386,7 +391,16 @@ export class StockWorkspaceViewModel {
     this.watchlistOpen = !this.watchlistOpen
     if (!this.watchlistOpen) {
       this.exitWatchlistManageMode()
+      this.clearWatchlistSearch()
     }
+  }
+
+  setWatchlistSearchText(text: string): void {
+    this.watchlistSearchText = text
+  }
+
+  clearWatchlistSearch(): void {
+    this.watchlistSearchText = ''
   }
 
   setWatchlistAddText(text: string): void {
@@ -487,14 +501,25 @@ export class StockWorkspaceViewModel {
   }
 
   selectAllWatchlistItems(): void {
-    this.selectedWatchlistSymbols = this.watchlist.map((item) => item.symbol)
+    const selected = new Set(this.selectedWatchlistSymbols)
+    this.filteredWatchlist.forEach((item) => selected.add(item.symbol))
+    this.selectedWatchlistSymbols = this.watchlist
+      .map((item) => item.symbol)
+      .filter((symbol) => selected.has(symbol))
   }
 
   invertWatchlistSelection(): void {
     const selected = new Set(this.selectedWatchlistSymbols)
+    const visible = new Set(this.filteredWatchlist.map((item) => item.symbol))
+    const next = new Set(this.selectedWatchlistSymbols.filter((symbol) => !visible.has(symbol)))
+    this.filteredWatchlist.forEach((item) => {
+      if (!selected.has(item.symbol)) {
+        next.add(item.symbol)
+      }
+    })
     this.selectedWatchlistSymbols = this.watchlist
       .map((item) => item.symbol)
-      .filter((symbol) => !selected.has(symbol))
+      .filter((symbol) => next.has(symbol))
   }
 
   removeSelectedWatchlistItems(): void {
@@ -1170,6 +1195,19 @@ export class StockWorkspaceViewModel {
     return Boolean(symbol && this.watchlist.some((item) => item.symbol === symbol))
   }
 
+  get filteredWatchlist(): WatchlistItem[] {
+    const keyword = this.watchlistSearchText.trim().toLowerCase()
+    if (!keyword) {
+      return this.watchlist
+    }
+    return this.watchlist.filter((item) => {
+      const symbol = item.symbol.toLowerCase()
+      const bareSymbol = symbol.replace(/^(sh|sz)/, '')
+      const name = item.name.toLowerCase()
+      return symbol.includes(keyword) || bareSymbol.includes(keyword) || name.includes(keyword)
+    })
+  }
+
   get selectedWatchlistCount(): number {
     return this.selectedWatchlistSymbols.length
   }
@@ -1273,6 +1311,9 @@ export class StockWorkspaceViewModel {
         return {
           id: template.id,
           name: template.name,
+          typeLabel: template.typeLabel,
+          basicLogic: template.basicLogic,
+          recommendationLevel: template.recommendationLevel,
           description: template.description,
           signalDescription: template.signalDescription,
           minSampleSize: template.minSampleSize,
