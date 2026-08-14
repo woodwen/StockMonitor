@@ -45,11 +45,21 @@ TypeScript、MobX、Ant Design、klinecharts、Vitest 和 electron-builder。
 
 ## 文档规则
 
-- 用户可见功能或行为变更，应新增或更新
-  `docs/spec/feature/YYYYMM/DD-topic/plan.md`。
-- 功能完成后，应新增或更新同目录的 `pr.md`。
+- 用户可见功能、行为变更、release 行为变更或架构重要改动，应优先通过
+  OpenSpec change 规划和实施。
+- OpenSpec proposal、design、tasks 和 specs 的正文默认使用简体中文。
+  OpenSpec 结构关键字、capability id、文件路径、命令、API 和代码标识符
+  保留英文稳定形式。
+- `docs/spec/feature/YYYYMM/DD-topic` 是历史归档目录。除非任务明确延续
+  已存在的 legacy plan，否则不再作为新规格默认落点。
+- 实施 active OpenSpec change 前，应读取对应 proposal、design、tasks 和
+  specs；更新后应运行 `openspec validate <change> --strict`。
+- 本地 PR markdown 默认由 `project-commit-pr` 生成。存在 active OpenSpec
+  change 时，优先写入 `openspec/changes/<change>/pr.md`。
 - 用户可见变更应写入 `CHANGELOG.md` 中
   `Unreleased / <current package.json version>` 区块。
+- 纯内部 workflow、agent instructions 或 OpenSpec 迁移变更不要求写入应用
+  `CHANGELOG.md`。
 - 发布流程以 `CHANGELOG.md` 作为 GitHub Release notes 来源。
 
 ## Code Review Rules
@@ -58,6 +68,7 @@ TypeScript、MobX、Ant Design、klinecharts、Vitest 和 electron-builder。
 - 标记新增或修改 IPC channel 但没有同步 preload 类型的改动。
 - 标记修改 `StockApi` 但没有同步 adapter 和测试的改动。
 - 标记行情源能力变化但没有同步 README、spec 或测试覆盖的改动。
+- 标记用户可见行为变化但没有同步 OpenSpec specs 或测试覆盖的改动。
 - 标记破坏 changelog release notes 校验的 release workflow 改动。
 - 标记用户可见文案中的投资建议、买卖建议、收益承诺或类似表述。
 - 优先做符合现有模块边界的聚焦改动，避免无必要的大范围重构。

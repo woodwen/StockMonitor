@@ -7,12 +7,18 @@ import type {
   IndicatorLineVisualStyle,
   IndicatorName,
   IndicatorSettings,
-  IndicatorSettingsMap
+  IndicatorSettingsMap,
+  KlineStrategySignal
 } from '../models/stock-types'
 
 const CANDLE_PANE_ID = 'candle_pane'
 const BS_SIGNAL_GROUP_ID = 'bs-signal'
+const STRATEGY_SIGNAL_GROUP_ID = 'strategy-signal'
 const BS_SIGNAL_OVERLAY_NAME = 'stockMonitorBsSignal'
+const DEFAULT_SIGNAL_BUY_COLOR = '#ff4d4f'
+const DEFAULT_SIGNAL_SELL_COLOR = '#1677ff'
+const SIGNAL_BUY_BORDER_COLOR = '#fff1f0'
+const SIGNAL_SELL_BORDER_COLOR = '#e6f4ff'
 
 let signalOverlayRegistered = false
 
@@ -31,6 +37,8 @@ export class KLineChartsAdapter {
   private readonly indicatorStates = new Map<ChartIndicatorName, ActiveIndicator>()
   private overlayIds: string[] = []
   private overlaySignature = ''
+  private strategyOverlayIds: string[] = []
+  private strategyOverlaySignature = ''
   private currentDataset: EnrichedStockDataset | null = null
 
   mount(container: HTMLElement): void {
@@ -86,7 +94,11 @@ export class KLineChartsAdapter {
     } as any)
   }
 
-  setDataset(dataset: EnrichedStockDataset, indicatorSettings: IndicatorSettingsMap): void {
+  setDataset(
+    dataset: EnrichedStockDataset,
+    indicatorSettings: IndicatorSettingsMap,
+    strategySignals: KlineStrategySignal[] = []
+  ): void {
     if (!this.chart) {
       return
     }
@@ -107,6 +119,7 @@ export class KLineChartsAdapter {
     )
     this.syncIndicators(indicatorSettings)
     this.syncSignalOverlays(dataset, indicatorSettings.bsSignal, datasetChanged)
+    this.syncStrategySignalOverlays(strategySignals, datasetChanged)
   }
 
   resize(): void {
@@ -122,6 +135,8 @@ export class KLineChartsAdapter {
     this.indicatorStates.clear()
     this.overlayIds = []
     this.overlaySignature = ''
+    this.strategyOverlayIds = []
+    this.strategyOverlaySignature = ''
     this.currentDataset = null
   }
 
@@ -241,24 +256,73 @@ export class KLineChartsAdapter {
     }
 
     const createdIds = this.chart.createOverlay?.(overlays, CANDLE_PANE_ID)
-    this.overlayIds = Array.isArray(createdIds)
-      ? createdIds.filter((id): id is string => typeof id === 'string')
-      : typeof createdIds === 'string'
-        ? [createdIds]
-        : []
+    this.overlayIds = normalizeCreatedOverlayIds(createdIds)
     this.overlaySignature = overlaySignature
   }
 
   private removeSignalOverlays(): void {
-    if (this.overlayIds.length === 0) {
-      this.chart.removeOverlay?.({ groupId: BS_SIGNAL_GROUP_ID })
-      this.overlaySignature = ''
+    this.removeOverlayGroup(this.overlayIds, BS_SIGNAL_GROUP_ID)
+    this.overlayIds = []
+    this.overlaySignature = ''
+  }
+
+  private syncStrategySignalOverlays(
+    signals: KlineStrategySignal[],
+    datasetChanged: boolean
+  ): void {
+    if (signals.length === 0) {
+      this.removeStrategySignalOverlays()
       return
     }
 
-    this.overlayIds.forEach((id) => this.chart.removeOverlay?.(id))
-    this.overlayIds = []
-    this.overlaySignature = ''
+    const overlaySignature = createStrategySignalOverlaySignature(signals)
+    if (
+      this.strategyOverlayIds.length > 0 &&
+      !datasetChanged &&
+      this.strategyOverlaySignature === overlaySignature
+    ) {
+      return
+    }
+
+    this.removeStrategySignalOverlays()
+
+    const overlays = signals.map((signal) => ({
+      name: BS_SIGNAL_OVERLAY_NAME,
+      groupId: STRATEGY_SIGNAL_GROUP_ID,
+      lock: true,
+      needDefaultPointFigure: false,
+      needDefaultXAxisFigure: false,
+      needDefaultYAxisFigure: false,
+      points: [
+        {
+          timestamp: signal.timestamp,
+          value: signal.price
+        }
+      ],
+      extendData: {
+        side: signal.side,
+        buyColor: DEFAULT_SIGNAL_BUY_COLOR,
+        sellColor: DEFAULT_SIGNAL_SELL_COLOR
+      }
+    }))
+
+    const createdIds = this.chart.createOverlay?.(overlays, CANDLE_PANE_ID)
+    this.strategyOverlayIds = normalizeCreatedOverlayIds(createdIds)
+    this.strategyOverlaySignature = overlaySignature
+  }
+
+  private removeStrategySignalOverlays(): void {
+    this.removeOverlayGroup(this.strategyOverlayIds, STRATEGY_SIGNAL_GROUP_ID)
+    this.strategyOverlayIds = []
+    this.strategyOverlaySignature = ''
+  }
+
+  private removeOverlayGroup(ids: string[], groupId: string): void {
+    if (ids.length === 0) {
+      this.chart.removeOverlay?.({ groupId })
+      return
+    }
+    ids.forEach((id) => this.chart.removeOverlay?.(id))
   }
 }
 
@@ -336,6 +400,25 @@ function createSignalOverlaySignature(
   })
 }
 
+function createStrategySignalOverlaySignature(signals: KlineStrategySignal[]): string {
+  return JSON.stringify(
+    signals.map((signal) => [
+      signal.templateId,
+      signal.timestamp,
+      signal.price,
+      signal.side,
+      signal.explanation
+    ])
+  )
+}
+
+function normalizeCreatedOverlayIds(createdIds: unknown): string[] {
+  if (Array.isArray(createdIds)) {
+    return createdIds.filter((id): id is string => typeof id === 'string')
+  }
+  return typeof createdIds === 'string' ? [createdIds] : []
+}
+
 function registerSignalOverlay(): void {
   if (signalOverlayRegistered) {
     return
@@ -349,52 +432,58 @@ function registerSignalOverlay(): void {
     needDefaultPointFigure: false,
     needDefaultXAxisFigure: false,
     needDefaultYAxisFigure: false,
-    createPointFigures: ({ coordinates, overlay }: any) => {
-      const coordinate = coordinates[0]
-      if (!coordinate) {
-        return []
-      }
-
-      const side = overlay.extendData?.side === 'sell' ? 'sell' : 'buy'
-      const label = side === 'buy' ? 'B' : 'S'
-      const color =
-        side === 'buy'
-          ? (overlay.extendData?.buyColor ?? '#ff4d4f')
-          : (overlay.extendData?.sellColor ?? '#13c2c2')
-      const offsetY = side === 'buy' ? 18 : -18
-      const y = coordinate.y + offsetY
-
-      return [
-        {
-          type: 'circle',
-          attrs: {
-            x: coordinate.x,
-            y,
-            r: 9
-          },
-          styles: {
-            style: 'fill',
-            color
-          },
-          ignoreEvent: true
-        },
-        {
-          type: 'text',
-          attrs: {
-            x: coordinate.x,
-            y,
-            text: label,
-            align: 'center',
-            baseline: 'middle'
-          },
-          styles: {
-            color: '#ffffff',
-            size: 11,
-            weight: 'bold'
-          },
-          ignoreEvent: true
-        }
-      ]
-    }
+    createPointFigures: createSignalOverlayPointFigures
   } as any)
+}
+
+export function createSignalOverlayPointFigures({ coordinates, overlay }: any): any[] {
+  const coordinate = coordinates[0]
+  if (!coordinate) {
+    return []
+  }
+
+  const side = overlay.extendData?.side === 'sell' ? 'sell' : 'buy'
+  const label = side === 'buy' ? 'B' : 'S'
+  const color =
+    side === 'buy'
+      ? (overlay.extendData?.buyColor ?? DEFAULT_SIGNAL_BUY_COLOR)
+      : (overlay.extendData?.sellColor ?? DEFAULT_SIGNAL_SELL_COLOR)
+  const borderColor = side === 'buy' ? SIGNAL_BUY_BORDER_COLOR : SIGNAL_SELL_BORDER_COLOR
+  const offsetY = side === 'buy' ? 18 : -18
+  const y = coordinate.y + offsetY
+
+  return [
+    {
+      type: 'circle',
+      attrs: {
+        x: coordinate.x,
+        y,
+        r: 10
+      },
+      styles: {
+        style: 'fill',
+        color,
+        borderStyle: 'solid',
+        borderColor,
+        borderSize: 2
+      },
+      ignoreEvent: true
+    },
+    {
+      type: 'text',
+      attrs: {
+        x: coordinate.x,
+        y,
+        text: label,
+        align: 'center',
+        baseline: 'middle'
+      },
+      styles: {
+        color: '#ffffff',
+        size: 11,
+        weight: 'bold'
+      },
+      ignoreEvent: true
+    }
+  ]
 }

@@ -7,6 +7,13 @@ import type {
   StockQuery,
   StockTimeshareDataset,
   StockTimeshareQuery,
+  KlineCachedDatasetResult,
+  KlineCacheClearRequest,
+  KlineCacheJob,
+  KlineCacheRefreshRequest,
+  KlineCacheStatusRequest,
+  KlineCacheStatusRow,
+  KlineStrategySettings,
   TimeshareIndicatorSettingsMap,
   WatchlistItem,
   WorkspaceViewMode
@@ -35,16 +42,27 @@ export interface WorkspaceSettings {
   viewMode?: WorkspaceViewMode
   indicatorSettings?: IndicatorSettingsMap
   timeshareIndicatorSettings?: TimeshareIndicatorSettingsMap
+  klineStrategySettings?: KlineStrategySettings
   watchlist?: WatchlistItem[]
   enabledIndicators?: Partial<Record<IndicatorName, boolean>>
 }
 
-export type MenuCommand = 'refresh-stock' | 'check-update' | 'open-user-manual'
+export type MenuCommand =
+  | 'refresh-stock'
+  | 'check-update'
+  | 'open-user-manual'
+  | 'open-version-updates'
 
 export interface StockApi {
   getStockDataSources(): Promise<StockDataSourceMeta[]>
   fetchStockDataset(query: StockQuery): Promise<StockDataset>
   fetchStockTimeshareDataset(query: StockTimeshareQuery): Promise<StockTimeshareDataset>
+  getKlineCacheStatus(request: KlineCacheStatusRequest): Promise<KlineCacheStatusRow[]>
+  startKlineCacheRefresh(request: KlineCacheRefreshRequest): Promise<KlineCacheJob>
+  getKlineCacheJob(jobId: string): Promise<KlineCacheJob | null>
+  cancelKlineCacheJob(jobId: string): Promise<KlineCacheJob | null>
+  getCachedKlineDataset(query: StockQuery): Promise<KlineCachedDatasetResult>
+  clearKlineCache(request: KlineCacheClearRequest): Promise<KlineCacheStatusRow[]>
   getSettings(): Promise<AppSettings>
   setCheckUpdatesOnStartup(enabled: boolean): Promise<AppSettings>
   setNetworkProxy(proxy: NetworkProxySettings): Promise<AppSettings>

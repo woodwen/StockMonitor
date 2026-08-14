@@ -6,6 +6,13 @@ const stockApi: StockApi = {
   getStockDataSources: () => ipcRenderer.invoke('stock:getDataSources'),
   fetchStockDataset: (query) => ipcRenderer.invoke('stock:fetchDataset', query),
   fetchStockTimeshareDataset: (query) => ipcRenderer.invoke('stock:fetchTimeshareDataset', query),
+  getKlineCacheStatus: (request) => ipcRenderer.invoke('stock:getKlineCacheStatus', request),
+  startKlineCacheRefresh: (request) =>
+    ipcRenderer.invoke('stock:startKlineCacheRefresh', request),
+  getKlineCacheJob: (jobId) => ipcRenderer.invoke('stock:getKlineCacheJob', jobId),
+  cancelKlineCacheJob: (jobId) => ipcRenderer.invoke('stock:cancelKlineCacheJob', jobId),
+  getCachedKlineDataset: (query) => ipcRenderer.invoke('stock:getCachedKlineDataset', query),
+  clearKlineCache: (request) => ipcRenderer.invoke('stock:clearKlineCache', request),
   getSettings: () => ipcRenderer.invoke('settings:get'),
   setCheckUpdatesOnStartup: (enabled) =>
     ipcRenderer.invoke('settings:setCheckUpdatesOnStartup', enabled),

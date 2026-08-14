@@ -1,7 +1,7 @@
 # Stock Monitor Feature Task
 
 Use this prompt when asking Codex to implement a feature or behavior change in
-this repository.
+this repository. New requirements should use OpenSpec first.
 
 ## Required Context
 
@@ -9,7 +9,13 @@ Before editing, read:
 
 - `AGENTS.md`
 - `README.md`
-- The relevant `docs/spec/feature/YYYYMM/DD-topic/plan.md`, if one exists
+- The relevant active OpenSpec change artifacts:
+  - `openspec/changes/<change>/proposal.md`
+  - `openspec/changes/<change>/design.md`
+  - `openspec/changes/<change>/tasks.md`
+  - `openspec/changes/<change>/specs/**/spec.md`
+- The relevant `docs/spec/feature/YYYYMM/DD-topic/plan.md`, only when the task
+  explicitly continues a legacy archived plan
 - The source files most directly related to the request
 - The closest tests under `tests/`
 
@@ -25,11 +31,23 @@ Before editing, read:
 
 ## Documentation Rules
 
-- For user-facing features or behavior changes, update or create a feature plan
-  under `docs/spec/feature/YYYYMM/DD-topic/plan.md`.
-- After implementation, update or create the matching `pr.md`.
+- For user-facing features, behavior changes, release behavior changes, or
+  architecture-significant work, update the active OpenSpec change first.
+- OpenSpec proposal, design, tasks, and specs should use Simplified Chinese
+  prose by default.
+- Preserve OpenSpec structural keywords in English, including
+  `ADDED Requirements`, `MODIFIED Requirements`, `REMOVED Requirements`,
+  `Requirement`, `Scenario`, `WHEN`, and `THEN`.
+- Keep capability ids, file paths, commands, APIs, package names, and code
+  identifiers in their stable English form.
+- Treat `docs/spec/feature/YYYYMM/DD-topic` as historical archive material.
+  Only update it when explicitly continuing a legacy archived plan.
+- After implementation, use `project-commit-pr` to generate local PR markdown.
+  If an active OpenSpec change exists, the PR markdown should live under
+  `openspec/changes/<change>/pr.md`.
 - Update `CHANGELOG.md` under `Unreleased / <current package.json version>` when
-  the change is user-facing or affects release behavior.
+  the change is user-facing or affects release behavior. Internal workflow-only
+  OpenSpec or agent instruction changes do not require an app changelog entry.
 
 ## Verification
 
@@ -43,6 +61,8 @@ Choose the smallest validation set that covers the risk:
   - `yarn test tests/release-version.test.mjs`
   - `yarn test tests/changelog-release-notes.test.mjs`
 - Electron packaging or release changes: also run `yarn build`
+- OpenSpec changes: `openspec validate <change> --strict`
+- All OpenSpec validation when relevant: `openspec validate --all --strict`
 
 ## Final Response
 

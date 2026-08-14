@@ -38,6 +38,10 @@ export function buildApplicationMenuTemplate(
           click: () => sendCommand('open-user-manual')
         },
         {
+          label: '版本更新说明',
+          click: () => sendCommand('open-version-updates')
+        },
+        {
           label: '检查更新',
           click: () => sendCommand('check-update')
         },

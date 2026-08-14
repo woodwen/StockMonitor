@@ -4,6 +4,7 @@ import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
 const STABLE_VERSION_PATTERN = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/
+const RELEASE_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/
 const MAX_MINOR_OR_PATCH = 100
 
 export function parseBoundedVersion(version, label = 'version') {
@@ -54,9 +55,10 @@ export function getNextDevVersion(version) {
   return `${parsed.major + 1}.0.0`
 }
 
-export function updateChangelogUnreleasedVersion(markdown, releasedVersion, nextVersion) {
+export function archiveReleasedChangelogVersion(markdown, releasedVersion, nextVersion, releaseDate) {
   parseBoundedVersion(releasedVersion, 'released version')
   parseBoundedVersion(nextVersion, 'next version')
+  assertReleaseDate(releaseDate)
 
   if (typeof markdown !== 'string') {
     throw new Error('CHANGELOG content must be a string')
@@ -76,15 +78,19 @@ export function updateChangelogUnreleasedVersion(markdown, releasedVersion, next
 
   const contentStart = firstVersionHeading.index
   const contentEnd = contentStart + firstVersionHeading[0].length
-  return `${markdown.slice(0, contentStart)}## Unreleased / ${nextVersion}${markdown.slice(contentEnd)}`
+  return `${markdown.slice(0, contentStart)}## Unreleased / ${nextVersion}
+
+## v${releasedVersion} - ${releaseDate}${markdown.slice(contentEnd)}`
 }
 
 export function prepareNextDevVersion({
   packageJsonPath = resolve(process.cwd(), 'package.json'),
   changelogPath = resolve(process.cwd(), 'CHANGELOG.md'),
-  releasedVersion
+  releasedVersion,
+  releaseDate = getCurrentDateString()
 } = {}) {
   parseBoundedVersion(releasedVersion, 'released version')
+  assertReleaseDate(releaseDate)
 
   const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf8'))
   const devVersion = packageJson.version
@@ -109,7 +115,12 @@ export function prepareNextDevVersion({
 
   const nextVersion = getNextDevVersion(releasedVersion)
   const changelog = readFileSync(changelogPath, 'utf8')
-  const nextChangelog = updateChangelogUnreleasedVersion(changelog, releasedVersion, nextVersion)
+  const nextChangelog = archiveReleasedChangelogVersion(
+    changelog,
+    releasedVersion,
+    nextVersion,
+    releaseDate
+  )
   const nextPackageJson = {
     ...packageJson,
     version: nextVersion
@@ -131,17 +142,30 @@ function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
+function assertReleaseDate(value) {
+  if (typeof value !== 'string' || !RELEASE_DATE_PATTERN.test(value)) {
+    throw new Error(`release date must be in YYYY-MM-DD format: ${value}`)
+  }
+}
+
+function getCurrentDateString() {
+  return new Date().toISOString().slice(0, 10)
+}
+
 function parseArgs(argv) {
   const options = {
     packageJsonPath: resolve(process.cwd(), 'package.json'),
     changelogPath: resolve(process.cwd(), 'CHANGELOG.md'),
-    releasedVersion: undefined
+    releasedVersion: undefined,
+    releaseDate: getCurrentDateString()
   }
 
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index]
     if (arg === '--released-version') {
       options.releasedVersion = requiredValue(argv, (index += 1), arg)
+    } else if (arg === '--release-date') {
+      options.releaseDate = requiredValue(argv, (index += 1), arg)
     } else if (arg === '--package') {
       options.packageJsonPath = resolveRequiredValue(argv, (index += 1), arg)
     } else if (arg === '--changelog') {

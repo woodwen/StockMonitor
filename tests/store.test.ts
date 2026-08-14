@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { createDefaultKlineStrategySettings } from '../src/renderer/features/stock-workspace/models/kline-strategy-backtesting'
 import { createDefaultTradeProfitInput } from '../src/renderer/features/trade-profit-calculator/models/trade-profit'
 
 const mocks = vi.hoisted(() => {
@@ -43,7 +44,7 @@ vi.mock('electron-log/main', () => ({
   }
 }))
 
-import { getSettings, setNetworkProxy, setTradeProfitSettings } from '../src/main/store'
+import { getSettings, setNetworkProxy, setTradeProfitSettings, setWorkspaceSettings } from '../src/main/store'
 
 describe('app store', () => {
   beforeEach(() => {
@@ -95,5 +96,19 @@ describe('app store', () => {
     })
     expect(next.workspace.query.symbol).toBe('sh000001')
     expect(next.tradeProfit.draft.quantity).toBe(2000)
+  })
+
+  it('normalizes missing kline strategy workspace settings', () => {
+    const defaults = createDefaultKlineStrategySettings()
+    const current = getSettings().workspace
+
+    const next = setWorkspaceSettings({
+      query: current.query
+    })
+
+    expect(next.workspace.klineStrategySettings).toMatchObject({
+      selectedTemplateIds: defaults.selectedTemplateIds,
+      assumptions: defaults.assumptions
+    })
   })
 })

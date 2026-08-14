@@ -30,6 +30,13 @@ const colors = {
     lower: '#c084fc'
   },
   volumeMa: ['#60a5fa', '#facc15', '#fb7185'],
+  volumeRatio: '#22c55e',
+  turnoverRate: '#e879f9',
+  kdj: {
+    k: '#facc15',
+    d: '#60a5fa',
+    j: '#fb7185'
+  },
   macd: {
     dif: '#facc15',
     dea: '#60a5fa',
@@ -50,7 +57,7 @@ interface PointCoordinate {
 }
 
 interface SubPaneLayout {
-  id: 'macd' | 'rsi'
+  id: 'macd' | 'rsi' | 'kdj'
   top: number
   bottom: number
   height: number
@@ -215,10 +222,15 @@ function createLayout(
   const top = createPriceTop(width, settings)
   const bottom = 28
   const gap = 10
-  const volumeVisible = settings.volume.enabled || settings.volumeMa.enabled
+  const volumeVisible =
+    settings.volume.enabled ||
+    settings.volumeMa.enabled ||
+    settings.volumeRatio.enabled ||
+    settings.turnoverRate.enabled
   const enabledSubPanes = [
     settings.macd.enabled ? ('macd' as const) : null,
-    settings.rsi.enabled ? ('rsi' as const) : null
+    settings.rsi.enabled ? ('rsi' as const) : null,
+    settings.kdj.enabled ? ('kdj' as const) : null
   ].filter((item): item is SubPaneLayout['id'] => item !== null)
 
   const volumeHeight = volumeVisible ? clamp(height * 0.18, 60, 104) : 0
@@ -543,8 +555,10 @@ function drawSubPanes(
   layout.subPanes.forEach((pane) => {
     if (pane.id === 'macd') {
       drawMacdPane(context, pane, layout, coordinates)
-    } else {
+    } else if (pane.id === 'rsi') {
       drawRsiPane(context, pane, layout, coordinates, settings)
+    } else {
+      drawKdjPane(context, pane, layout, coordinates)
     }
   })
 }
@@ -628,6 +642,47 @@ function drawRsiPane(
   })
 }
 
+function drawKdjPane(
+  context: CanvasRenderingContext2D,
+  pane: SubPaneLayout,
+  layout: ChartLayout,
+  coordinates: PointCoordinate[]
+): void {
+  const values: number[] = []
+  coordinates.forEach((coordinate) => {
+    const kdj = coordinate.point.indicators.kdj
+    if (!kdj) {
+      return
+    }
+    pushFinite(values, kdj.k)
+    pushFinite(values, kdj.d)
+    pushFinite(values, kdj.j)
+  })
+  const range = createPaddedRange(values, { min: 0, max: 100 })
+  drawLegend(context, createKdjLegendItems(), layout.left + 6, pane.top + 6, layout.width - 12)
+  context.strokeStyle = colors.grid
+  context.beginPath()
+  ;[20, 50, 80].forEach((value) => {
+    const y = valueToPaneY(value, pane, range)
+    context.moveTo(layout.left, y)
+    context.lineTo(layout.left + layout.width, y)
+  })
+  context.stroke()
+
+  drawValueLine(context, coordinates, (coordinate) => coordinate.point.indicators.kdj?.k, {
+    color: colors.kdj.k,
+    toY: (value) => valueToPaneY(value, pane, range)
+  })
+  drawValueLine(context, coordinates, (coordinate) => coordinate.point.indicators.kdj?.d, {
+    color: colors.kdj.d,
+    toY: (value) => valueToPaneY(value, pane, range)
+  })
+  drawValueLine(context, coordinates, (coordinate) => coordinate.point.indicators.kdj?.j, {
+    color: colors.kdj.j,
+    toY: (value) => valueToPaneY(value, pane, range)
+  })
+}
+
 function drawCrosshair(
   context: CanvasRenderingContext2D,
   layout: ChartLayout,
@@ -694,18 +749,28 @@ function createTooltipLines(
     if (settings.volumeMa.enabled) {
       pushRecordTooltipLines(lines, 'VOL MA', point.indicators.volumeMa, settings.volumeMa.params, 0)
     }
+    if (settings.volumeRatio.enabled && point.indicators.volumeRatio) {
+      lines.push(`量比 ${formatNumber(point.indicators.volumeRatio.value)}`)
+    }
+    if (settings.turnoverRate.enabled && point.indicators.turnoverRate) {
+      lines.push(`换手 ${formatNumber(point.indicators.turnoverRate.value)}%`)
+    }
   } else if (pane === 'macd' && point.indicators.macd) {
     lines.push(`DIF ${formatNumber(point.indicators.macd.dif, 3)}`)
     lines.push(`DEA ${formatNumber(point.indicators.macd.dea, 3)}`)
     lines.push(`MACD ${formatNumber(point.indicators.macd.macd, 3)}`)
   } else if (pane === 'rsi') {
     pushRecordTooltipLines(lines, 'RSI', point.indicators.rsi, settings.rsi.params)
+  } else if (pane === 'kdj' && point.indicators.kdj) {
+    lines.push(`K ${formatNumber(point.indicators.kdj.k, 2)}`)
+    lines.push(`D ${formatNumber(point.indicators.kdj.d, 2)}`)
+    lines.push(`J ${formatNumber(point.indicators.kdj.j, 2)}`)
   }
 
   return lines.slice(0, 10)
 }
 
-function getPointerPane(y: number, layout: ChartLayout): 'price' | 'volume' | 'macd' | 'rsi' {
+function getPointerPane(y: number, layout: ChartLayout): 'price' | 'volume' | SubPaneLayout['id'] {
   const subPane = layout.subPanes.find((pane) => y >= pane.top && y <= pane.bottom)
   if (subPane) {
     return subPane.id
@@ -892,6 +957,12 @@ function createVolumeLegendItems(settings: TimeshareIndicatorSettingsMap): Legen
       items.push({ label: `VOL MA${period}`, color: colors.volumeMa[index % colors.volumeMa.length] })
     })
   }
+  if (settings.volumeRatio.enabled) {
+    items.push({ label: '量比', color: colors.volumeRatio })
+  }
+  if (settings.turnoverRate.enabled) {
+    items.push({ label: '换手率', color: colors.turnoverRate })
+  }
   return items
 }
 
@@ -908,6 +979,14 @@ function createRsiLegendItems(settings: TimeshareIndicatorSettingsMap): LegendIt
     label: `RSI${period}`,
     color: colors.rsi[index % colors.rsi.length]
   }))
+}
+
+function createKdjLegendItems(): LegendItem[] {
+  return [
+    { label: 'K', color: colors.kdj.k },
+    { label: 'D', color: colors.kdj.d },
+    { label: 'J', color: colors.kdj.j }
+  ]
 }
 
 function drawTooltip(
@@ -976,6 +1055,20 @@ function createCenteredRange(values: number[]): ValueRange {
   return {
     min: -maxAbs,
     max: maxAbs
+  }
+}
+
+function createPaddedRange(values: number[], fallback: ValueRange): ValueRange {
+  const finiteValues = values.filter((value) => Number.isFinite(value))
+  if (finiteValues.length === 0) {
+    return fallback
+  }
+  const min = Math.min(fallback.min, ...finiteValues)
+  const max = Math.max(fallback.max, ...finiteValues)
+  const padding = Math.max((max - min) * 0.08, 1)
+  return {
+    min: min - padding,
+    max: max + padding
   }
 }
 

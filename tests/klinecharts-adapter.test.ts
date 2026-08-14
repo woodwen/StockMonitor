@@ -1,11 +1,15 @@
 import { describe, expect, it } from 'vitest'
-import { KLineChartsAdapter } from '../src/renderer/features/stock-workspace/adapters/KLineChartsAdapter'
+import {
+  KLineChartsAdapter,
+  createSignalOverlayPointFigures
+} from '../src/renderer/features/stock-workspace/adapters/KLineChartsAdapter'
 import { createDefaultIndicatorSettings } from '../src/renderer/features/stock-workspace/models/indicator-definitions'
 import type {
   EnrichedStockDataset,
   IndicatorName,
   IndicatorSettings,
-  IndicatorSettingsMap
+  IndicatorSettingsMap,
+  KlineStrategySignal
 } from '../src/renderer/features/stock-workspace/models/stock-types'
 
 interface ActiveIndicator {
@@ -231,6 +235,76 @@ describe('KLineChartsAdapter', () => {
       sellColor: '#654321'
     })
   })
+
+  it('renders strategy signals in a separate overlay group', () => {
+    const { adapter, fakeChart } = createAdapterWithChart()
+
+    adapter.setDataset(sampleDataset, createIndicatorSettings(), [sampleStrategySignal])
+
+    expect(fakeChart.overlays).toHaveLength(2)
+    expect(fakeChart.overlays.map((overlay) => overlay.groupId)).toEqual([
+      'bs-signal',
+      'strategy-signal'
+    ])
+    expect(fakeChart.overlays[1].extendData).toMatchObject({
+      side: 'sell',
+      buyColor: '#ff4d4f',
+      sellColor: '#1677ff'
+    })
+  })
+
+  it('draws buy and sell B/S markers with visibly distinct colors', () => {
+    const buyFigures = createSignalOverlayPointFigures({
+      coordinates: [{ x: 10, y: 20 }],
+      overlay: {
+        extendData: {
+          side: 'buy',
+          buyColor: '#ff4d4f',
+          sellColor: '#1677ff'
+        }
+      }
+    })
+    const sellFigures = createSignalOverlayPointFigures({
+      coordinates: [{ x: 10, y: 20 }],
+      overlay: {
+        extendData: {
+          side: 'sell',
+          buyColor: '#ff4d4f',
+          sellColor: '#1677ff'
+        }
+      }
+    })
+
+    expect(buyFigures[0]).toMatchObject({
+      type: 'circle',
+      attrs: { r: 10 },
+      styles: {
+        color: '#ff4d4f',
+        borderColor: '#fff1f0',
+        borderSize: 2
+      }
+    })
+    expect(sellFigures[0]).toMatchObject({
+      type: 'circle',
+      attrs: { r: 10 },
+      styles: {
+        color: '#1677ff',
+        borderColor: '#e6f4ff',
+        borderSize: 2
+      }
+    })
+    expect(buyFigures[0].styles.color).not.toBe(sellFigures[0].styles.color)
+    expect(buyFigures[1]).toMatchObject({
+      type: 'text',
+      attrs: { text: 'B' },
+      styles: { color: '#ffffff', weight: 'bold' }
+    })
+    expect(sellFigures[1]).toMatchObject({
+      type: 'text',
+      attrs: { text: 'S' },
+      styles: { color: '#ffffff', weight: 'bold' }
+    })
+  })
 })
 
 function createAdapterWithChart(): { adapter: KLineChartsAdapter; fakeChart: FakeChart } {
@@ -286,4 +360,18 @@ const sampleDataset: EnrichedStockDataset = {
       }
     }
   ]
+}
+
+const sampleStrategySignal: KlineStrategySignal = {
+  side: 'sell',
+  timeKey: '20240101',
+  timestamp: new Date(2024, 0, 1).getTime(),
+  price: 2,
+  templateId: 'ma-cross',
+  templateName: '均线交叉',
+  explanation: '历史信号',
+  indicatorValues: {
+    shortMa: 1,
+    longMa: 2
+  }
 }

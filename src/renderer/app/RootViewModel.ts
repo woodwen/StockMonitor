@@ -13,6 +13,7 @@ export class RootViewModel {
     new ElectronTradeProfitSettingsAdapter()
   )
   isUserManualOpen = false
+  isVersionUpdatesOpen = false
   private removeMenuListener?: () => void
 
   constructor() {
@@ -43,6 +44,14 @@ export class RootViewModel {
     this.isUserManualOpen = false
   }
 
+  openVersionUpdates(): void {
+    this.isVersionUpdatesOpen = true
+  }
+
+  closeVersionUpdates(): void {
+    this.isVersionUpdatesOpen = false
+  }
+
   private handleMenuCommand(command: MenuCommand): void {
     if (command === 'refresh-stock') {
       this.stockWorkspace.refreshStock()
@@ -50,6 +59,8 @@ export class RootViewModel {
       this.appUpdate.checkForUpdates()
     } else if (command === 'open-user-manual') {
       this.openUserManual()
+    } else if (command === 'open-version-updates') {
+      this.openVersionUpdates()
     }
   }
 }

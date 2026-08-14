@@ -118,6 +118,22 @@ export const timeshareIndicatorDefinitions: TimeshareIndicatorDefinition[] = [
     uniqueParams: true
   },
   {
+    name: 'volumeRatio',
+    label: '量比',
+    pane: 'volume',
+    defaultEnabled: false,
+    defaultParams: [],
+    params: []
+  },
+  {
+    name: 'turnoverRate',
+    label: '换手率',
+    pane: 'volume',
+    defaultEnabled: false,
+    defaultParams: [],
+    params: []
+  },
+  {
     name: 'macd',
     label: 'MACD',
     pane: 'sub',
@@ -128,6 +144,14 @@ export const timeshareIndicatorDefinitions: TimeshareIndicatorDefinition[] = [
     fastLessThanSlow: true
   },
   {
+    name: 'kdj',
+    label: 'KDJ',
+    pane: 'sub',
+    defaultEnabled: false,
+    defaultParams: [9, 3, 3],
+    params: [periodParam('周期'), periodParam('K平滑'), periodParam('D平滑')]
+  },
+  {
     name: 'rsi',
     label: 'RSI',
     pane: 'sub',
@@ -135,6 +159,30 @@ export const timeshareIndicatorDefinitions: TimeshareIndicatorDefinition[] = [
     defaultParams: [6, 12, 24],
     params: [periodParam('周期1'), periodParam('周期2'), periodParam('周期3')],
     uniqueParams: true
+  },
+  {
+    name: 'orderRatio',
+    label: '委比',
+    pane: 'advanced',
+    defaultEnabled: false,
+    defaultParams: [],
+    params: []
+  },
+  {
+    name: 'inOutVolume',
+    label: '内外盘',
+    pane: 'advanced',
+    defaultEnabled: false,
+    defaultParams: [],
+    params: []
+  },
+  {
+    name: 'capitalFlow',
+    label: '资金流',
+    pane: 'advanced',
+    defaultEnabled: false,
+    defaultParams: [],
+    params: []
   }
 ]
 
@@ -146,7 +194,7 @@ export const timeshareSubIndicatorNames = timeshareIndicatorDefinitions
   .filter((definition) => definition.pane === 'sub')
   .map((definition) => definition.name)
 
-export const timeshareSubIndicatorPriority: TimeshareIndicatorName[] = ['macd', 'rsi']
+export const timeshareSubIndicatorPriority: TimeshareIndicatorName[] = ['macd', 'rsi', 'kdj']
 
 export function getTimeshareIndicatorDefinition(
   name: TimeshareIndicatorName

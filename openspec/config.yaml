@@ -1,0 +1,64 @@
+schema: spec-driven
+
+context: |
+  Stock Monitor 是一个跨平台股票行情桌面应用。
+
+  技术栈：
+  - Electron、React、TypeScript、MobX、Ant Design、klinecharts
+  - Vitest、electron-builder、Yarn 1
+
+  架构边界：
+  - src/main/ 负责窗口、菜单、IPC handlers、远端行情源 adapter、持久化设置、网络代理、日志和应用更新。
+  - src/preload/ 只暴露 typed bridge。
+  - src/renderer/ 不能直接请求远端行情接口；renderer 应通过 window.stockApi 使用主进程能力。
+  - React View 只负责展示状态和触发用户命令。
+  - MobX ViewModel 负责状态、查询流程、编排、刷新行为和持久化触发。
+  - Model 负责纯业务逻辑，例如行情类型、指标定义和指标计算。
+  - Adapter 负责外部依赖，例如 Electron bridge、klinecharts 和 Canvas 绘制。
+
+  OpenSpec 语言规则：
+  - proposal、design、tasks 和 specs 的人类可读正文默认使用简体中文。
+  - capability id、文件夹名、文件路径、命令、API、包名和代码标识符保留英文稳定形式。
+  - spec 中的 OpenSpec 结构关键字保持英文，包括 ADDED Requirements、MODIFIED Requirements、REMOVED Requirements、Requirement、Scenario、WHEN 和 THEN。
+  - spec 的 Requirement 名称、Scenario 名称以及 WHEN/THEN 后面的描述可以使用中文。
+  - 规范性措辞可保留 SHALL、MUST、MAY、SHALL NOT。
+
+  文档与发布规则：
+  - 新用户可见功能或行为变更默认通过 OpenSpec change 规划。
+  - docs/spec/feature/YYYYMM/DD-topic 是历史归档目录；除非任务明确延续 legacy plan，否则不再作为新规格默认落点。
+  - 用户可见应用行为、安装、更新体验或 release 行为变化应更新 CHANGELOG.md 中 Unreleased / <current package.json version> 区块。
+  - 纯内部 workflow、agent instructions 或 OpenSpec 迁移变更不要求写入应用 CHANGELOG.md。
+  - 发布流程以 CHANGELOG.md 作为 GitHub Release notes 来源。
+
+  产品安全：
+  - 用户可见文案不得包含投资建议、买卖建议、荐股服务、收益承诺或类似表述。
+
+  验证规则：
+  - 普通代码改动：运行 yarn typecheck 和 yarn test。
+  - 主进程、preload、Electron 配置、打包或发布相关改动：额外运行 yarn build。
+  - 远端行情源改动：运行 yarn test tests/remote-stock-sources.test.ts。
+  - 工作区 ViewModel 改动：运行 yarn test tests/stock-workspace-view-model.test.ts。
+  - IPC 改动：运行 yarn test tests/ipc-handlers.test.ts。
+  - release 或 changelog 改动：运行 yarn test tests/release-version.test.mjs 和 yarn test tests/changelog-release-notes.test.mjs。
+  - OpenSpec change 更新后运行 openspec validate <change> --strict。
+
+rules:
+  proposal:
+    - 正文默认使用简体中文。
+    - 保留模板中的英文结构标题，例如 Why、What Changes、Capabilities 和 Impact。
+    - capability id 使用英文 kebab-case。
+    - 聚焦 why/what，不写逐文件实现细节。
+  design:
+    - 正文默认使用简体中文。
+    - 保留模板中的英文结构标题。
+    - 记录关键设计决策、取舍、风险和迁移步骤。
+  specs:
+    - 正文默认使用简体中文。
+    - 必须保留 OpenSpec 解析关键字英文：ADDED Requirements、MODIFIED Requirements、REMOVED Requirements、Requirement、Scenario、WHEN、THEN。
+    - Requirement 和 Scenario 名称可用中文。
+    - 每个 Requirement 至少包含一个四级标题 Scenario。
+    - 只记录可验收行为、架构边界和约束，不搬入历史实现过程。
+  tasks:
+    - 任务描述默认使用简体中文。
+    - 保留 OpenSpec checkbox 格式，例如 "- [ ] 1.1 ..."。
+    - 任务应按依赖顺序排列，并能在一个明确步骤内验证完成。

@@ -210,7 +210,10 @@ jobs:
 
       - name: Prepare next dev version
         id: next-version
-        run: node scripts/prepare-next-dev-version.mjs --released-version "$RELEASED_VERSION"
+        run: |
+          node scripts/prepare-next-dev-version.mjs \
+            --released-version "$RELEASED_VERSION" \
+            --release-date "$(date -u +%F)"
         env:
           RELEASED_VERSION: ${{ needs.check-version.outputs.version }}
 

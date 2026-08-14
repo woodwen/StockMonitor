@@ -3,9 +3,12 @@ import { observer } from 'mobx-react-lite'
 import type { RootViewModel } from '../../../app/RootViewModel'
 import { UpdateStatusView } from '../../app-update/views/UpdateStatusView'
 import { UserManualModal } from '../../help/views/UserManualModal'
+import { VersionUpdatesModal } from '../../help/views/VersionUpdatesModal'
 import { TradeProfitCalculatorDrawer } from '../../trade-profit-calculator/views/TradeProfitCalculatorDrawer'
 import { DataSourceStatusModal } from './DataSourceStatusModal'
 import { IndicatorSettingsModal } from './IndicatorSettingsModal'
+import { KlineCacheManagementModal } from './KlineCacheManagementModal'
+import { KlineStrategyPanel } from './KlineStrategyPanel'
 import { KLineChartView } from './KLineChartView'
 import { NetworkProxyModal } from './NetworkProxyModal'
 import { StatusBar } from './StatusBar'
@@ -48,6 +51,8 @@ export const WorkspacePage = observer(({ root }: WorkspacePageProps) => {
         <StatusBar stock={stock} updates={root.appUpdate} />
       </Layout.Footer>
       <IndicatorSettingsModal stock={stock} />
+      <KlineCacheManagementModal stock={stock} />
+      <KlineStrategyPanel stock={stock} />
       <DataSourceStatusModal stock={stock} />
       <NetworkProxyModal stock={stock} />
       <UpdateStatusView viewModel={root.appUpdate} />
@@ -57,6 +62,10 @@ export const WorkspacePage = observer(({ root }: WorkspacePageProps) => {
         stockName={stock.currentStockName}
       />
       <UserManualModal open={root.isUserManualOpen} onClose={root.closeUserManual} />
+      <VersionUpdatesModal
+        open={root.isVersionUpdatesOpen}
+        onClose={root.closeVersionUpdates}
+      />
     </Layout>
   )
 })

@@ -1,5 +1,5 @@
 import { App, Button, Checkbox, Divider, Empty, Input, Space, Tag, Typography } from 'antd'
-import { CopyOutlined, PlusOutlined, StarFilled } from '@ant-design/icons'
+import { CopyOutlined, DatabaseOutlined, PlusOutlined, StarFilled } from '@ant-design/icons'
 import { observer } from 'mobx-react-lite'
 import type { WatchlistAddPreviewStatus, WatchlistItem } from '../models/stock-types'
 import type { StockWorkspaceViewModel } from '../view-models/StockWorkspaceViewModel'
@@ -58,9 +58,14 @@ export const WatchlistPanel = observer(({ stock }: WatchlistPanelProps) => {
           <Typography.Text strong>自选股</Typography.Text>
           <Tag>{stock.watchlist.length}</Tag>
         </Space>
-        <Button size="small" onClick={stock.toggleWatchlistManageMode}>
-          {stock.watchlistManageMode ? '完成' : '管理'}
-        </Button>
+        <Space size={6}>
+          <Button size="small" icon={<DatabaseOutlined />} onClick={stock.openKlineCacheDialog}>
+            缓存
+          </Button>
+          <Button size="small" onClick={stock.toggleWatchlistManageMode}>
+            {stock.watchlistManageMode ? '完成' : '管理'}
+          </Button>
+        </Space>
       </div>
 
       <div className="watchlist-add">
