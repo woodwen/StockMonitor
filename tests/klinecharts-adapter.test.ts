@@ -239,18 +239,31 @@ describe('KLineChartsAdapter', () => {
   it('renders strategy signals in a separate overlay group', () => {
     const { adapter, fakeChart } = createAdapterWithChart()
 
-    adapter.setDataset(sampleDataset, createIndicatorSettings(), [sampleStrategySignal])
+    adapter.setDataset(
+      sampleDataset,
+      createIndicatorSettings({
+        bsSignal: { enabled: false },
+        strategySignal: { enabled: true }
+      }),
+      [sampleStrategySignal]
+    )
 
-    expect(fakeChart.overlays).toHaveLength(2)
-    expect(fakeChart.overlays.map((overlay) => overlay.groupId)).toEqual([
-      'bs-signal',
-      'strategy-signal'
-    ])
-    expect(fakeChart.overlays[1].extendData).toMatchObject({
+    expect(fakeChart.overlays).toHaveLength(1)
+    expect(fakeChart.overlays[0].groupId).toBe('strategy-signal')
+    expect(fakeChart.overlays[0].extendData).toMatchObject({
       side: 'sell',
       buyColor: '#ff4d4f',
       sellColor: '#1677ff'
     })
+  })
+
+  it('does not render strategy signals while B/S markers are enabled', () => {
+    const { adapter, fakeChart } = createAdapterWithChart()
+
+    adapter.setDataset(sampleDataset, createIndicatorSettings(), [sampleStrategySignal])
+
+    expect(fakeChart.overlays).toHaveLength(1)
+    expect(fakeChart.overlays[0].groupId).toBe('bs-signal')
   })
 
   it('draws buy and sell B/S markers with visibly distinct colors', () => {

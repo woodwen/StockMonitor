@@ -1,26 +1,4 @@
-# kline-strategy-backtesting Specification
-
-## Purpose
-TBD - created by archiving change add-kline-strategy-backtest-recommendations. Update Purpose after archive.
-## Requirements
-### Requirement: K 线策略模板可发现且可参数化
-系统 SHALL 提供 K 线策略模板 registry，用于展示可用模板、默认参数、参数约束、最小样本数、兼容周期和信号解释。第一版 SHALL 至少包含均线交叉、突破回撤、RSI 超买超卖和 MACD 趋势确认四类模板，且策略周期范围 SHALL 限定为 `day`、`week`、`month`。
-
-#### Scenario: 用户查看策略模板
-- **WHEN** 用户打开 K 线策略面板
-- **THEN** 系统 SHALL 展示可用策略模板的名称、说明、参数、默认值、最小样本数和兼容 K 线周期
-
-#### Scenario: 用户修改策略参数
-- **WHEN** 用户编辑策略模板参数
-- **THEN** 系统 SHALL 对参数执行 normalize 和校验，并在参数超出模板约束时展示清晰错误
-
-#### Scenario: 模板不兼容当前周期
-- **WHEN** 当前 K 线周期不被某个策略模板支持
-- **THEN** 系统 SHALL 将该模板标记为不可运行，并 SHALL 展示不兼容原因
-
-#### Scenario: 分钟 K 线周期
-- **WHEN** 当前 K 线周期为 `5`、`15`、`30` 或 `60`
-- **THEN** 系统 SHALL 将策略回测标记为暂不支持当前周期，并 SHALL NOT 运行策略模板
+## MODIFIED Requirements
 
 ### Requirement: 回测数据输入可复现
 系统 SHALL 基于当前 K 线 query 的数据身份和日期范围执行策略回测，并 SHALL 保持 `sourceId`、`symbol`、`period`、`adjust`、`startDate` 和 `endDate` 与回测结果绑定。第一版 SHALL 只对 `day`、`week`、`month` 周期执行回测。策略回测面板 SHALL NOT 提供独立的回测开始日期或结束日期设置。本 change SHALL NOT 改变最大回撤指标算法或展示口径。
@@ -82,70 +60,6 @@ TBD - created by archiving change add-kline-strategy-backtest-recommendations. U
 #### Scenario: 输入 candles 无效
 - **WHEN** 回测输入 candles 为空、时间倒序、存在重复 `timeKey` 或包含非有限 OHLC 数值
 - **THEN** 系统 SHALL 拒绝执行回测并展示清晰错误
-
-### Requirement: 策略信号生成确定性
-系统 SHALL 使用策略模板和参数对时间升序 candles 生成确定性的买入/卖出信号，且每个信号 SHALL 包含 side、timeKey、timestamp、触发价格参考、模板 id 和解释文本。
-
-#### Scenario: 生成买入信号
-- **WHEN** 策略模板条件在某根 K 线上首次满足买入触发规则
-- **THEN** 系统 SHALL 为该 K 线生成 `buy` 信号，并记录触发该信号的关键指标值
-
-#### Scenario: 生成卖出信号
-- **WHEN** 策略模板条件在持仓后满足卖出触发规则
-- **THEN** 系统 SHALL 为该 K 线生成 `sell` 信号，并记录触发该信号的关键指标值
-
-#### Scenario: 信号无法计算
-- **WHEN** candles 数量少于模板最小样本数或指标预热期不足
-- **THEN** 系统 SHALL 将该模板结果标记为样本不足，并 SHALL NOT 输出不完整信号
-
-### Requirement: 回测执行规则明确
-系统 SHALL 按多头、单笔持仓、全仓模型把策略信号转换为交易明细和权益曲线。默认成交规则 SHALL 使用下一根 K 线开盘价成交；最后仍持仓时 SHALL 按最后一根 K 线收盘价估值并标记为未平仓。
-
-#### Scenario: 买入成交
-- **WHEN** 空仓状态下出现有效 `buy` 信号且存在下一根 K 线
-- **THEN** 系统 SHALL 使用下一根 K 线开盘价、扣除已配置费用和滑点后建立持仓
-
-#### Scenario: 重复买入信号
-- **WHEN** 已持仓状态下出现额外 `buy` 信号
-- **THEN** 系统 SHALL 忽略该买入信号，并 SHALL NOT 建立重叠持仓
-
-#### Scenario: 卖出成交
-- **WHEN** 已持仓状态下出现有效 `sell` 信号且存在下一根 K 线
-- **THEN** 系统 SHALL 使用下一根 K 线开盘价、扣除已配置费用和滑点后平仓并记录交易收益
-
-#### Scenario: 期末仍持仓
-- **WHEN** 回测结束时仍存在未平仓持仓
-- **THEN** 系统 SHALL 按最后一根 K 线收盘价计算期末权益，并在交易明细中标记该持仓未平仓
-
-### Requirement: 回测指标覆盖收益和回撤
-系统 SHALL 为每个可运行策略结果计算并展示总收益率、年化收益率、最大回撤、胜率、交易次数、盈亏比、平均持仓 K 线数、期末权益和基准涨跌幅。
-
-#### Scenario: 计算总收益率和期末权益
-- **WHEN** 回测完成
-- **THEN** 系统 SHALL 用 `initialCapital` 和期末权益计算总收益率，并展示所用初始资金、费用率和滑点率假设
-
-#### Scenario: 计算最大回撤
-- **WHEN** 回测生成权益曲线
-- **THEN** 系统 SHALL 基于权益曲线的历史高点到后续低点计算最大回撤
-
-#### Scenario: 没有已平仓交易
-- **WHEN** 策略在回测区间内没有已平仓交易
-- **THEN** 系统 SHALL 将胜率和盈亏比标记为不可用，并 SHALL NOT 展示伪造的 0% 胜率或无限盈亏比
-
-### Requirement: 多策略历史表现排名可解释
-系统 SHALL 支持对多个策略模板在同一 query、数据集和回测假设下运行，并按透明评分生成历史表现排名。默认评分 SHALL 使用 `returnDrawdownRatio = totalReturn / max(abs(maxDrawdown), 0.01)`。
-
-#### Scenario: 多策略比较完成
-- **WHEN** 用户对多个策略模板运行回测
-- **THEN** 系统 SHALL 展示每个策略的排名、评分、收益指标、最大回撤、交易次数和不可用状态
-
-#### Scenario: 策略结果不可用
-- **WHEN** 某个策略因样本不足、参数无效或数据不完整无法回测
-- **THEN** 系统 SHALL 将该策略排除出推荐排名，并在比较列表中展示不可用原因
-
-#### Scenario: 排名文案
-- **WHEN** 系统展示策略排名或最佳历史表现策略
-- **THEN** 用户可见文案 SHALL 表述为历史回测排名或候选策略，且 SHALL NOT 表述为投资建议、买卖建议、荐股服务或收益承诺
 
 ### Requirement: 策略结果展示可检查
 系统 SHALL 展示策略回测摘要、交易明细、信号列表、权益曲线状态和回撤状态，并在 K 线指标 `策略` 信号开关开启时将选中成功策略结果的买入/卖出信号传递给 K 线图表渲染层。

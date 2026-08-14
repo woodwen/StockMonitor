@@ -1,4 +1,4 @@
-import { Alert, Button, Checkbox, Drawer, Empty, Input, InputNumber, Space, Table, Tag, Typography } from 'antd'
+import { Alert, Button, Checkbox, Drawer, Empty, InputNumber, Space, Table, Tag, Typography } from 'antd'
 import type { TableColumnsType } from 'antd'
 import { FundProjectionScreenOutlined, ReloadOutlined } from '@ant-design/icons'
 import { observer } from 'mobx-react-lite'
@@ -209,22 +209,13 @@ export const KlineStrategyPanel = observer(({ stock }: KlineStrategyPanelProps) 
           <div className="strategy-section-title">回测设置</div>
           <Space size={12} wrap>
             <label className="strategy-param">
-              <span>开始日期</span>
-              <Input
-                className="strategy-date-input"
-                value={stock.strategyStartDateInput}
-                maxLength={8}
-                onChange={(event) => stock.setStrategyStartDate(event.target.value)}
-              />
-            </label>
-            <label className="strategy-param">
-              <span>结束日期</span>
-              <Input
-                className="strategy-date-input"
-                value={stock.strategyEndDateInput}
-                maxLength={8}
-                onChange={(event) => stock.setStrategyEndDate(event.target.value)}
-              />
+              <span>回测区间</span>
+              <Typography.Text className="strategy-date-range" type="secondary">
+                {stock.strategyBacktestDateRangeLabel}
+              </Typography.Text>
+              <Typography.Text className="strategy-date-source" type="secondary">
+                使用顶部 K 线日期范围
+              </Typography.Text>
             </label>
             <label className="strategy-param">
               <span>初始资金</span>

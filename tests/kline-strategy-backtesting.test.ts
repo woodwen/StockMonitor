@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   createDefaultKlineStrategySettings,
+  getKlineStrategyDatasetMissingRanges,
+  isKlineStrategyDatasetCoveringQuery,
   klineStrategyTemplates,
   normalizeKlineStrategyParams,
   normalizeKlineStrategySettings,
@@ -74,26 +76,15 @@ describe('kline-strategy-backtesting', () => {
     })
   })
 
-  it('normalizes strategy date range preferences', () => {
-    expect(
-      normalizeKlineStrategySettings({
-        dateRange: {
-          startDate: '2024-01-10',
-          endDate: '2024/02/10'
-        }
-      }).dateRange
-    ).toEqual({
-      startDate: '20240110',
-      endDate: '20240210'
+  it('ignores legacy strategy date range preferences after normalization', () => {
+    const settings = normalizeKlineStrategySettings({
+      dateRange: {
+        startDate: '2024-01-10',
+        endDate: '2024/02/10'
+      }
     })
-    expect(
-      normalizeKlineStrategySettings({
-        dateRange: {
-          startDate: '20240210',
-          endDate: '20240110'
-        }
-      }).dateRange
-    ).toBeUndefined()
+
+    expect((settings as unknown as { dateRange?: unknown }).dateRange).toBeUndefined()
   })
 
   it('normalizes params and reports invalid parameter relations', () => {
@@ -246,6 +237,40 @@ describe('kline-strategy-backtesting', () => {
     expect(result.query.endDate).toBe('20250101')
     expect(result.dataStartDate).toBe('20240101')
     expect(result.dataEndDate).toBe('20240214')
+  })
+
+  it('ignores daily boundary gaps within the non-trading offset tolerance', () => {
+    const weekendQuery: StockQuery = {
+      ...defaultQuery,
+      startDate: '20240810',
+      endDate: '20240820'
+    }
+    const holidayQuery: StockQuery = {
+      ...defaultQuery,
+      startDate: '20241001',
+      endDate: '20241011'
+    }
+    const outOfToleranceQuery: StockQuery = {
+      ...weekendQuery,
+      startDate: '20240801'
+    }
+    const weekendDataset = createDataset([
+      createDateCandle('20240812', 10),
+      createDateCandle('20240820', 12)
+    ])
+    const holidayDataset = createDataset([
+      createDateCandle('20241008', 10),
+      createDateCandle('20241011', 12)
+    ])
+
+    expect(isKlineStrategyDatasetCoveringQuery(weekendDataset, weekendQuery)).toBe(true)
+    expect(getKlineStrategyDatasetMissingRanges(weekendDataset, weekendQuery)).toEqual([])
+    expect(isKlineStrategyDatasetCoveringQuery(holidayDataset, holidayQuery)).toBe(true)
+    expect(getKlineStrategyDatasetMissingRanges(holidayDataset, holidayQuery)).toEqual([])
+    expect(isKlineStrategyDatasetCoveringQuery(weekendDataset, outOfToleranceQuery)).toBe(false)
+    expect(getKlineStrategyDatasetMissingRanges(weekendDataset, outOfToleranceQuery)).toEqual([
+      { startDate: '20240801', endDate: '20240811' }
+    ])
   })
 
   it('keeps win rate and profit loss ratio unavailable without closed trades', () => {
@@ -405,6 +430,23 @@ function createCandle(index: number, close: number): StockCandle {
     close,
     volume: 1000 + index,
     turnover: 2000 + index
+  }
+}
+
+function createDateCandle(timeKey: string, close: number): StockCandle {
+  return {
+    timeKey,
+    timestamp: new Date(
+      Number(timeKey.slice(0, 4)),
+      Number(timeKey.slice(4, 6)) - 1,
+      Number(timeKey.slice(6, 8))
+    ).getTime(),
+    open: close - 0.2,
+    high: close + 1,
+    low: close - 1,
+    close,
+    volume: 1000,
+    turnover: 2000
   }
 }
 

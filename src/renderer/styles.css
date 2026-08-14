@@ -613,6 +613,10 @@ body {
   width: 150px;
 }
 
+.kline-cache-target-mode {
+  flex: 0 0 auto;
+}
+
 .kline-cache-check-group {
   display: flex;
   align-items: center;
@@ -743,6 +747,15 @@ body {
   width: 104px;
 }
 
+.strategy-date-range {
+  min-width: 156px;
+  font-variant-numeric: tabular-nums;
+}
+
+.strategy-date-source {
+  white-space: nowrap;
+}
+
 .strategy-error {
   display: block;
   font-size: 12px;
@@ -797,6 +810,10 @@ body {
 }
 
 @media (max-width: 760px) {
+  .kline-cache-target-mode {
+    width: 100%;
+  }
+
   .kline-cache-source-select,
   .kline-cache-date-input {
     width: calc(50% - 4px);

@@ -9,6 +9,7 @@ export type IndicatorName =
   | 'kdj'
   | 'rsi'
   | 'bsSignal'
+  | 'strategySignal'
 
 export type IndicatorPane = 'main' | 'sub' | 'overlay'
 
@@ -510,15 +511,9 @@ export interface KlineBacktestAssumptions {
   slippageRate: number
 }
 
-export interface KlineStrategyDateRange {
-  startDate: string
-  endDate: string
-}
-
 export interface KlineStrategySettings {
   selectedTemplateIds: KlineStrategyTemplateId[]
   paramsByTemplate: Partial<Record<KlineStrategyTemplateId, KlineStrategyParams>>
-  dateRange?: KlineStrategyDateRange
   assumptions: KlineBacktestAssumptions
   assumptionDefaultsVersion?: number
 }

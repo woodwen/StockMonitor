@@ -1,8 +1,8 @@
 import type {
   KlineBacktestAssumptions,
+  KlineCacheDateRange,
   KlineStrategyBacktestResult,
   KlineStrategyComparisonResult,
-  KlineStrategyDateRange,
   KlineStrategyEquityPoint,
   KlineStrategyMetrics,
   KlineStrategyParams,
@@ -19,6 +19,11 @@ import type {
   StockQuery
 } from './stock-types'
 import { calculateEma, calculateMovingAverage } from './indicator-engine'
+import {
+  addDays,
+  getKlineCacheCandleRange,
+  subtractKlineCacheRanges
+} from './kline-cache'
 
 export const KLINE_STRATEGY_SUPPORTED_PERIODS: KlineStrategyPeriod[] = ['day', 'week', 'month']
 export const DEFAULT_KLINE_STRATEGY_INITIAL_CAPITAL = 100000
@@ -99,11 +104,16 @@ export const klineStrategyTemplates: KlineStrategyTemplateDefinition[] = [
 
 const templateById = new Map(klineStrategyTemplates.map((template) => [template.id, template]))
 
+type LegacyKlineStrategyDateRangeInput = {
+  startDate?: unknown
+  endDate?: unknown
+}
+
 type KlineStrategySettingsInput = Partial<
-  Omit<KlineStrategySettings, 'assumptions' | 'dateRange' | 'assumptionDefaultsVersion'>
+  Omit<KlineStrategySettings, 'assumptions' | 'assumptionDefaultsVersion'>
 > & {
   assumptions?: Partial<KlineBacktestAssumptions> | null
-  dateRange?: Partial<KlineStrategyDateRange> | null
+  dateRange?: LegacyKlineStrategyDateRangeInput | null
   assumptionDefaultsVersion?: number | null
 }
 
@@ -138,11 +148,6 @@ export function cloneKlineStrategySettings(settings: KlineStrategySettings): Kli
         }
       ])
     ),
-    ...(settings.dateRange
-      ? {
-          dateRange: { ...settings.dateRange }
-        }
-      : {}),
     assumptions: { ...settings.assumptions },
     assumptionDefaultsVersion:
       settings.assumptionDefaultsVersion ?? KLINE_BACKTEST_ASSUMPTION_DEFAULTS_VERSION
@@ -164,7 +169,6 @@ export function normalizeKlineStrategySettings(
 ): KlineStrategySettings {
   const defaults = createDefaultKlineStrategySettings()
   const selectedTemplateIds = normalizeSelectedTemplateIds(settings?.selectedTemplateIds)
-  const dateRange = normalizeKlineStrategyDateRange(settings?.dateRange)
   const assumptions = normalizeKlineBacktestAssumptions(settings?.assumptions)
   const normalizedAssumptions = shouldMigrateLegacyZeroCostAssumptions(settings)
     ? {
@@ -182,7 +186,6 @@ export function normalizeKlineStrategySettings(
         normalizeKlineStrategyParams(template.id, settings?.paramsByTemplate?.[template.id]).params
       ])
     ),
-    ...(dateRange ? { dateRange } : {}),
     assumptions: normalizedAssumptions,
     assumptionDefaultsVersion: KLINE_BACKTEST_ASSUMPTION_DEFAULTS_VERSION
   }
@@ -329,6 +332,27 @@ export function runKlineStrategyBacktests(input: {
     assumptions: { ...assumptions },
     results: rankKlineStrategyResults(results)
   }
+}
+
+export function getKlineStrategyDatasetMissingRanges(
+  dataset: StockDataset,
+  query: StockQuery
+): KlineCacheDateRange[] {
+  const candleRange = getKlineCacheCandleRange(dataset.candles)
+  if (!candleRange) {
+    return [{ startDate: query.startDate, endDate: query.endDate }]
+  }
+  return subtractKlineCacheRanges(
+    { startDate: query.startDate, endDate: query.endDate },
+    [candleRange]
+  ).filter((range) => !isIgnorableStrategyBoundaryGap(range, candleRange, query))
+}
+
+export function isKlineStrategyDatasetCoveringQuery(
+  dataset: StockDataset,
+  query: StockQuery
+): boolean {
+  return getKlineStrategyDatasetMissingRanges(dataset, query).length === 0
 }
 
 function generateSignals(
@@ -844,19 +868,103 @@ function normalizeRate(value: unknown, fallback = 0): number {
   return Math.min(numberValue, 0.2)
 }
 
-function normalizeKlineStrategyDateRange(
-  dateRange?: Partial<KlineStrategyDateRange> | null
-): KlineStrategyDateRange | undefined {
-  const startDate = normalizeDateKeyInput(dateRange?.startDate)
-  const endDate = normalizeDateKeyInput(dateRange?.endDate)
-  if (startDate.length !== 8 || endDate.length !== 8 || startDate > endDate) {
-    return undefined
+function isIgnorableStrategyBoundaryGap(
+  range: KlineCacheDateRange,
+  candleRange: KlineCacheDateRange,
+  query: StockQuery
+): boolean {
+  const toleranceDays = getStrategyBoundaryToleranceDays(query.period)
+  const isLeadingGap = range.startDate === query.startDate && range.endDate < candleRange.startDate
+  if (isLeadingGap) {
+    return (
+      candleRange.startDate <= addDays(query.startDate, toleranceDays) &&
+      isNaturalStrategyBoundaryGap(range, candleRange.startDate, query.period, 'leading')
+    )
   }
-  return { startDate, endDate }
+  const isTrailingGap = range.endDate === query.endDate && range.startDate > candleRange.endDate
+  if (isTrailingGap) {
+    return (
+      candleRange.endDate >= addDays(query.endDate, -toleranceDays) &&
+      isNaturalStrategyBoundaryGap(range, candleRange.endDate, query.period, 'trailing')
+    )
+  }
+  return false
 }
 
-function normalizeDateKeyInput(value: unknown): string {
-  return typeof value === 'string' ? value.replace(/\D/g, '').slice(0, 8) : ''
+function isNaturalStrategyBoundaryGap(
+  range: KlineCacheDateRange,
+  candleDate: string,
+  period: StockPeriod,
+  side: 'leading' | 'trailing'
+): boolean {
+  if (period === 'day') {
+    return true
+  }
+  if (period === 'week') {
+    return side === 'leading'
+      ? candleDate <= weekEndOnOrAfter(range.startDate)
+      : candleDate >= weekEndOnOrBefore(range.endDate)
+  }
+  if (period === 'month') {
+    return side === 'leading'
+      ? candleDate <= monthEndOnOrAfter(range.startDate)
+      : candleDate >= monthEndOnOrBefore(range.endDate)
+  }
+  return false
+}
+
+function weekEndOnOrAfter(dateKey: string): string {
+  const day = dateFromKey(dateKey).getUTCDay()
+  const daysUntilFriday = day <= 5 ? 5 - day : 6
+  return addDays(dateKey, daysUntilFriday)
+}
+
+function weekEndOnOrBefore(dateKey: string): string {
+  const day = dateFromKey(dateKey).getUTCDay()
+  const daysSinceFriday = day >= 5 ? day - 5 : day + 2
+  return addDays(dateKey, -daysSinceFriday)
+}
+
+function monthEndOnOrAfter(dateKey: string): string {
+  const date = dateFromKey(dateKey)
+  return formatUtcDateKey(new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 0)))
+}
+
+function monthEndOnOrBefore(dateKey: string): string {
+  const date = dateFromKey(dateKey)
+  const currentMonthEnd = monthEndOnOrAfter(dateKey)
+  if (dateKey >= currentMonthEnd) {
+    return currentMonthEnd
+  }
+  return formatUtcDateKey(new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 0)))
+}
+
+function getStrategyBoundaryToleranceDays(period: StockPeriod): number {
+  if (period === 'month') {
+    return 45
+  }
+  if (period === 'week') {
+    return 14
+  }
+  return 10
+}
+
+function dateFromKey(dateKey: string): Date {
+  return new Date(
+    Date.UTC(
+      Number(dateKey.slice(0, 4)),
+      Number(dateKey.slice(4, 6)) - 1,
+      Number(dateKey.slice(6, 8))
+    )
+  )
+}
+
+function formatUtcDateKey(date: Date): string {
+  return [
+    date.getUTCFullYear(),
+    String(date.getUTCMonth() + 1).padStart(2, '0'),
+    String(date.getUTCDate()).padStart(2, '0')
+  ].join('')
 }
 
 function shouldMigrateLegacyZeroCostAssumptions(
