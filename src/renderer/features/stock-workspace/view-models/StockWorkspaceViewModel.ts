@@ -1,5 +1,12 @@
 import { makeAutoObservable, runInAction } from 'mobx'
-import type { NetworkProxySettings, WorkspaceSettings } from '../../../../preload/stock-api'
+import type {
+  LocalCacheBackupExportResult,
+  LocalCacheBackupImportResult,
+  LocalCacheBackupImportStrategy,
+  LocalCacheBackupInspectResult,
+  NetworkProxySettings,
+  WorkspaceSettings
+} from '../../../../preload/stock-api'
 import { enrichStockDataset, getLatestCandle } from '../models/indicator-engine'
 import { cloneIndicatorSettings } from '../models/indicator-definitions'
 import { cloneTimeshareIndicatorSettings } from '../models/timeshare-indicator-definitions'
@@ -71,6 +78,11 @@ import { TimeshareChartViewModel } from './TimeshareChartViewModel'
 export type RemoteLoadStatus = 'idle' | 'loading' | 'success' | 'error'
 export type SourceTestStatus = 'testing' | 'success' | 'error'
 export type KlineCacheTargetMode = 'single' | 'multiple'
+export type LocalCacheBackupResult = LocalCacheBackupExportResult | LocalCacheBackupImportResult
+
+export interface StockWorkspaceViewModelOptions {
+  onLocalCacheImported?: () => Promise<void> | void
+}
 
 export interface SourceTestResult {
   sourceId: StockSourceId
@@ -137,6 +149,14 @@ export class StockWorkspaceViewModel {
   klineCacheQuery: KlineCacheRequestQuery = createKlineCacheRequestQuery(createDefaultStockQuery())
   klineCacheTargetMode: KlineCacheTargetMode = 'single'
   klineCacheJob: KlineCacheJob | null = null
+  localCacheExporting = false
+  localCacheImportInspecting = false
+  localCacheImporting = false
+  localCacheImportDialogOpen = false
+  localCacheResultDialogOpen = false
+  localCacheImportStrategy: LocalCacheBackupImportStrategy = 'merge'
+  localCacheBackupInspect: LocalCacheBackupInspectResult | null = null
+  localCacheBackupResult: LocalCacheBackupResult | null = null
   strategyPanelOpen = false
   strategyRunning = false
   strategyError = ''
@@ -158,10 +178,14 @@ export class StockWorkspaceViewModel {
   private timeshareRequestId = 0
   private strategyRequestId = 0
 
-  constructor(private readonly dataAdapter: StockDataAdapter) {
+  constructor(
+    private readonly dataAdapter: StockDataAdapter,
+    private readonly options: StockWorkspaceViewModelOptions = {}
+  ) {
     makeAutoObservable<
       this,
       | 'dataAdapter'
+      | 'options'
       | 'workspaceSaveTimer'
       | 'timeshareRefreshTimer'
       | 'klineCacheJobTimer'
@@ -172,6 +196,7 @@ export class StockWorkspaceViewModel {
       this,
       {
         dataAdapter: false,
+        options: false,
         workspaceSaveTimer: false,
         timeshareRefreshTimer: false,
         klineCacheJobTimer: false,
@@ -1064,6 +1089,112 @@ export class StockWorkspaceViewModel {
     })
   }
 
+  async exportLocalCacheBackup(): Promise<void> {
+    this.localCacheExporting = true
+    this.localCacheBackupResult = null
+    try {
+      const result = await this.dataAdapter.exportLocalCacheBackup()
+      runInAction(() => {
+        this.localCacheExporting = false
+        if (result.status !== 'cancelled') {
+          this.localCacheBackupResult = result
+          this.localCacheResultDialogOpen = true
+        }
+      })
+    } catch (error) {
+      runInAction(() => {
+        this.localCacheExporting = false
+        this.localCacheBackupResult = {
+          status: 'error',
+          message: formatErrorMessage(error)
+        }
+        this.localCacheResultDialogOpen = true
+      })
+    }
+  }
+
+  async inspectLocalCacheBackup(): Promise<void> {
+    this.localCacheImportInspecting = true
+    this.localCacheBackupInspect = null
+    this.localCacheBackupResult = null
+    this.localCacheImportStrategy = 'merge'
+    try {
+      const result = await this.dataAdapter.inspectLocalCacheBackup()
+      runInAction(() => {
+        this.localCacheImportInspecting = false
+        if (result.status === 'ready') {
+          this.localCacheBackupInspect = result
+          this.localCacheImportDialogOpen = true
+          return
+        }
+        if (result.status === 'error') {
+          this.localCacheBackupResult = {
+            status: 'error',
+            message: result.message
+          }
+          this.localCacheResultDialogOpen = true
+        }
+      })
+    } catch (error) {
+      runInAction(() => {
+        this.localCacheImportInspecting = false
+        this.localCacheBackupResult = {
+          status: 'error',
+          message: formatErrorMessage(error)
+        }
+        this.localCacheResultDialogOpen = true
+      })
+    }
+  }
+
+  setLocalCacheImportStrategy(strategy: LocalCacheBackupImportStrategy): void {
+    this.localCacheImportStrategy = strategy === 'replace' ? 'replace' : 'merge'
+  }
+
+  closeLocalCacheImportDialog(): void {
+    if (this.localCacheImporting) {
+      return
+    }
+    this.localCacheImportDialogOpen = false
+  }
+
+  closeLocalCacheResultDialog(): void {
+    this.localCacheResultDialogOpen = false
+  }
+
+  async confirmLocalCacheImport(): Promise<void> {
+    const importToken = this.localCacheBackupInspect?.importToken
+    if (!importToken || this.localCacheImporting) {
+      return
+    }
+
+    this.localCacheImporting = true
+    try {
+      const result = await this.dataAdapter.importLocalCacheBackup({
+        importToken,
+        strategy: this.localCacheImportStrategy
+      })
+      if (result.status === 'success') {
+        await this.reloadAfterLocalCacheImport()
+      }
+      runInAction(() => {
+        this.localCacheImporting = false
+        this.localCacheImportDialogOpen = false
+        this.localCacheBackupResult = result
+        this.localCacheResultDialogOpen = true
+      })
+    } catch (error) {
+      runInAction(() => {
+        this.localCacheImporting = false
+        this.localCacheBackupResult = {
+          status: 'error',
+          message: formatErrorMessage(error)
+        }
+        this.localCacheResultDialogOpen = true
+      })
+    }
+  }
+
   async testDataSources(): Promise<void> {
     const baseQuery = this.normalizeQueryForSource(this.query)
     const initialResults = this.sources.map((source) => {
@@ -1468,6 +1599,15 @@ export class StockWorkspaceViewModel {
       })
     } catch (error) {
       console.warn('Failed to load workspace settings', error)
+    }
+  }
+
+  private async reloadAfterLocalCacheImport(): Promise<void> {
+    this.cancelPendingWorkspaceSettingsSave()
+    await this.loadSettings()
+    await this.options.onLocalCacheImported?.()
+    if (this.klineCacheDialogOpen) {
+      await this.loadKlineCacheStatus()
     }
   }
 
@@ -1925,11 +2065,16 @@ export class StockWorkspaceViewModel {
   }
 
   private saveWorkspaceSettingsNow(): void {
-    if (this.workspaceSaveTimer) {
-      clearTimeout(this.workspaceSaveTimer)
-      this.workspaceSaveTimer = undefined
-    }
+    this.cancelPendingWorkspaceSettingsSave()
     this.persistWorkspaceSettings()
+  }
+
+  private cancelPendingWorkspaceSettingsSave(): void {
+    if (!this.workspaceSaveTimer) {
+      return
+    }
+    clearTimeout(this.workspaceSaveTimer)
+    this.workspaceSaveTimer = undefined
   }
 
   private persistWorkspaceSettings(): void {

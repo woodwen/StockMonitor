@@ -7,11 +7,13 @@ import { TradeProfitCalculatorViewModel } from '../features/trade-profit-calcula
 import type { MenuCommand } from '../../preload/stock-api'
 
 export class RootViewModel {
-  readonly stockWorkspace = new StockWorkspaceViewModel(new ElectronStockDataAdapter())
   readonly appUpdate = new AppUpdateViewModel()
   readonly tradeProfitCalculator = new TradeProfitCalculatorViewModel(
     new ElectronTradeProfitSettingsAdapter()
   )
+  readonly stockWorkspace = new StockWorkspaceViewModel(new ElectronStockDataAdapter(), {
+    onLocalCacheImported: () => this.tradeProfitCalculator.reloadSettings()
+  })
   isUserManualOpen = false
   isVersionUpdatesOpen = false
   private removeMenuListener?: () => void

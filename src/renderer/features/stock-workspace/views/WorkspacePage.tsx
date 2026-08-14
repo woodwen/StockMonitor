@@ -10,6 +10,7 @@ import { IndicatorSettingsModal } from './IndicatorSettingsModal'
 import { KlineCacheManagementModal } from './KlineCacheManagementModal'
 import { KlineStrategyPanel } from './KlineStrategyPanel'
 import { KLineChartView } from './KLineChartView'
+import { LocalCachePortabilityModal } from './LocalCachePortabilityModal'
 import { NetworkProxyModal } from './NetworkProxyModal'
 import { StatusBar } from './StatusBar'
 import { TimeshareChartView } from './TimeshareChartView'
@@ -55,6 +56,7 @@ export const WorkspacePage = observer(({ root }: WorkspacePageProps) => {
       <KlineStrategyPanel stock={stock} />
       <DataSourceStatusModal stock={stock} />
       <NetworkProxyModal stock={stock} />
+      <LocalCachePortabilityModal stock={stock} />
       <UpdateStatusView viewModel={root.appUpdate} />
       <TradeProfitCalculatorDrawer
         calculator={root.tradeProfitCalculator}

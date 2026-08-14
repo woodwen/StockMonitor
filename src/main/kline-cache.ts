@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto'
-import { mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { app } from 'electron'
-import type { NetworkProxySettings } from '../preload/stock-api'
+import type { LocalCacheBackupImportStrategy, NetworkProxySettings } from '../preload/stock-api'
 import type {
   IntervalType,
   KlineCachedDatasetResult,
@@ -42,7 +42,7 @@ import { normalizeWatchlistName, normalizeWatchlistSymbol } from '../renderer/fe
 import { fetchRemoteStockDataset, getStockDataSourceMetas } from './remote-stock-sources'
 import { getSettings } from './store'
 
-interface KlineCacheFile {
+export interface KlineCacheFile {
   version: 1
   seriesKey: string
   query: {
@@ -64,7 +64,7 @@ interface KlineCacheFile {
   adjust?: StockQuery['adjust']
 }
 
-interface KlineCacheServiceOptions {
+export interface KlineCacheServiceOptions {
   cacheRoot: string
   fetchDataset?: KlineCacheDatasetFetcher
   getSources?: () => StockDataSourceMeta[]
@@ -86,6 +86,31 @@ type CacheReadResult =
   | { status: 'corrupt'; message: string; cacheBytes?: number }
   | { status: 'ready'; file: KlineCacheFile; cacheBytes?: number }
 
+export interface KlineCacheSkippedEntry {
+  seriesKey?: string
+  fileName?: string
+  reason: string
+}
+
+export interface KlineCacheExportEntriesResult {
+  entries: KlineCacheFile[]
+  skippedEntries: KlineCacheSkippedEntry[]
+  totalBytes: number
+}
+
+export interface KlineCacheImportPreview {
+  validEntries: KlineCacheFile[]
+  skippedEntries: KlineCacheSkippedEntry[]
+}
+
+export interface KlineCacheImportEntriesResult {
+  importedCount: number
+  removedCount: number
+  skippedEntries: KlineCacheSkippedEntry[]
+  importedSeriesKeys: string[]
+  removedSeriesKeys: string[]
+}
+
 const KLINE_CACHE_JOB_RETENTION_MS = 10 * 60_000
 const KLINE_CACHE_MAX_RETAINED_JOBS = 20
 
@@ -99,6 +124,7 @@ export class KlineCacheService {
   private readonly getSources: () => StockDataSourceMeta[]
   private readonly getProxy: () => NetworkProxySettings
   private readonly now: () => number
+  private cacheImportInProgress = false
 
   constructor(private readonly options: KlineCacheServiceOptions) {
     this.fetchDataset = options.fetchDataset ?? fetchRemoteStockDataset
@@ -117,6 +143,9 @@ export class KlineCacheService {
   }
 
   startRefresh(request: KlineCacheRefreshRequest): KlineCacheJob {
+    if (this.cacheImportInProgress) {
+      throw new Error('K 线缓存导入进行中，请稍后刷新')
+    }
     this.assertValidRequestQuery(request.query)
     const rows = this.getRequestRows(request).map((item) =>
       this.createJobRow(item.query, item.symbol, item.name, 'pending')
@@ -207,11 +236,124 @@ export class KlineCacheService {
   }
 
   async clear(request: KlineCacheClearRequest): Promise<KlineCacheStatusRow[]> {
+    if (this.cacheImportInProgress) {
+      throw new Error('K 线缓存导入进行中，请稍后清理')
+    }
     this.assertValidRequestQuery(request.query)
 
     const rows = this.getRequestRows(request)
     await Promise.all(rows.map(async (item) => rm(this.getCacheFilePath(item.query), { force: true })))
     return Promise.all(rows.map(async (item) => this.getStatusRow(item.query, item.name)))
+  }
+
+  async exportEntries(): Promise<KlineCacheExportEntriesResult> {
+    const cacheRoot = this.getResolvedCacheRoot()
+    const entries: KlineCacheFile[] = []
+    const skippedEntries: KlineCacheSkippedEntry[] = []
+    let totalBytes = 0
+    const fileNames = await listJsonFiles(cacheRoot)
+
+    for (const fileName of fileNames) {
+      const cachePath = resolve(cacheRoot, fileName)
+      try {
+        const content = await readFile(cachePath, 'utf8')
+        totalBytes += Buffer.byteLength(content, 'utf8')
+        const parsed = JSON.parse(content) as Partial<KlineCacheFile>
+        const file = normalizeCacheFileForImport(parsed)
+        if (!file) {
+          skippedEntries.push({
+            fileName,
+            seriesKey: isObject(parsed) && isString(parsed.seriesKey) ? parsed.seriesKey : undefined,
+            reason: '缓存文件格式无效'
+          })
+          continue
+        }
+        entries.push(file)
+      } catch (error) {
+        skippedEntries.push({
+          fileName,
+          reason: error instanceof SyntaxError ? '缓存文件无法解析' : formatErrorMessage(error)
+        })
+      }
+    }
+
+    return {
+      entries,
+      skippedEntries,
+      totalBytes
+    }
+  }
+
+  inspectImportEntries(entries: unknown[]): KlineCacheImportPreview {
+    return normalizeImportEntries(entries)
+  }
+
+  async importEntries(
+    entries: unknown[],
+    strategy: LocalCacheBackupImportStrategy
+  ): Promise<KlineCacheImportEntriesResult> {
+    if (this.cacheImportInProgress) {
+      throw new Error('K 线缓存导入已在进行中')
+    }
+    if (this.hasActiveJobs()) {
+      throw new Error('K 线缓存刷新仍在进行，请完成或取消后再导入')
+    }
+    this.cacheImportInProgress = true
+    const preview = this.inspectImportEntries(entries)
+    const cacheRoot = this.getResolvedCacheRoot()
+    const stagingRoot = resolve(cacheRoot, `.import-${randomUUID()}`)
+    const importedSeriesKeys = preview.validEntries.map((entry) => entry.seriesKey)
+    const importedSeriesKeySet = new Set(importedSeriesKeys)
+    const removedSeriesKeys: string[] = []
+
+    try {
+      await rm(stagingRoot, { recursive: true, force: true })
+      await mkdir(stagingRoot, { recursive: true })
+      await Promise.all(
+        preview.validEntries.map((entry) => this.writeCacheFileToRoot(stagingRoot, entry))
+      )
+      await mkdir(cacheRoot, { recursive: true })
+
+      await Promise.all(
+        preview.validEntries.map(async (entry) => {
+          const query = createQueryFromCacheFile(entry)
+          const stagingPath = this.getCacheFilePathForRoot(stagingRoot, query)
+          const cachePath = this.getCacheFilePathForRoot(cacheRoot, query)
+          await mkdir(dirname(cachePath), { recursive: true })
+          await rename(stagingPath, cachePath)
+        })
+      )
+
+      if (strategy === 'replace') {
+        const backupSeriesKeys = new Set([
+          ...importedSeriesKeySet,
+          ...preview.skippedEntries
+            .map((entry) => entry.seriesKey)
+            .filter((seriesKey): seriesKey is string => Boolean(seriesKey))
+        ])
+        const existingFileNames = await listJsonFiles(cacheRoot)
+        await Promise.all(
+          existingFileNames.map(async (fileName) => {
+            const seriesKey = fileName.slice(0, -'.json'.length)
+            if (backupSeriesKeys.has(seriesKey)) {
+              return
+            }
+            removedSeriesKeys.push(seriesKey)
+            await rm(resolve(cacheRoot, fileName), { force: true })
+          })
+        )
+      }
+      return {
+        importedCount: preview.validEntries.length,
+        removedCount: removedSeriesKeys.length,
+        skippedEntries: preview.skippedEntries,
+        importedSeriesKeys,
+        removedSeriesKeys
+      }
+    } finally {
+      await rm(stagingRoot, { recursive: true, force: true })
+      this.cacheImportInProgress = false
+    }
   }
 
   private async runRefreshJob(job: InternalKlineCacheJob): Promise<void> {
@@ -417,7 +559,7 @@ export class KlineCacheService {
         sourceUrl: dataset.sourceUrl,
         adjust: dataset.adjust
       }
-      await this.writeCacheFile(query, file)
+      await this.writeCacheFile(file)
     })
   }
 
@@ -451,7 +593,7 @@ export class KlineCacheService {
               sourceId: query.sourceId,
               adjust: query.adjust
             }
-      await this.writeCacheFile(query, file)
+      await this.writeCacheFile(file)
     })
   }
 
@@ -508,17 +650,8 @@ export class KlineCacheService {
     }
   }
 
-  private async writeCacheFile(query: StockQuery, file: KlineCacheFile): Promise<void> {
-    const cachePath = this.getCacheFilePath(query)
-    const tempPath = `${cachePath}.${randomUUID()}.tmp`
-    await mkdir(dirname(cachePath), { recursive: true })
-    try {
-      await writeFile(tempPath, `${JSON.stringify(file, null, 2)}\n`, 'utf8')
-      await rename(tempPath, cachePath)
-    } catch (error) {
-      await rm(tempPath, { force: true })
-      throw error
-    }
+  private async writeCacheFile(file: KlineCacheFile): Promise<void> {
+    await this.writeCacheFileToRoot(this.getResolvedCacheRoot(), file)
   }
 
   private validateQuery(query: StockQuery): string {
@@ -562,13 +695,35 @@ export class KlineCacheService {
   }
 
   private getCacheFilePath(query: StockQuery): string {
-    const cacheRoot = resolve(this.options.cacheRoot)
-    const cachePath = resolve(cacheRoot, `${getSeriesKey(query)}.json`)
-    const relativePath = relative(cacheRoot, cachePath)
+    return this.getCacheFilePathForRoot(this.getResolvedCacheRoot(), query)
+  }
+
+  private getResolvedCacheRoot(): string {
+    return resolve(this.options.cacheRoot)
+  }
+
+  private getCacheFilePathForRoot(cacheRoot: string, query: StockQuery): string {
+    const resolvedRoot = resolve(cacheRoot)
+    const cachePath = resolve(resolvedRoot, `${getSeriesKey(query)}.json`)
+    const relativePath = relative(resolvedRoot, cachePath)
     if (relativePath.startsWith('..') || isAbsolute(relativePath)) {
       throw new Error('缓存路径无效')
     }
     return cachePath
+  }
+
+  private async writeCacheFileToRoot(cacheRoot: string, file: KlineCacheFile): Promise<void> {
+    const query = createQueryFromCacheFile(file)
+    const cachePath = this.getCacheFilePathForRoot(cacheRoot, query)
+    const tempPath = `${cachePath}.${randomUUID()}.tmp`
+    await mkdir(dirname(cachePath), { recursive: true })
+    try {
+      await writeFile(tempPath, `${JSON.stringify(file, null, 2)}\n`, 'utf8')
+      await rename(tempPath, cachePath)
+    } catch (error) {
+      await rm(tempPath, { force: true })
+      throw error
+    }
   }
 
   private async withSeriesLock<T>(query: StockQuery, action: () => Promise<T>): Promise<T> {
@@ -621,6 +776,10 @@ export class KlineCacheService {
     terminalJobs.slice(0, excess).forEach((job) => this.deleteJob(job.id))
   }
 
+  private hasActiveJobs(): boolean {
+    return Array.from(this.jobs.values()).some(isActiveJob)
+  }
+
   private deleteJobIfTerminal(jobId: string): void {
     const job = this.jobs.get(jobId)
     if (!job || isActiveJob(job)) {
@@ -643,43 +802,43 @@ export function createKlineCacheService(options: KlineCacheServiceOptions): Klin
   return new KlineCacheService(options)
 }
 
-export async function getKlineCacheStatus(
-  request: KlineCacheStatusRequest
-): Promise<KlineCacheStatusRow[]> {
-  return getDefaultService().getStatus(request)
-}
-
-export function startKlineCacheRefresh(request: KlineCacheRefreshRequest): KlineCacheJob {
-  return getDefaultService().startRefresh(request)
-}
-
-export function getKlineCacheJob(jobId: string): KlineCacheJob | null {
-  return getDefaultService().getJob(jobId)
-}
-
-export function cancelKlineCacheJob(jobId: string): KlineCacheJob | null {
-  return getDefaultService().cancelJob(jobId)
-}
-
-export async function getCachedKlineDataset(
-  query: StockQuery
-): Promise<KlineCachedDatasetResult> {
-  return getDefaultService().getCachedDataset(query)
-}
-
-export async function clearKlineCache(
-  request: KlineCacheClearRequest
-): Promise<KlineCacheStatusRow[]> {
-  return getDefaultService().clear(request)
-}
-
-function getDefaultService(): KlineCacheService {
+export function getDefaultKlineCacheService(): KlineCacheService {
   if (!defaultService) {
     defaultService = new KlineCacheService({
       cacheRoot: join(app.getPath('userData'), 'kline-cache', 'v1')
     })
   }
   return defaultService
+}
+
+export async function getKlineCacheStatus(
+  request: KlineCacheStatusRequest
+): Promise<KlineCacheStatusRow[]> {
+  return getDefaultKlineCacheService().getStatus(request)
+}
+
+export function startKlineCacheRefresh(request: KlineCacheRefreshRequest): KlineCacheJob {
+  return getDefaultKlineCacheService().startRefresh(request)
+}
+
+export function getKlineCacheJob(jobId: string): KlineCacheJob | null {
+  return getDefaultKlineCacheService().getJob(jobId)
+}
+
+export function cancelKlineCacheJob(jobId: string): KlineCacheJob | null {
+  return getDefaultKlineCacheService().cancelJob(jobId)
+}
+
+export async function getCachedKlineDataset(
+  query: StockQuery
+): Promise<KlineCachedDatasetResult> {
+  return getDefaultKlineCacheService().getCachedDataset(query)
+}
+
+export async function clearKlineCache(
+  request: KlineCacheClearRequest
+): Promise<KlineCacheStatusRow[]> {
+  return getDefaultKlineCacheService().clear(request)
 }
 
 function normalizeCacheFile(
@@ -703,11 +862,151 @@ function normalizeCacheFile(
     ),
     lastRefreshedAt: isFiniteNumber(file.lastRefreshedAt) ? file.lastRefreshedAt : undefined,
     lastError: normalizeLastError(file.lastError),
-    sourceId: file.sourceId,
+    sourceId: normalizeKlineCacheSourceId(file.sourceId) ?? query.sourceId,
     sourceName: isString(file.sourceName) ? file.sourceName : undefined,
     sourceUrl: isString(file.sourceUrl) ? file.sourceUrl : undefined,
-    adjust: file.adjust
+    adjust: normalizeKlineCacheAdjust(file.adjust) ?? query.adjust
   }
+}
+
+function normalizeCacheFileForImport(value: unknown): KlineCacheFile | null {
+  if (!isObject(value)) {
+    return null
+  }
+  const file = value as Partial<KlineCacheFile>
+  const seriesQuery = normalizeCacheSeriesQuery(file.query)
+  if (!seriesQuery) {
+    return null
+  }
+  const query = createQueryFromSeriesQuery(seriesQuery)
+  if (
+    file.version !== 1 ||
+    file.seriesKey !== getSeriesKey(query) ||
+    !isStockMeta(file.meta) ||
+    !isIntervalType(file.interval) ||
+    !isStringArray(file.columns) ||
+    !Array.isArray(file.candles) ||
+    !Array.isArray(file.coveredRanges) ||
+    file.coveredRanges.some((range) => !normalizeKlineCacheRange(range)) ||
+    !areImportCandlesValid(file.candles) ||
+    (file.lastRefreshedAt !== undefined && !isFiniteNumber(file.lastRefreshedAt)) ||
+    (file.lastError !== undefined && !normalizeLastError(file.lastError)) ||
+    (file.sourceId !== undefined && normalizeKlineCacheSourceId(file.sourceId) !== query.sourceId) ||
+    (file.sourceName !== undefined && !isString(file.sourceName)) ||
+    (file.sourceUrl !== undefined && !isString(file.sourceUrl)) ||
+    (file.adjust !== undefined && normalizeKlineCacheAdjust(file.adjust) !== query.adjust)
+  ) {
+    return null
+  }
+  return normalizeCacheFile(file, query)
+}
+
+function normalizeCacheSeriesQuery(
+  query: Partial<KlineCacheFile['query']> | undefined
+): KlineCacheFile['query'] | null {
+  const sourceId = normalizeKlineCacheSourceId(query?.sourceId)
+  const symbol = normalizeWatchlistSymbol(query?.symbol ?? '')
+  const period = normalizeKlineCachePeriod(query?.period)
+  const adjust = normalizeKlineCacheAdjust(query?.adjust)
+  if (!sourceId || !symbol || !period || !adjust) {
+    return null
+  }
+  return {
+    sourceId,
+    symbol,
+    period,
+    adjust
+  }
+}
+
+function createQueryFromCacheFile(file: KlineCacheFile): StockQuery {
+  return createQueryFromSeriesQuery(file.query)
+}
+
+function createQueryFromSeriesQuery(query: KlineCacheFile['query']): StockQuery {
+  return {
+    ...query,
+    startDate: '19700101',
+    endDate: '19700101'
+  }
+}
+
+function normalizeImportEntries(entries: unknown[]): KlineCacheImportPreview {
+  const validEntries: KlineCacheFile[] = []
+  const skippedEntries: KlineCacheSkippedEntry[] = []
+  const seen = new Set<string>()
+
+  entries.forEach((entry, index) => {
+    const file = normalizeCacheFileForImport(entry)
+    const seriesKey = getImportEntrySeriesKey(entry)
+    if (!file) {
+      skippedEntries.push({
+        seriesKey,
+        reason: `第 ${index + 1} 条 K 线缓存格式无效`
+      })
+      return
+    }
+    if (seen.has(file.seriesKey)) {
+      skippedEntries.push({
+        seriesKey: file.seriesKey,
+        reason: `第 ${index + 1} 条 K 线缓存与前序条目重复`
+      })
+      return
+    }
+    seen.add(file.seriesKey)
+    validEntries.push(file)
+  })
+
+  return {
+    validEntries,
+    skippedEntries
+  }
+}
+
+function getImportEntrySeriesKey(entry: unknown): string | undefined {
+  if (!isObject(entry)) {
+    return undefined
+  }
+  const query = normalizeCacheSeriesQuery(entry.query as Partial<KlineCacheFile['query']> | undefined)
+  if (query) {
+    return getSeriesKey(createQueryFromSeriesQuery(query))
+  }
+  return isString(entry.seriesKey) ? entry.seriesKey : undefined
+}
+
+function isStockMeta(value: unknown): value is StockMeta {
+  return (
+    isObject(value) &&
+    isString(value.lineType) &&
+    isString(value.symbol) &&
+    isString(value.name)
+  )
+}
+
+function isIntervalType(value: unknown): value is IntervalType {
+  return value === 'minute' || value === 'day' || value === 'week' || value === 'month'
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every(isString)
+}
+
+function areImportCandlesValid(candles: unknown[]): candles is StockCandle[] {
+  return (
+    candles.every(
+      (candle) =>
+        isObject(candle) &&
+        isString(candle.timeKey) &&
+        /^\d{8}(\d{4})?$/.test(candle.timeKey.replace(/\D/g, '')) &&
+        isFiniteNumber(candle.timestamp) &&
+        isFiniteNumber(candle.open) &&
+        isFiniteNumber(candle.high) &&
+        isFiniteNumber(candle.low) &&
+        isFiniteNumber(candle.close) &&
+        isFiniteNumber(candle.volume) &&
+        isFiniteNumber(candle.turnover)
+    ) && normalizeKlineCacheCandles(candles as StockCandle[]).length === candles.length
+  )
 }
 
 function normalizeLastError(value: unknown): KlineCacheLastError | undefined {
@@ -804,6 +1103,21 @@ async function getFileSize(filePath: string): Promise<number | undefined> {
   }
 }
 
+async function listJsonFiles(cacheRoot: string): Promise<string[]> {
+  try {
+    const entries = await readdir(cacheRoot, { withFileTypes: true })
+    return entries
+      .filter((entry) => entry.isFile() && entry.name.endsWith('.json'))
+      .map((entry) => entry.name)
+      .sort((left, right) => left.localeCompare(right))
+  } catch (error) {
+    if (isNotFoundError(error)) {
+      return []
+    }
+    throw error
+  }
+}
+
 function cloneJob(job: KlineCacheJob): KlineCacheJob {
   return {
     id: job.id,
@@ -835,6 +1149,10 @@ function isNotFoundError(error: unknown): boolean {
 
 function isString(value: unknown): value is string {
   return typeof value === 'string'
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === 'object')
 }
 
 function isFiniteNumber(value: unknown): value is number {

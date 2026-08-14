@@ -44,7 +44,11 @@ export class TradeProfitCalculatorViewModel {
       return
     }
     this.initialized = true
+    await this.reloadSettings()
+  }
 
+  async reloadSettings(): Promise<void> {
+    this.cancelPendingSettingsSave()
     try {
       const settings = await this.settingsAdapter.getSettings()
       const tradeProfit = normalizeTradeProfitSettings(settings.tradeProfit)
@@ -59,11 +63,11 @@ export class TradeProfitCalculatorViewModel {
   }
 
   dispose(): void {
-    if (!this.saveTimer) {
+    const hadPendingSave = Boolean(this.saveTimer)
+    this.cancelPendingSettingsSave()
+    if (!hadPendingSave) {
       return
     }
-    clearTimeout(this.saveTimer)
-    this.saveTimer = undefined
     this.persistSettings()
   }
 
@@ -145,11 +149,16 @@ export class TradeProfitCalculatorViewModel {
   }
 
   private saveSettingsNow(): void {
-    if (this.saveTimer) {
-      clearTimeout(this.saveTimer)
-      this.saveTimer = undefined
-    }
+    this.cancelPendingSettingsSave()
     this.persistSettings()
+  }
+
+  private cancelPendingSettingsSave(): void {
+    if (!this.saveTimer) {
+      return
+    }
+    clearTimeout(this.saveTimer)
+    this.saveTimer = undefined
   }
 
   private persistSettings(): void {

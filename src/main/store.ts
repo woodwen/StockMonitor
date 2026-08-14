@@ -58,6 +58,12 @@ export function getSettings(): AppSettings {
   }
 }
 
+export function setSettings(settings: Partial<AppSettings> | undefined): AppSettings {
+  const normalized = normalizeSettings(settings)
+  persistSettings(normalized, { throwOnError: true })
+  return normalized
+}
+
 export function setCheckUpdatesOnStartup(enabled: boolean): AppSettings {
   const settings = {
     ...getSettings(),
@@ -122,11 +128,14 @@ function getDefaultNetworkProxy(): NetworkProxySettings {
   }
 }
 
-function persistSettings(settings: AppSettings): void {
+function persistSettings(settings: AppSettings, options: { throwOnError?: boolean } = {}): void {
   try {
     appStore.set('settings', settings)
   } catch (error) {
     logger.warn('Failed to save app settings', error)
+    if (options.throwOnError) {
+      throw error
+    }
   }
 }
 

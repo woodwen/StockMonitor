@@ -23,6 +23,14 @@ const mocks = vi.hoisted(() => {
     })),
     clearKlineCache: vi.fn(async (request: unknown) => [{ request }])
   }
+  const localCacheMock = {
+    exportLocalCacheBackup: vi.fn(async () => ({ status: 'success', filePath: '/tmp/backup.json' })),
+    inspectLocalCacheBackup: vi.fn(async () => ({ status: 'ready', importToken: 'token-1' })),
+    importLocalCacheBackup: vi.fn(async (request: unknown) => ({
+      status: 'success',
+      request
+    }))
+  }
   const ipcMainMock = {
     handle: vi.fn((channel: string, handler: (...args: unknown[]) => unknown) => {
       if (registeredHandlers.has(channel)) {
@@ -35,7 +43,7 @@ const mocks = vi.hoisted(() => {
     })
   }
 
-  return { ipcMainMock, klineCacheMock, registeredHandlers }
+  return { ipcMainMock, klineCacheMock, localCacheMock, registeredHandlers }
 })
 
 vi.mock('electron', () => ({
@@ -109,6 +117,12 @@ vi.mock('../src/main/kline-cache', () => ({
   startKlineCacheRefresh: mocks.klineCacheMock.startKlineCacheRefresh
 }))
 
+vi.mock('../src/main/local-cache-portability', () => ({
+  exportLocalCacheBackup: mocks.localCacheMock.exportLocalCacheBackup,
+  importLocalCacheBackup: mocks.localCacheMock.importLocalCacheBackup,
+  inspectLocalCacheBackup: mocks.localCacheMock.inspectLocalCacheBackup
+}))
+
 import { registerIpcHandlers } from '../src/main/ipc'
 
 describe('IPC handlers', () => {
@@ -117,6 +131,7 @@ describe('IPC handlers', () => {
     mocks.ipcMainMock.handle.mockClear()
     mocks.ipcMainMock.removeHandler.mockClear()
     Object.values(mocks.klineCacheMock).forEach((mock) => mock.mockClear())
+    Object.values(mocks.localCacheMock).forEach((mock) => mock.mockClear())
   })
 
   it('can be registered more than once without duplicate-handler startup errors', () => {
@@ -130,6 +145,9 @@ describe('IPC handlers', () => {
     expect(mocks.registeredHandlers.has('stock:cancelKlineCacheJob')).toBe(true)
     expect(mocks.registeredHandlers.has('stock:getCachedKlineDataset')).toBe(true)
     expect(mocks.registeredHandlers.has('stock:clearKlineCache')).toBe(true)
+    expect(mocks.registeredHandlers.has('localCache:exportBackup')).toBe(true)
+    expect(mocks.registeredHandlers.has('localCache:inspectBackup')).toBe(true)
+    expect(mocks.registeredHandlers.has('localCache:importBackup')).toBe(true)
     expect(mocks.registeredHandlers.has('settings:setTradeProfitSettings')).toBe(true)
     expect(mocks.registeredHandlers.has('update:openDownloadPage')).toBe(true)
   })
@@ -164,6 +182,23 @@ describe('IPC handlers', () => {
 
     await getHandler('stock:clearKlineCache')({}, statusRequest)
     expect(mocks.klineCacheMock.clearKlineCache).toHaveBeenCalledWith(statusRequest)
+  })
+
+  it('delegates local cache portability IPC handlers to the backup service', async () => {
+    registerIpcHandlers()
+
+    await getHandler('localCache:exportBackup')({})
+    expect(mocks.localCacheMock.exportLocalCacheBackup).toHaveBeenCalledTimes(1)
+
+    await getHandler('localCache:inspectBackup')({})
+    expect(mocks.localCacheMock.inspectLocalCacheBackup).toHaveBeenCalledTimes(1)
+
+    const request = {
+      importToken: 'token-1',
+      strategy: 'merge'
+    }
+    await getHandler('localCache:importBackup')({}, request)
+    expect(mocks.localCacheMock.importLocalCacheBackup).toHaveBeenCalledWith(request)
   })
 })
 

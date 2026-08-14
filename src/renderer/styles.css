@@ -687,6 +687,17 @@ body {
   font-size: 12px;
 }
 
+.local-cache-portability-shell,
+.local-cache-summary {
+  width: 100%;
+}
+
+.local-cache-portability-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
 .strategy-drawer .ant-drawer-body {
   padding-top: 14px;
 }

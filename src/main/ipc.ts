@@ -1,6 +1,7 @@
 import { ipcMain } from 'electron'
 import type {
   AppSettings,
+  LocalCacheBackupImportRequest,
   NetworkProxySettings,
   WorkspaceSettings
 } from '../preload/stock-api'
@@ -40,6 +41,11 @@ import {
   fetchRemoteStockTimeshareDataset,
   getStockDataSourceMetas
 } from './remote-stock-sources'
+import {
+  exportLocalCacheBackup,
+  importLocalCacheBackup,
+  inspectLocalCacheBackup
+} from './local-cache-portability'
 
 type IpcMainHandler = Parameters<typeof ipcMain.handle>[1]
 
@@ -79,6 +85,12 @@ export function registerIpcHandlers(): void {
   registerIpcHandler('stock:clearKlineCache', async (_event, request: KlineCacheClearRequest) => {
     return clearKlineCache(request)
   })
+  registerIpcHandler('localCache:exportBackup', () => exportLocalCacheBackup())
+  registerIpcHandler('localCache:inspectBackup', () => inspectLocalCacheBackup())
+  registerIpcHandler(
+    'localCache:importBackup',
+    (_event, request: LocalCacheBackupImportRequest) => importLocalCacheBackup(request)
+  )
 
   registerIpcHandler('settings:get', (): AppSettings => getSettings())
   registerIpcHandler('settings:setCheckUpdatesOnStartup', (_event, enabled: boolean): AppSettings => {

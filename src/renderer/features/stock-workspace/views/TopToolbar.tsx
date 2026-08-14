@@ -5,11 +5,13 @@ import {
   BarChartOutlined,
   CalculatorOutlined,
   CloudDownloadOutlined,
+  DownloadOutlined,
   FundProjectionScreenOutlined,
   GlobalOutlined,
   LineChartOutlined,
   ReloadOutlined,
   SearchOutlined,
+  UploadOutlined,
   StarFilled,
   StarOutlined
 } from '@ant-design/icons'
@@ -103,6 +105,24 @@ export const TopToolbar = observer(({ stock, updates, tradeProfit }: TopToolbarP
         <Tooltip title={stock.networkProxy.enabled ? '代理已启用' : '代理未启用，当前直连'}>
           <Button icon={<GlobalOutlined />} onClick={stock.openProxyDialog}>
             代理
+          </Button>
+        </Tooltip>
+        <Tooltip title="导出本地设置、自选股、做T测算和历史 K 线缓存">
+          <Button
+            icon={<DownloadOutlined />}
+            loading={stock.localCacheExporting}
+            onClick={() => void stock.exportLocalCacheBackup()}
+          >
+            导出缓存
+          </Button>
+        </Tooltip>
+        <Tooltip title="从备份文件导入本地缓存">
+          <Button
+            icon={<UploadOutlined />}
+            loading={stock.localCacheImportInspecting || stock.localCacheImporting}
+            onClick={() => void stock.inspectLocalCacheBackup()}
+          >
+            导入缓存
           </Button>
         </Tooltip>
         <Tooltip title="测算买入卖出费用和盈亏">

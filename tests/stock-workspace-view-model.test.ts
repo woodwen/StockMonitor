@@ -1,5 +1,14 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { AppSettings, NetworkProxySettings, WorkspaceSettings } from '../src/preload/stock-api'
+import type {
+  AppSettings,
+  LocalCacheBackupExportResult,
+  LocalCacheBackupImportRequest,
+  LocalCacheBackupImportResult,
+  LocalCacheBackupInspectResult,
+  LocalCacheBackupSummary,
+  NetworkProxySettings,
+  WorkspaceSettings
+} from '../src/preload/stock-api'
 import type { StockDataAdapter } from '../src/renderer/features/stock-workspace/adapters/ElectronStockDataAdapter'
 import { createDefaultIndicatorSettings } from '../src/renderer/features/stock-workspace/models/indicator-definitions'
 import { createDefaultTimeshareIndicatorSettings } from '../src/renderer/features/stock-workspace/models/timeshare-indicator-definitions'
@@ -35,8 +44,14 @@ class FakeDataAdapter implements StockDataAdapter {
   nextKlineCacheRefreshError: Error | null = null
   nextStockDataset: StockDataset | null = null
   nextCachedKlineDatasetResult: KlineCachedDatasetResult | null = null
+  nextLocalCacheExportResult: LocalCacheBackupExportResult | null = null
+  nextLocalCacheInspectResult: LocalCacheBackupInspectResult | null = null
+  nextLocalCacheImportResult: LocalCacheBackupImportResult | null = null
   cachedKlineDatasetResults: KlineCachedDatasetResult[] = []
   cachedKlineQueries: StockQuery[] = []
+  localCacheExportCount = 0
+  localCacheInspectCount = 0
+  localCacheImportRequests: LocalCacheBackupImportRequest[] = []
 
   constructor(private readonly failingSourceIds: string[] = [], settings?: AppSettings) {
     if (settings) {
@@ -187,6 +202,45 @@ class FakeDataAdapter implements StockDataAdapter {
   async clearKlineCache(request: KlineCacheClearRequest): Promise<KlineCacheStatusRow[]> {
     this.klineCacheClearRequests.push(request)
     return createKlineCacheRows(request)
+  }
+
+  async exportLocalCacheBackup(): Promise<LocalCacheBackupExportResult> {
+    this.localCacheExportCount += 1
+    return this.nextLocalCacheExportResult ?? {
+      status: 'success',
+      filePath: '/tmp/stock-monitor.stock-monitor-backup.json',
+      summary: createLocalCacheBackupSummary()
+    }
+  }
+
+  async inspectLocalCacheBackup(): Promise<LocalCacheBackupInspectResult> {
+    this.localCacheInspectCount += 1
+    return this.nextLocalCacheInspectResult ?? {
+      status: 'ready',
+      importToken: 'token-1',
+      filePath: '/tmp/stock-monitor.stock-monitor-backup.json',
+      summary: createLocalCacheBackupSummary()
+    }
+  }
+
+  async importLocalCacheBackup(
+    request: LocalCacheBackupImportRequest
+  ): Promise<LocalCacheBackupImportResult> {
+    this.localCacheImportRequests.push(request)
+    const result = this.nextLocalCacheImportResult ?? {
+      status: 'success' as const,
+      settings: this.settings,
+      summary: {
+        ...createLocalCacheBackupSummary(),
+        strategy: request.strategy,
+        importedKlineCacheEntryCount: 1,
+        removedKlineCacheEntryCount: request.strategy === 'replace' ? 1 : 0
+      }
+    }
+    if (result.status === 'success' && result.settings) {
+      this.settings = result.settings
+    }
+    return result
   }
 
   async getSettings(): Promise<AppSettings> {
@@ -594,6 +648,87 @@ describe('StockWorkspaceViewModel', () => {
     expect(viewModel.query.adjust).toBe('none')
     expect(viewModel.timeshareSourceId).toBe('tencent')
     expect(viewModel.activeSourceName).toBe('腾讯/QQ 财经')
+  })
+
+  it('exports local cache without changing current market data state', async () => {
+    const adapter = new FakeDataAdapter()
+    const viewModel = new StockWorkspaceViewModel(adapter)
+
+    await viewModel.initialize()
+    const currentSymbol = viewModel.query.symbol
+    const currentRecordCount = viewModel.recordCount
+    const timeshareRequestCount = adapter.timeshareQueries.length
+
+    await viewModel.exportLocalCacheBackup()
+
+    expect(adapter.localCacheExportCount).toBe(1)
+    expect(viewModel.localCacheResultDialogOpen).toBe(true)
+    expect(viewModel.localCacheBackupResult?.status).toBe('success')
+    expect(viewModel.query.symbol).toBe(currentSymbol)
+    expect(viewModel.recordCount).toBe(currentRecordCount)
+    expect(adapter.timeshareQueries).toHaveLength(timeshareRequestCount)
+    expect(adapter.stockQueries).toHaveLength(0)
+  })
+
+  it('imports local cache, reloads local settings, refreshes open cache status, and avoids remote refresh', async () => {
+    const importedSettings: AppSettings = {
+      ...createDefaultSettings(),
+      networkProxy: {
+        enabled: true,
+        protocol: 'http',
+        host: '127.0.0.2',
+        port: 8080
+      },
+      workspace: {
+        ...createDefaultSettings().workspace,
+        viewMode: 'timeshare',
+        query: {
+          ...createDefaultSettings().workspace.query,
+          symbol: 'sz000001'
+        },
+        watchlist: [{ symbol: 'sz000001', name: '平安银行', createdAt: 2 }]
+      }
+    }
+    const adapter = new FakeDataAdapter()
+    adapter.nextLocalCacheImportResult = {
+      status: 'success',
+      settings: importedSettings,
+      summary: {
+        ...createLocalCacheBackupSummary(),
+        strategy: 'replace',
+        importedKlineCacheEntryCount: 1,
+        removedKlineCacheEntryCount: 1
+      }
+    }
+    const onImported = vi.fn()
+    const viewModel = new StockWorkspaceViewModel(adapter, {
+      onLocalCacheImported: onImported
+    })
+
+    await viewModel.initialize()
+    const remoteTimeshareRequestCount = adapter.timeshareQueries.length
+    viewModel.openKlineCacheDialog()
+    await waitForMicrotasks()
+    const cacheStatusRequestCount = adapter.klineCacheStatusRequests.length
+
+    await viewModel.inspectLocalCacheBackup()
+    viewModel.setLocalCacheImportStrategy('replace')
+    await viewModel.confirmLocalCacheImport()
+
+    expect(adapter.localCacheInspectCount).toBe(1)
+    expect(adapter.localCacheImportRequests).toEqual([
+      {
+        importToken: 'token-1',
+        strategy: 'replace'
+      }
+    ])
+    expect(viewModel.networkProxy).toEqual(importedSettings.networkProxy)
+    expect(viewModel.watchlist).toEqual([{ symbol: 'sz000001', name: '平安银行', createdAt: 2 }])
+    expect(viewModel.localCacheResultDialogOpen).toBe(true)
+    expect(onImported).toHaveBeenCalledTimes(1)
+    expect(adapter.klineCacheStatusRequests.length).toBe(cacheStatusRequestCount + 1)
+    expect(adapter.timeshareQueries).toHaveLength(remoteTimeshareRequestCount)
+    expect(adapter.stockQueries).toHaveLength(0)
   })
 
   it('uses the current view mode when marking the active source', async () => {
@@ -2225,6 +2360,23 @@ function createKlineSettings(): AppSettings {
       viewMode: 'kline'
     }
   }
+}
+
+function createLocalCacheBackupSummary(): LocalCacheBackupSummary {
+  return {
+    settingsSections: ['checkUpdatesOnStartup', 'networkProxy', 'workspace', 'tradeProfit'],
+    includesNetworkProxy: true,
+    klineCacheEntryCount: 1,
+    klineCacheBytes: 1024,
+    skippedCount: 0,
+    skippedItems: []
+  }
+}
+
+function waitForMicrotasks(): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, 0)
+  })
 }
 
 function createSampleStockDataset(): StockDataset {

@@ -1,4 +1,12 @@
-import type { AppSettings, NetworkProxySettings, WorkspaceSettings } from '../../../../preload/stock-api'
+import type {
+  AppSettings,
+  LocalCacheBackupExportResult,
+  LocalCacheBackupImportRequest,
+  LocalCacheBackupImportResult,
+  LocalCacheBackupInspectResult,
+  NetworkProxySettings,
+  WorkspaceSettings
+} from '../../../../preload/stock-api'
 import type {
   StockDataSourceMeta,
   StockDataset,
@@ -23,6 +31,9 @@ export interface StockDataAdapter {
   cancelKlineCacheJob(jobId: string): Promise<KlineCacheJob | null>
   getCachedKlineDataset(query: StockQuery): Promise<KlineCachedDatasetResult>
   clearKlineCache(request: KlineCacheClearRequest): Promise<KlineCacheStatusRow[]>
+  exportLocalCacheBackup(): Promise<LocalCacheBackupExportResult>
+  inspectLocalCacheBackup(): Promise<LocalCacheBackupInspectResult>
+  importLocalCacheBackup(request: LocalCacheBackupImportRequest): Promise<LocalCacheBackupImportResult>
   getSettings(): Promise<AppSettings>
   setNetworkProxy(proxy: NetworkProxySettings): Promise<AppSettings>
   setWorkspaceSettings(workspace: WorkspaceSettings): Promise<AppSettings>
@@ -63,6 +74,20 @@ export class ElectronStockDataAdapter implements StockDataAdapter {
 
   clearKlineCache(request: KlineCacheClearRequest): Promise<KlineCacheStatusRow[]> {
     return window.stockApi.clearKlineCache(request)
+  }
+
+  exportLocalCacheBackup(): Promise<LocalCacheBackupExportResult> {
+    return window.stockApi.exportLocalCacheBackup()
+  }
+
+  inspectLocalCacheBackup(): Promise<LocalCacheBackupInspectResult> {
+    return window.stockApi.inspectLocalCacheBackup()
+  }
+
+  importLocalCacheBackup(
+    request: LocalCacheBackupImportRequest
+  ): Promise<LocalCacheBackupImportResult> {
+    return window.stockApi.importLocalCacheBackup(request)
   }
 
   getSettings(): Promise<AppSettings> {
