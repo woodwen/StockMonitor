@@ -15,6 +15,8 @@ const manualSections = [
   { id: 'manual-kline', label: 'K 线视图' },
   { id: 'manual-indicators', label: '指标设置' },
   { id: 'manual-watchlist', label: '自选股' },
+  { id: 'manual-kline-cache', label: 'K 线缓存' },
+  { id: 'manual-strategy', label: '策略回测' },
   { id: 'manual-trade-profit', label: '做T测算' },
   { id: 'manual-sources', label: '数据源' },
   { id: 'manual-proxy', label: '网络代理' },
@@ -72,6 +74,7 @@ export function UserManualModal({ open, onClose }: UserManualModalProps): React.
               <li>在顶部输入框输入证券代码，例如 <Text code>sh000001</Text> 或 <Text code>sh600519</Text>。</li>
               <li>按 Enter 或点击“刷新”，加载当前视图对应的远端行情。</li>
               <li>使用“分时 / K线”切换视图；分时和 K 线会分别保存数据源选择。</li>
+              <li>K 线模式下可以使用“缓存”准备自选股历史 K 线，也可以使用“策略”查看候选策略历史回测。</li>
               <li>通过底部状态栏查看当前数据源、证券代码、记录数、加载状态和更新状态。</li>
             </ul>
           </section>
@@ -106,6 +109,7 @@ export function UserManualModal({ open, onClose }: UserManualModalProps): React.
               <li>可选择不复权、前复权和后复权；不支持复权的数据源会自动收敛到不复权。</li>
               <li>可调整日期范围后手动刷新。</li>
               <li>主图和副图指标由“指标”弹窗统一管理。</li>
+              <li>日线、周线和月线可用于历史 K 线缓存和策略回测；分钟 K 线暂不参与策略回测。</li>
             </ul>
           </section>
 
@@ -125,7 +129,32 @@ export function UserManualModal({ open, onClose }: UserManualModalProps): React.
               <li>点击顶部工具栏“自选”打开或收起左侧自选股栏。</li>
               <li>支持单只添加、批量粘贴、管理模式删除所选。</li>
               <li>点击自选股会切换当前证券代码，并按当前视图刷新行情。</li>
+              <li>在自选股栏点击“缓存”，可以查看和刷新自选股的历史 K 线缓存。</li>
               <li>自选股列表保存到本地设置，应用重启后会恢复。</li>
+            </ul>
+          </section>
+
+          <section className="manual-section" id="manual-kline-cache">
+            <Title level={4}>K 线缓存</Title>
+            <ul>
+              <li>在自选股栏点击“缓存”打开历史 K 线缓存弹窗。</li>
+              <li>可按数据源、日线/周线/月线、前复权/不复权/后复权和日期范围查询缓存完整性。</li>
+              <li>弹窗按每只自选股与周期、复权组合展示状态、记录数、缓存范围、缺失范围和最近刷新时间。</li>
+              <li>支持刷新全部或刷新选中组合；任务运行时可查看进度，也可取消剩余任务。</li>
+              <li>支持清理选中组合的缓存；清理缓存不会删除自选股，也不会替换当前图表数据。</li>
+              <li>缓存数据保存在本地应用数据目录，免费网页接口仍可能因为网络或接口变化导致刷新失败。</li>
+            </ul>
+          </section>
+
+          <section className="manual-section" id="manual-strategy">
+            <Title level={4}>策略回测</Title>
+            <ul>
+              <li>K 线模式下点击顶部工具栏“策略”打开 K 线历史回测面板。</li>
+              <li>第一版支持日线、周线和月线，暂不支持 5/15/30/60 分钟 K 线回测。</li>
+              <li>可比较均线交叉、突破回撤、RSI 超买超卖和 MACD 趋势确认等候选策略。</li>
+              <li>运行前需要选择回测区间、初始资金、费用率和滑点率；缺少历史 K 线缓存时会先准备缓存。</li>
+              <li>结果展示历史表现排名、收益和回撤指标、交易明细、信号列表、回测假设和图表信号标记。</li>
+              <li>历史回测不代表未来表现；策略信号只是所选区间内的程序化历史触发点，不构成买卖建议、荐股服务或收益承诺。</li>
             </ul>
           </section>
 
