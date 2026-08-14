@@ -1,12 +1,21 @@
 import { makeAutoObservable, runInAction } from 'mobx'
-import type { NetworkProxySettings, WorkspaceSettings } from '../../../../preload/stock-api'
+import type {
+  LocalCacheBackupExportResult,
+  LocalCacheBackupImportResult,
+  LocalCacheBackupImportStrategy,
+  LocalCacheBackupInspectResult,
+  NetworkProxySettings,
+  WorkspaceSettings
+} from '../../../../preload/stock-api'
 import { enrichStockDataset, getLatestCandle } from '../models/indicator-engine'
 import { cloneIndicatorSettings } from '../models/indicator-definitions'
 import { cloneTimeshareIndicatorSettings } from '../models/timeshare-indicator-definitions'
 import {
   cloneKlineStrategySettings,
   createDefaultKlineStrategySettings,
+  getKlineStrategyDatasetMissingRanges,
   getKlineStrategyPeriodError,
+  isKlineStrategyDatasetCoveringQuery,
   klineStrategyTemplates,
   normalizeKlineStrategyParams,
   normalizeKlineStrategySettings,
@@ -29,6 +38,7 @@ import type {
   KlineStrategyBacktestResult,
   KlineStrategyParameterDefinition,
   KlineStrategyParams,
+  KlineStrategyRecommendationLevel,
   KlineStrategySettings,
   KlineStrategyTemplateId,
   StockAdjust,
@@ -54,14 +64,12 @@ import {
   removeWatchlistSymbols
 } from '../models/watchlist'
 import {
-  DEFAULT_KLINE_CACHE_ADJUSTS,
-  DEFAULT_KLINE_CACHE_PERIODS,
   createKlineCacheRequestQuery,
-  getKlineCacheCandleRange,
   getKlineCacheRequestError,
+  KLINE_CACHE_ADJUST_OPTIONS,
+  KLINE_CACHE_PERIOD_OPTIONS,
   normalizeKlineCacheAdjusts,
-  normalizeKlineCachePeriods,
-  subtractKlineCacheRanges
+  normalizeKlineCachePeriods
 } from '../models/kline-cache'
 import type { StockDataAdapter } from '../adapters/ElectronStockDataAdapter'
 import { KLineChartViewModel } from './KLineChartViewModel'
@@ -69,6 +77,12 @@ import { TimeshareChartViewModel } from './TimeshareChartViewModel'
 
 export type RemoteLoadStatus = 'idle' | 'loading' | 'success' | 'error'
 export type SourceTestStatus = 'testing' | 'success' | 'error'
+export type KlineCacheTargetMode = 'single' | 'multiple'
+export type LocalCacheBackupResult = LocalCacheBackupExportResult | LocalCacheBackupImportResult
+
+export interface StockWorkspaceViewModelOptions {
+  onLocalCacheImported?: () => Promise<void> | void
+}
 
 export interface SourceTestResult {
   sourceId: StockSourceId
@@ -86,6 +100,9 @@ export interface SourceTestResult {
 export interface StrategyTemplateDraftRow {
   id: KlineStrategyTemplateId
   name: string
+  typeLabel: string
+  basicLogic: string
+  recommendationLevel: KlineStrategyRecommendationLevel
   description: string
   signalDescription: string
   minSampleSize: number
@@ -120,6 +137,7 @@ export class StockWorkspaceViewModel {
   watchlistOpen = false
   watchlistManageMode = false
   selectedWatchlistSymbols: string[] = []
+  watchlistSearchText = ''
   watchlistAddText = ''
   watchlistAddPreview: WatchlistParseResult = createEmptyWatchlistParseResult()
   watchlistPasteError = ''
@@ -129,15 +147,22 @@ export class StockWorkspaceViewModel {
   klineCacheRows: KlineCacheStatusRow[] = []
   klineCacheSelectedRowIds: string[] = []
   klineCacheQuery: KlineCacheRequestQuery = createKlineCacheRequestQuery(createDefaultStockQuery())
+  klineCacheTargetMode: KlineCacheTargetMode = 'single'
   klineCacheJob: KlineCacheJob | null = null
+  localCacheExporting = false
+  localCacheImportInspecting = false
+  localCacheImporting = false
+  localCacheImportDialogOpen = false
+  localCacheResultDialogOpen = false
+  localCacheImportStrategy: LocalCacheBackupImportStrategy = 'merge'
+  localCacheBackupInspect: LocalCacheBackupInspectResult | null = null
+  localCacheBackupResult: LocalCacheBackupResult | null = null
   strategyPanelOpen = false
   strategyRunning = false
   strategyError = ''
   strategyStatusMessage = ''
   strategySettings: KlineStrategySettings = createDefaultKlineStrategySettings()
   strategyDraft: KlineStrategySettings = createDefaultKlineStrategySettings()
-  strategyStartDateInput = this.query.startDate
-  strategyEndDateInput = this.query.endDate
   strategyInitialCapitalInput: number | null =
     createDefaultKlineStrategySettings().assumptions.initialCapital
   strategyFeeRatePercentInput: number | null =
@@ -153,10 +178,14 @@ export class StockWorkspaceViewModel {
   private timeshareRequestId = 0
   private strategyRequestId = 0
 
-  constructor(private readonly dataAdapter: StockDataAdapter) {
+  constructor(
+    private readonly dataAdapter: StockDataAdapter,
+    private readonly options: StockWorkspaceViewModelOptions = {}
+  ) {
     makeAutoObservable<
       this,
       | 'dataAdapter'
+      | 'options'
       | 'workspaceSaveTimer'
       | 'timeshareRefreshTimer'
       | 'klineCacheJobTimer'
@@ -167,6 +196,7 @@ export class StockWorkspaceViewModel {
       this,
       {
         dataAdapter: false,
+        options: false,
         workspaceSaveTimer: false,
         timeshareRefreshTimer: false,
         klineCacheJobTimer: false,
@@ -386,7 +416,16 @@ export class StockWorkspaceViewModel {
     this.watchlistOpen = !this.watchlistOpen
     if (!this.watchlistOpen) {
       this.exitWatchlistManageMode()
+      this.clearWatchlistSearch()
     }
+  }
+
+  setWatchlistSearchText(text: string): void {
+    this.watchlistSearchText = text
+  }
+
+  clearWatchlistSearch(): void {
+    this.watchlistSearchText = ''
   }
 
   setWatchlistAddText(text: string): void {
@@ -487,14 +526,25 @@ export class StockWorkspaceViewModel {
   }
 
   selectAllWatchlistItems(): void {
-    this.selectedWatchlistSymbols = this.watchlist.map((item) => item.symbol)
+    const selected = new Set(this.selectedWatchlistSymbols)
+    this.filteredWatchlist.forEach((item) => selected.add(item.symbol))
+    this.selectedWatchlistSymbols = this.watchlist
+      .map((item) => item.symbol)
+      .filter((symbol) => selected.has(symbol))
   }
 
   invertWatchlistSelection(): void {
     const selected = new Set(this.selectedWatchlistSymbols)
+    const visible = new Set(this.filteredWatchlist.map((item) => item.symbol))
+    const next = new Set(this.selectedWatchlistSymbols.filter((symbol) => !visible.has(symbol)))
+    this.filteredWatchlist.forEach((item) => {
+      if (!selected.has(item.symbol)) {
+        next.add(item.symbol)
+      }
+    })
     this.selectedWatchlistSymbols = this.watchlist
       .map((item) => item.symbol)
-      .filter((symbol) => !selected.has(symbol))
+      .filter((symbol) => next.has(symbol))
   }
 
   removeSelectedWatchlistItems(): void {
@@ -502,10 +552,9 @@ export class StockWorkspaceViewModel {
       return
     }
     this.watchlist = removeWatchlistSymbols(this.watchlist, this.selectedWatchlistSymbols)
+    const cacheTargetSymbols = new Set(this.klineCacheTargetItems.map((item) => item.symbol))
     this.klineCacheSelectedRowIds = this.klineCacheSelectedRowIds.filter((rowId) =>
-      this.klineCacheRows.some(
-        (row) => row.id === rowId && this.watchlist.some((item) => item.symbol === row.symbol)
-      )
+      this.klineCacheRows.some((row) => row.id === rowId && cacheTargetSymbols.has(row.symbol))
     )
     this.exitWatchlistManageMode()
     this.saveWorkspaceSettingsNow()
@@ -513,13 +562,10 @@ export class StockWorkspaceViewModel {
 
   openKlineCacheDialog(): void {
     this.klineCacheQuery = this.normalizeKlineCacheQuery(createKlineCacheRequestQuery(this.query))
+    this.klineCacheTargetMode = 'single'
     this.klineCacheSelectedRowIds = []
     this.klineCacheError = ''
     this.klineCacheDialogOpen = true
-    if (this.watchlist.length === 0) {
-      this.klineCacheRows = []
-      return
-    }
     void this.loadKlineCacheStatus()
     if (this.klineCacheJob && isKlineCacheJobActive(this.klineCacheJob)) {
       this.scheduleKlineCacheJobPolling()
@@ -530,6 +576,15 @@ export class StockWorkspaceViewModel {
     this.klineCacheDialogOpen = false
     this.klineCacheError = ''
     this.stopKlineCacheJobPolling()
+  }
+
+  setKlineCacheTargetMode(mode: KlineCacheTargetMode): void {
+    if (this.klineCacheTargetMode === mode) {
+      return
+    }
+    this.klineCacheTargetMode = mode
+    this.resetKlineCacheRowsForQueryChange()
+    void this.loadKlineCacheStatus()
   }
 
   setKlineCacheSourceId(sourceId: StockSourceId): void {
@@ -568,8 +623,6 @@ export class StockWorkspaceViewModel {
   }
 
   setKlineCacheStartDate(startDate: string): void {
-    this.klineCacheStatusRequestId += 1
-    this.klineCacheLoading = false
     this.klineCacheQuery = {
       ...this.klineCacheQuery,
       startDate: normalizeDateInput(startDate)
@@ -578,8 +631,6 @@ export class StockWorkspaceViewModel {
   }
 
   setKlineCacheEndDate(endDate: string): void {
-    this.klineCacheStatusRequestId += 1
-    this.klineCacheLoading = false
     this.klineCacheQuery = {
       ...this.klineCacheQuery,
       endDate: normalizeDateInput(endDate)
@@ -588,7 +639,8 @@ export class StockWorkspaceViewModel {
   }
 
   async loadKlineCacheStatus(): Promise<void> {
-    if (this.watchlist.length === 0) {
+    const items = this.klineCacheTargetItems
+    if (items.length === 0) {
       runInAction(() => {
         this.klineCacheRows = []
         this.klineCacheLoading = false
@@ -605,7 +657,7 @@ export class StockWorkspaceViewModel {
       return
     }
 
-    const request = this.createKlineCacheRequest(this.watchlist)
+    const request = this.createKlineCacheRequest(items)
     const requestId = ++this.klineCacheStatusRequestId
     this.klineCacheLoading = true
     this.klineCacheError = ''
@@ -634,7 +686,7 @@ export class StockWorkspaceViewModel {
   }
 
   async refreshAllKlineCache(): Promise<void> {
-    await this.startKlineCacheRefresh(this.watchlist)
+    await this.startKlineCacheRefresh(this.klineCacheTargetItems)
   }
 
   async refreshSelectedKlineCache(): Promise<void> {
@@ -642,7 +694,7 @@ export class StockWorkspaceViewModel {
     if (selectedRows.length === 0) {
       return
     }
-    await this.startKlineCacheRefresh(this.watchlist, selectedRows)
+    await this.startKlineCacheRefresh(this.klineCacheTargetItems, selectedRows)
   }
 
   async cancelKlineCacheRefresh(): Promise<void> {
@@ -674,7 +726,7 @@ export class StockWorkspaceViewModel {
     this.klineCacheError = ''
     try {
       const rows = await this.dataAdapter.clearKlineCache(
-        this.createKlineCacheRequest(this.watchlist, selectedRows)
+        this.createKlineCacheRequest(this.klineCacheTargetItems, selectedRows)
       )
       runInAction(() => {
         const updatedRows = new Map(rows.map((row) => [row.id, row]))
@@ -737,7 +789,6 @@ export class StockWorkspaceViewModel {
 
   openStrategyPanel(): void {
     this.strategyDraft = cloneKlineStrategySettings(this.strategySettings)
-    this.syncStrategyDateRangeInputs()
     this.syncStrategyAssumptionInputs()
     this.strategyError = ''
     this.strategyPanelOpen = true
@@ -746,7 +797,6 @@ export class StockWorkspaceViewModel {
   closeStrategyPanel(): void {
     this.strategyPanelOpen = false
     this.strategyDraft = cloneKlineStrategySettings(this.strategySettings)
-    this.syncStrategyDateRangeInputs()
     this.syncStrategyAssumptionInputs()
   }
 
@@ -791,16 +841,6 @@ export class StockWorkspaceViewModel {
     }
   }
 
-  setStrategyStartDate(startDate: string): void {
-    this.strategyStartDateInput = normalizeDateInput(startDate)
-    this.patchStrategyDateRange({ startDate: this.strategyStartDateInput })
-  }
-
-  setStrategyEndDate(endDate: string): void {
-    this.strategyEndDateInput = normalizeDateInput(endDate)
-    this.patchStrategyDateRange({ endDate: this.strategyEndDateInput })
-  }
-
   setStrategyInitialCapital(value: number | null): void {
     this.strategyInitialCapitalInput = value
     if (value !== null) {
@@ -840,11 +880,7 @@ export class StockWorkspaceViewModel {
     const settings: KlineStrategySettings = {
       ...this.strategyDraft,
       selectedTemplateIds: [...this.strategyDraft.selectedTemplateIds],
-      paramsByTemplate: cloneKlineStrategySettings(this.strategyDraft).paramsByTemplate,
-      dateRange: {
-        startDate: query.startDate,
-        endDate: query.endDate
-      }
+      paramsByTemplate: cloneKlineStrategySettings(this.strategyDraft).paramsByTemplate
     }
     const normalizedSettings = normalizeKlineStrategySettings(settings)
     const requestId = ++this.strategyRequestId
@@ -866,7 +902,6 @@ export class StockWorkspaceViewModel {
         }
         this.strategySettings = normalizedSettings
         this.strategyDraft = cloneKlineStrategySettings(normalizedSettings)
-        this.syncStrategyDateRangeInputs()
         this.syncStrategyAssumptionInputs()
         this.strategyResults = comparison.results
         this.selectedStrategyResultId = chooseSelectedStrategyResultId(comparison.results)
@@ -901,6 +936,7 @@ export class StockWorkspaceViewModel {
     this.chart.setIndicator(name, enabled)
     if (this.chart.revision !== previousRevision) {
       this.reenrichCurrentDataset()
+      this.syncSelectedStrategySignals()
       this.saveWorkspaceSettingsNow()
     }
   }
@@ -922,6 +958,7 @@ export class StockWorkspaceViewModel {
     this.chart.closeIndicatorDialog()
     if (hadPreview) {
       this.reenrichCurrentDataset()
+      this.syncSelectedStrategySignals()
     }
   }
 
@@ -936,6 +973,7 @@ export class StockWorkspaceViewModel {
       return
     }
     this.reenrichCurrentDataset()
+    this.syncSelectedStrategySignals()
     this.saveWorkspaceSettingsNow()
   }
 
@@ -943,6 +981,7 @@ export class StockWorkspaceViewModel {
     const previousRevision = this.chart.revision
     this.chart.setIndicatorDraftEnabled(name, enabled)
     this.reenrichPreviewDatasetIfNeeded(name, previousRevision)
+    this.syncSelectedStrategySignals()
   }
 
   setKLineIndicatorDraftParam(name: IndicatorName, index: number, value: number): void {
@@ -1048,6 +1087,112 @@ export class StockWorkspaceViewModel {
       this.proxyDraft = { ...settings.networkProxy }
       this.proxyDialogOpen = false
     })
+  }
+
+  async exportLocalCacheBackup(): Promise<void> {
+    this.localCacheExporting = true
+    this.localCacheBackupResult = null
+    try {
+      const result = await this.dataAdapter.exportLocalCacheBackup()
+      runInAction(() => {
+        this.localCacheExporting = false
+        if (result.status !== 'cancelled') {
+          this.localCacheBackupResult = result
+          this.localCacheResultDialogOpen = true
+        }
+      })
+    } catch (error) {
+      runInAction(() => {
+        this.localCacheExporting = false
+        this.localCacheBackupResult = {
+          status: 'error',
+          message: formatErrorMessage(error)
+        }
+        this.localCacheResultDialogOpen = true
+      })
+    }
+  }
+
+  async inspectLocalCacheBackup(): Promise<void> {
+    this.localCacheImportInspecting = true
+    this.localCacheBackupInspect = null
+    this.localCacheBackupResult = null
+    this.localCacheImportStrategy = 'merge'
+    try {
+      const result = await this.dataAdapter.inspectLocalCacheBackup()
+      runInAction(() => {
+        this.localCacheImportInspecting = false
+        if (result.status === 'ready') {
+          this.localCacheBackupInspect = result
+          this.localCacheImportDialogOpen = true
+          return
+        }
+        if (result.status === 'error') {
+          this.localCacheBackupResult = {
+            status: 'error',
+            message: result.message
+          }
+          this.localCacheResultDialogOpen = true
+        }
+      })
+    } catch (error) {
+      runInAction(() => {
+        this.localCacheImportInspecting = false
+        this.localCacheBackupResult = {
+          status: 'error',
+          message: formatErrorMessage(error)
+        }
+        this.localCacheResultDialogOpen = true
+      })
+    }
+  }
+
+  setLocalCacheImportStrategy(strategy: LocalCacheBackupImportStrategy): void {
+    this.localCacheImportStrategy = strategy === 'replace' ? 'replace' : 'merge'
+  }
+
+  closeLocalCacheImportDialog(): void {
+    if (this.localCacheImporting) {
+      return
+    }
+    this.localCacheImportDialogOpen = false
+  }
+
+  closeLocalCacheResultDialog(): void {
+    this.localCacheResultDialogOpen = false
+  }
+
+  async confirmLocalCacheImport(): Promise<void> {
+    const importToken = this.localCacheBackupInspect?.importToken
+    if (!importToken || this.localCacheImporting) {
+      return
+    }
+
+    this.localCacheImporting = true
+    try {
+      const result = await this.dataAdapter.importLocalCacheBackup({
+        importToken,
+        strategy: this.localCacheImportStrategy
+      })
+      if (result.status === 'success') {
+        await this.reloadAfterLocalCacheImport()
+      }
+      runInAction(() => {
+        this.localCacheImporting = false
+        this.localCacheImportDialogOpen = false
+        this.localCacheBackupResult = result
+        this.localCacheResultDialogOpen = true
+      })
+    } catch (error) {
+      runInAction(() => {
+        this.localCacheImporting = false
+        this.localCacheBackupResult = {
+          status: 'error',
+          message: formatErrorMessage(error)
+        }
+        this.localCacheResultDialogOpen = true
+      })
+    }
   }
 
   async testDataSources(): Promise<void> {
@@ -1181,6 +1326,19 @@ export class StockWorkspaceViewModel {
     return Boolean(symbol && this.watchlist.some((item) => item.symbol === symbol))
   }
 
+  get filteredWatchlist(): WatchlistItem[] {
+    const keyword = this.watchlistSearchText.trim().toLowerCase()
+    if (!keyword) {
+      return this.watchlist
+    }
+    return this.watchlist.filter((item) => {
+      const symbol = item.symbol.toLowerCase()
+      const bareSymbol = symbol.replace(/^(sh|sz)/, '')
+      const name = item.name.toLowerCase()
+      return symbol.includes(keyword) || bareSymbol.includes(keyword) || name.includes(keyword)
+    })
+  }
+
   get selectedWatchlistCount(): number {
     return this.selectedWatchlistSymbols.length
   }
@@ -1202,6 +1360,18 @@ export class StockWorkspaceViewModel {
     return this.klineCacheRows.filter((row) => selected.has(row.id))
   }
 
+  get klineCacheTargetItems(): WatchlistItem[] {
+    if (this.klineCacheTargetMode === 'multiple') {
+      return normalizeWatchlist(this.watchlist)
+    }
+    const item = createWatchlistItem(this.query.symbol, this.currentStockName, 1)
+    return item ? [item] : []
+  }
+
+  get klineCacheEmptyDescription(): string {
+    return this.klineCacheTargetMode === 'multiple' ? '暂无自选股' : '暂无可缓存证券'
+  }
+
   get klineCacheFormError(): string {
     return getKlineCacheRequestError(this.klineCacheQuery)
   }
@@ -1218,7 +1388,11 @@ export class StockWorkspaceViewModel {
   }
 
   get canRefreshKlineCache(): boolean {
-    return this.watchlist.length > 0 && !this.klineCacheRunning && !this.klineCacheFormError
+    return (
+      this.klineCacheTargetItems.length > 0 &&
+      !this.klineCacheRunning &&
+      !this.klineCacheFormError
+    )
   }
 
   get canRefreshSelectedKlineCache(): boolean {
@@ -1232,7 +1406,7 @@ export class StockWorkspaceViewModel {
   get klineCachePeriodOptions(): Array<{ value: StockPeriod; label: string }> {
     const source = this.sources.find((item) => item.id === this.klineCacheQuery.sourceId)
     const supported = source?.capabilities.periods ?? []
-    return DEFAULT_KLINE_CACHE_PERIODS.filter((period) => supported.includes(period)).map(
+    return KLINE_CACHE_PERIOD_OPTIONS.filter((period) => supported.includes(period)).map(
       (period) => periodOptions.find((option) => option.value === period) ?? { value: period, label: period }
     )
   }
@@ -1240,7 +1414,7 @@ export class StockWorkspaceViewModel {
   get klineCacheAdjustOptions(): Array<{ value: StockAdjust; label: string }> {
     const source = this.sources.find((item) => item.id === this.klineCacheQuery.sourceId)
     const supported = source?.capabilities.adjusts ?? []
-    return DEFAULT_KLINE_CACHE_ADJUSTS.filter((adjust) => supported.includes(adjust)).map(
+    return KLINE_CACHE_ADJUST_OPTIONS.filter((adjust) => supported.includes(adjust)).map(
       (adjust) => adjustOptions.find((option) => option.value === adjust) ?? { value: adjust, label: adjust }
     )
   }
@@ -1250,6 +1424,11 @@ export class StockWorkspaceViewModel {
       value: template.id,
       label: template.name
     }))
+  }
+
+  get strategyBacktestDateRangeLabel(): string {
+    const query = this.createStrategyBacktestQuery()
+    return `${query.startDate} - ${query.endDate}`
   }
 
   get strategyTemplateDraftRows(): StrategyTemplateDraftRow[] {
@@ -1263,6 +1442,9 @@ export class StockWorkspaceViewModel {
         return {
           id: template.id,
           name: template.name,
+          typeLabel: template.typeLabel,
+          basicLogic: template.basicLogic,
+          recommendationLevel: template.recommendationLevel,
           description: template.description,
           signalDescription: template.signalDescription,
           minSampleSize: template.minSampleSize,
@@ -1285,10 +1467,7 @@ export class StockWorkspaceViewModel {
     if (periodError) {
       errors.push(periodError)
     }
-    const dateRangeError = getStrategyDateRangeError(
-      this.strategyStartDateInput,
-      this.strategyEndDateInput
-    )
+    const dateRangeError = getStrategyDateRangeError(this.query)
     if (dateRangeError) {
       errors.push(dateRangeError)
     }
@@ -1414,13 +1593,21 @@ export class StockWorkspaceViewModel {
         this.timeshare.setIndicatorSettings(settings.workspace.timeshareIndicatorSettings)
         this.strategySettings = normalizeKlineStrategySettings(settings.workspace.klineStrategySettings)
         this.strategyDraft = cloneKlineStrategySettings(this.strategySettings)
-        this.syncStrategyDateRangeInputs()
         this.syncStrategyAssumptionInputs()
         this.watchlist = normalizeWatchlist(settings.workspace.watchlist)
         this.watchlistAddPreview = parseWatchlistText(this.watchlistAddText, this.watchlist)
       })
     } catch (error) {
       console.warn('Failed to load workspace settings', error)
+    }
+  }
+
+  private async reloadAfterLocalCacheImport(): Promise<void> {
+    this.cancelPendingWorkspaceSettingsSave()
+    await this.loadSettings()
+    await this.options.onLocalCacheImported?.()
+    if (this.klineCacheDialogOpen) {
+      await this.loadKlineCacheStatus()
     }
   }
 
@@ -1630,8 +1817,10 @@ export class StockWorkspaceViewModel {
   }
 
   private resetKlineCacheRowsForQueryChange(): void {
+    this.klineCacheStatusRequestId += 1
     this.klineCacheRows = []
     this.klineCacheSelectedRowIds = []
+    this.klineCacheLoading = false
     this.klineCacheError = ''
   }
 
@@ -1711,26 +1900,6 @@ export class StockWorkspaceViewModel {
     }
   }
 
-  private patchStrategyDateRange(patch: Partial<NonNullable<KlineStrategySettings['dateRange']>>): void {
-    const current = this.strategyDraft.dateRange ?? {
-      startDate: this.query.startDate,
-      endDate: this.query.endDate
-    }
-    this.strategyDraft = {
-      ...this.strategyDraft,
-      dateRange: {
-        ...current,
-        ...patch
-      }
-    }
-  }
-
-  private syncStrategyDateRangeInputs(): void {
-    const dateRange = this.strategyDraft.dateRange
-    this.strategyStartDateInput = dateRange?.startDate ?? this.query.startDate
-    this.strategyEndDateInput = dateRange?.endDate ?? this.query.endDate
-  }
-
   private syncStrategyAssumptionInputs(): void {
     this.strategyInitialCapitalInput = this.strategyDraft.assumptions.initialCapital
     this.strategyFeeRatePercentInput = this.strategyDraft.assumptions.feeRate * 100
@@ -1738,11 +1907,7 @@ export class StockWorkspaceViewModel {
   }
 
   private createStrategyBacktestQuery(): StockQuery {
-    return this.normalizeQueryForSource({
-      ...this.query,
-      startDate: normalizeDateInput(this.strategyStartDateInput),
-      endDate: normalizeDateInput(this.strategyEndDateInput)
-    })
+    return this.normalizeQueryForSource({ ...this.query })
   }
 
   private async resolveStrategyDataset(query: StockQuery, requestId: number): Promise<StockDataset> {
@@ -1751,7 +1916,7 @@ export class StockWorkspaceViewModel {
     if (
       cached.status === 'complete' &&
       cached.dataset &&
-      isStrategyDatasetCoveringQuery(cached.dataset, query)
+      isKlineStrategyDatasetCoveringQuery(cached.dataset, query)
     ) {
       return cached.dataset
     }
@@ -1764,7 +1929,7 @@ export class StockWorkspaceViewModel {
     const refreshed = await this.dataAdapter.getCachedKlineDataset(query)
     this.assertStrategyRequestActive(requestId)
     if (refreshed.status === 'complete' && refreshed.dataset) {
-      const missingRanges = getStrategyDatasetMissingRanges(refreshed.dataset, query)
+      const missingRanges = getKlineStrategyDatasetMissingRanges(refreshed.dataset, query)
       if (missingRanges.length > 0) {
         throw new Error(
           `历史 K 线缓存未覆盖所选回测区间：${formatKlineCacheMissingRanges(missingRanges)}`
@@ -1846,7 +2011,11 @@ export class StockWorkspaceViewModel {
 
   private syncSelectedStrategySignals(): void {
     const result = this.selectedStrategyResult
-    this.chart.setStrategySignals(result?.status === 'success' ? result.signals : [])
+    const strategySignalEnabled =
+      this.viewMode === 'kline' && this.chart.effectiveIndicatorSettings.strategySignal.enabled
+    this.chart.setStrategySignals(
+      strategySignalEnabled && result?.status === 'success' ? result.signals : []
+    )
   }
 
   private invalidateStrategyResultsIfQueryChanged(query: StockQuery): void {
@@ -1896,11 +2065,16 @@ export class StockWorkspaceViewModel {
   }
 
   private saveWorkspaceSettingsNow(): void {
-    if (this.workspaceSaveTimer) {
-      clearTimeout(this.workspaceSaveTimer)
-      this.workspaceSaveTimer = undefined
-    }
+    this.cancelPendingWorkspaceSettingsSave()
     this.persistWorkspaceSettings()
+  }
+
+  private cancelPendingWorkspaceSettingsSave(): void {
+    if (!this.workspaceSaveTimer) {
+      return
+    }
+    clearTimeout(this.workspaceSaveTimer)
+    this.workspaceSaveTimer = undefined
   }
 
   private persistWorkspaceSettings(): void {
@@ -2059,11 +2233,11 @@ function isKlineCacheJobActive(job: KlineCacheJob): boolean {
   return job.status === 'queued' || job.status === 'running'
 }
 
-function getStrategyDateRangeError(startDate: string, endDate: string): string {
-  if (startDate.length !== 8 || endDate.length !== 8) {
+function getStrategyDateRangeError(query: Pick<StockQuery, 'startDate' | 'endDate'>): string {
+  if (query.startDate.length !== 8 || query.endDate.length !== 8) {
     return '回测区间日期必须为 8 位数字'
   }
-  if (startDate > endDate) {
+  if (query.startDate > query.endDate) {
     return '回测开始日期不能晚于结束日期'
   }
   return ''
@@ -2105,35 +2279,17 @@ function formatCachedKlineDatasetError(
   return missingRanges ? `${fallback}：${missingRanges}` : fallback
 }
 
-function isStrategyDatasetCoveringQuery(dataset: StockDataset, query: StockQuery): boolean {
-  return getStrategyDatasetMissingRanges(dataset, query).length === 0
-}
-
 function getCachedKlineDatasetMissingRanges(
   cached: KlineCachedDatasetResult,
   query: StockQuery
 ): KlineCacheDateRange[] {
   if (cached.dataset) {
-    const candleMissingRanges = getStrategyDatasetMissingRanges(cached.dataset, query)
+    const candleMissingRanges = getKlineStrategyDatasetMissingRanges(cached.dataset, query)
     if (candleMissingRanges.length > 0) {
       return candleMissingRanges
     }
   }
   return cached.missingRanges
-}
-
-function getStrategyDatasetMissingRanges(
-  dataset: StockDataset,
-  query: StockQuery
-): KlineCacheDateRange[] {
-  const candleRange = getKlineCacheCandleRange(dataset.candles)
-  if (!candleRange) {
-    return [{ startDate: query.startDate, endDate: query.endDate }]
-  }
-  return subtractKlineCacheRanges(
-    { startDate: query.startDate, endDate: query.endDate },
-    [candleRange]
-  )
 }
 
 function formatKlineCacheMissingRanges(missingRanges: KlineCacheDateRange[]): string {

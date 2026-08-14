@@ -22,6 +22,7 @@ describe('indicator-definitions', () => {
       'ma',
       'ema',
       'bsSignal',
+      'strategySignal',
       'volumeMa',
       'macd',
       'kdj',
@@ -31,10 +32,13 @@ describe('indicator-definitions', () => {
     expect(settings.boll.enabled).toBe(true)
     expect(settings.volumeMa.enabled).toBe(true)
     expect(settings.bsSignal.enabled).toBe(true)
+    expect(settings.strategySignal.enabled).toBe(false)
     expect(settings.macd.enabled).toBe(false)
     expect(settings.boll.precision).toBe(2)
     expect(settings.volumeMa.precision).toBe(0)
     expect(settings.bsSignal.precision).toBeUndefined()
+    expect(settings.strategySignal.params).toEqual([])
+    expect(settings.strategySignal.precision).toBeUndefined()
     expect(settings.boll.styles.lines?.map((line) => line.color)).toEqual(
       defaultIndicatorLineColors.slice(0, 3)
     )
@@ -72,6 +76,7 @@ describe('indicator-definitions', () => {
 
     expect(settings.boll.enabled).toBe(false)
     expect(settings.bsSignal.enabled).toBe(false)
+    expect(settings.strategySignal.enabled).toBe(false)
     expect(countEnabledSubIndicators(settings)).toBe(3)
     expect(settings.volumeMa.enabled).toBe(true)
     expect(settings.macd.enabled).toBe(true)
@@ -119,5 +124,33 @@ describe('indicator-definitions', () => {
       buyColor: '#abcdef',
       sellColor: '#13c2c2'
     })
+  })
+
+  it('normalizes strategy and B/S signal exclusivity', () => {
+    const legacy = normalizeIndicatorSettings({
+      bsSignal: { enabled: false }
+    })
+    expect(legacy.bsSignal.enabled).toBe(false)
+    expect(legacy.strategySignal.enabled).toBe(false)
+
+    const partialStrategyOnly = normalizeIndicatorSettings({
+      strategySignal: { enabled: true }
+    })
+    expect(partialStrategyOnly.bsSignal.enabled).toBe(true)
+    expect(partialStrategyOnly.strategySignal.enabled).toBe(false)
+
+    const explicitStrategyOnly = normalizeIndicatorSettings({
+      bsSignal: { enabled: false },
+      strategySignal: { enabled: true }
+    })
+    expect(explicitStrategyOnly.bsSignal.enabled).toBe(false)
+    expect(explicitStrategyOnly.strategySignal.enabled).toBe(true)
+
+    const invalidDoubleEnabled = normalizeIndicatorSettings({
+      bsSignal: { enabled: true },
+      strategySignal: { enabled: true }
+    })
+    expect(invalidDoubleEnabled.bsSignal.enabled).toBe(true)
+    expect(invalidDoubleEnabled.strategySignal.enabled).toBe(false)
   })
 })

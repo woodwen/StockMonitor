@@ -13,6 +13,7 @@ import type {
   StockQuery,
   WatchlistItem
 } from '../src/renderer/features/stock-workspace/models/stock-types'
+import type { KlineCacheFile } from '../src/main/kline-cache'
 
 vi.mock('electron', () => ({
   app: {
@@ -245,7 +246,7 @@ describe('KlineCacheService', () => {
 
   it('cancels remaining rows after the current refresh finishes', async () => {
     const cacheRoot = await createTempRoot()
-    let resolveFetch: ((dataset: StockDataset) => void) | undefined
+    let resolveFetch: (() => void) | undefined
     const fetchDataset = vi.fn(
       (query: StockQuery) =>
         new Promise<StockDataset>((resolve) => {
@@ -264,7 +265,7 @@ describe('KlineCacheService', () => {
     )
     await waitForJobState(service, startedJob.id, 'running')
     service.cancelJob(startedJob.id)
-    resolveFetch?.(createDataset(createStockQuery(createRequest().query, 'sh600519')))
+    resolveFetch?.()
 
     const completedJob = await waitForJob(service, startedJob.id)
     expect(completedJob?.status).toBe('cancelled')
@@ -417,6 +418,120 @@ describe('KlineCacheService', () => {
 
     expect(service.getJob(job.id)).toBeNull()
   })
+
+  it('exports valid cache entries and skips corrupt files', async () => {
+    const cacheRoot = await createTempRoot()
+    const service = createTestService(cacheRoot)
+    const job = service.startRefresh(createRequest())
+    await waitForJob(service, job.id)
+    await writeFile(join(cacheRoot, 'eastmoney__sz000001__day__qfq.json'), '{broken', 'utf8')
+
+    const exported = await service.exportEntries()
+
+    expect(exported.entries.map((entry) => entry.seriesKey)).toEqual([
+      'eastmoney__sh600519__day__qfq'
+    ])
+    expect(exported.skippedEntries).toEqual([
+      {
+        fileName: 'eastmoney__sz000001__day__qfq.json',
+        reason: '缓存文件无法解析'
+      }
+    ])
+    expect(exported.totalBytes).toBeGreaterThan(0)
+  })
+
+  it('imports entries with merge strategy while preserving unrelated local series', async () => {
+    const cacheRoot = await createTempRoot()
+    const service = createTestService(cacheRoot)
+    const localWeekJob = service.startRefresh(
+      createRequest({
+        query: {
+          ...createRequest().query,
+          periods: ['week']
+        }
+      })
+    )
+    await waitForJob(service, localWeekJob.id)
+
+    const importedEntry = createCacheFile(createStockQuery(createRequest().query, 'sh600519'))
+    const result = await service.importEntries([importedEntry], 'merge')
+    const dayRows = await service.getStatus(createRequest())
+    const weekRows = await service.getStatus(
+      createRequest({
+        query: {
+          ...createRequest().query,
+          periods: ['week']
+        }
+      })
+    )
+
+    expect(result).toMatchObject({
+      importedCount: 1,
+      removedCount: 0,
+      skippedEntries: []
+    })
+    expect(dayRows[0]).toMatchObject({
+      status: 'complete',
+      recordCount: 2
+    })
+    expect(weekRows[0].status).toBe('complete')
+  })
+
+  it('imports entries with replace strategy and removes series not in the backup', async () => {
+    const cacheRoot = await createTempRoot()
+    const service = createTestService(cacheRoot)
+    const localWeekJob = service.startRefresh(
+      createRequest({
+        query: {
+          ...createRequest().query,
+          periods: ['week']
+        }
+      })
+    )
+    await waitForJob(service, localWeekJob.id)
+
+    const importedEntry = createCacheFile(createStockQuery(createRequest().query, 'sh600519'))
+    const result = await service.importEntries([importedEntry, { broken: true }, importedEntry], 'replace')
+    const dayRows = await service.getStatus(createRequest())
+    const weekRows = await service.getStatus(
+      createRequest({
+        query: {
+          ...createRequest().query,
+          periods: ['week']
+        }
+      })
+    )
+
+    expect(result.importedCount).toBe(1)
+    expect(result.removedSeriesKeys).toEqual(['eastmoney__sh600519__week__qfq'])
+    expect(result.skippedEntries.map((entry) => entry.reason)).toEqual([
+      '第 2 条 K 线缓存格式无效',
+      '第 3 条 K 线缓存与前序条目重复'
+    ])
+    expect(dayRows[0].status).toBe('complete')
+    expect(weekRows[0].status).toBe('empty')
+  })
+
+  it('rejects imports while a refresh job is active', async () => {
+    const cacheRoot = await createTempRoot()
+    let resolveFetch: (() => void) | undefined
+    const service = createTestService(cacheRoot, {
+      fetchDataset: vi.fn(
+        (query: StockQuery) =>
+          new Promise<StockDataset>((resolve) => {
+            resolveFetch = () => resolve(createDataset(query))
+          })
+      )
+    })
+    const job = service.startRefresh(createRequest())
+
+    await expect(
+      service.importEntries([createCacheFile(createStockQuery(createRequest().query, 'sh600519'))], 'merge')
+    ).rejects.toThrow('K 线缓存刷新仍在进行')
+
+    resolveFetch?.()
+    await waitForJob(service, job.id)
+  })
 })
 
 async function createTempRoot(): Promise<string> {
@@ -498,6 +613,30 @@ function createDataset(query: StockQuery): StockDataset {
     sourceId: query.sourceId,
     sourceName: sourceNameById[query.sourceId],
     sourceUrl: 'https://example.com/kline',
+    adjust: query.adjust
+  }
+}
+
+function createCacheFile(query: StockQuery): KlineCacheFile {
+  const dataset = createDataset(query)
+  return {
+    version: 1,
+    seriesKey: [query.sourceId, query.symbol, query.period, query.adjust].join('__'),
+    query: {
+      sourceId: query.sourceId,
+      symbol: query.symbol,
+      period: query.period,
+      adjust: query.adjust
+    },
+    meta: dataset.meta,
+    interval: dataset.interval,
+    columns: dataset.columns,
+    candles: dataset.candles.slice(0, 2),
+    coveredRanges: [{ startDate: query.startDate, endDate: query.endDate }],
+    lastRefreshedAt: 1,
+    sourceId: query.sourceId,
+    sourceName: dataset.sourceName,
+    sourceUrl: dataset.sourceUrl,
     adjust: query.adjust
   }
 }

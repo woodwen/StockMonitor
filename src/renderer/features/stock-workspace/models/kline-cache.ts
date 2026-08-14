@@ -14,14 +14,16 @@ import type {
 } from './stock-types'
 import { normalizeWatchlistSymbol } from './watchlist'
 
-export const DEFAULT_KLINE_CACHE_PERIODS: StockPeriod[] = ['day', 'week', 'month']
-export const DEFAULT_KLINE_CACHE_ADJUSTS: StockAdjust[] = ['qfq', 'none', 'hfq']
+export const KLINE_CACHE_PERIOD_OPTIONS: StockPeriod[] = ['day', 'week', 'month']
+export const KLINE_CACHE_ADJUST_OPTIONS: StockAdjust[] = ['qfq', 'none', 'hfq']
+export const DEFAULT_KLINE_CACHE_REQUEST_PERIODS: StockPeriod[] = ['day']
+export const DEFAULT_KLINE_CACHE_REQUEST_ADJUSTS: StockAdjust[] = ['qfq']
 
 export function createKlineCacheRequestQuery(query: StockQuery): KlineCacheRequestQuery {
   return {
     sourceId: query.sourceId,
-    periods: [...DEFAULT_KLINE_CACHE_PERIODS],
-    adjusts: [...DEFAULT_KLINE_CACHE_ADJUSTS],
+    periods: [...DEFAULT_KLINE_CACHE_REQUEST_PERIODS],
+    adjusts: [...DEFAULT_KLINE_CACHE_REQUEST_ADJUSTS],
     startDate: query.startDate,
     endDate: query.endDate
   }

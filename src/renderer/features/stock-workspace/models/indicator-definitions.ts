@@ -124,6 +124,14 @@ export const indicatorDefinitions: IndicatorDefinition[] = [
     uniqueParams: true
   },
   {
+    name: 'strategySignal',
+    label: '策略',
+    pane: 'overlay',
+    defaultEnabled: false,
+    defaultParams: [],
+    params: []
+  },
+  {
     name: 'volumeMa',
     label: 'VOL',
     pane: 'sub',
@@ -291,6 +299,7 @@ export function normalizeIndicatorSettings(
   ) as IndicatorSettingsMap
 
   enforceSubIndicatorLimit(normalized)
+  enforceSignalIndicatorExclusivity(normalized)
   return normalized
 }
 
@@ -534,4 +543,12 @@ function enforceSubIndicatorLimit(settings: IndicatorSettingsMap): void {
       settings[name].enabled = false
     }
   })
+}
+
+function enforceSignalIndicatorExclusivity(
+  settings: IndicatorSettingsMap
+): void {
+  if (settings.bsSignal?.enabled && settings.strategySignal?.enabled) {
+    settings.strategySignal.enabled = false
+  }
 }

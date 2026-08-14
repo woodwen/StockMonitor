@@ -517,6 +517,15 @@ body {
   margin: 0;
 }
 
+.watchlist-search {
+  padding: 8px 10px;
+  border-bottom: 1px solid #263241;
+}
+
+.watchlist-search-input {
+  width: 100%;
+}
+
 .watchlist-manage-bar {
   padding: 8px 10px;
   border-bottom: 1px solid #263241;
@@ -613,6 +622,10 @@ body {
   width: 150px;
 }
 
+.kline-cache-target-mode {
+  flex: 0 0 auto;
+}
+
 .kline-cache-check-group {
   display: flex;
   align-items: center;
@@ -674,6 +687,17 @@ body {
   font-size: 12px;
 }
 
+.local-cache-portability-shell,
+.local-cache-summary {
+  width: 100%;
+}
+
+.local-cache-portability-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
 .strategy-drawer .ant-drawer-body {
   padding-top: 14px;
 }
@@ -721,6 +745,10 @@ body {
   gap: 2px;
 }
 
+.strategy-template-tags {
+  min-width: 0;
+}
+
 .strategy-result-name span {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -741,6 +769,15 @@ body {
 
 .strategy-date-input {
   width: 104px;
+}
+
+.strategy-date-range {
+  min-width: 156px;
+  font-variant-numeric: tabular-nums;
+}
+
+.strategy-date-source {
+  white-space: nowrap;
 }
 
 .strategy-error {
@@ -797,6 +834,10 @@ body {
 }
 
 @media (max-width: 760px) {
+  .kline-cache-target-mode {
+    width: 100%;
+  }
+
   .kline-cache-source-select,
   .kline-cache-date-input {
     width: calc(50% - 4px);

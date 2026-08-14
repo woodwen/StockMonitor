@@ -9,6 +9,7 @@ import {
   Modal,
   Popconfirm,
   Progress,
+  Segmented,
   Select,
   Space,
   Table,
@@ -29,9 +30,13 @@ import type {
   KlineCacheStatus,
   KlineCacheStatusRow,
   StockAdjust,
+  StockDataSourceMeta,
   StockPeriod
 } from '../models/stock-types'
-import type { StockWorkspaceViewModel } from '../view-models/StockWorkspaceViewModel'
+import type {
+  KlineCacheTargetMode,
+  StockWorkspaceViewModel
+} from '../view-models/StockWorkspaceViewModel'
 
 interface KlineCacheManagementModalProps {
   stock: StockWorkspaceViewModel
@@ -45,66 +50,17 @@ const statusMeta: Record<KlineCacheStatus, { color: string; label: string }> = {
   error: { color: 'error', label: '错误' }
 }
 
+export const KLINE_CACHE_SOURCE_COLUMN_WIDTH = 96
+export const KLINE_CACHE_TARGET_MODE_OPTIONS: Array<{
+  label: string
+  value: KlineCacheTargetMode
+}> = [
+  { label: '单只股票缓存', value: 'single' },
+  { label: '多只股票缓存', value: 'multiple' }
+]
+
 export const KlineCacheManagementModal = observer(({ stock }: KlineCacheManagementModalProps) => {
-  const columns: TableProps<KlineCacheStatusRow>['columns'] = [
-    {
-      title: '名称',
-      dataIndex: 'name',
-      width: 130,
-      render: (_, row) => (
-        <div className="kline-cache-symbol-cell">
-          <span className="kline-cache-name">{row.name || row.symbol}</span>
-          <span className="kline-cache-symbol">{row.symbol}</span>
-        </div>
-      )
-    },
-    {
-      title: '周期',
-      width: 76,
-      render: (_, row) => periodLabel(row.query.period)
-    },
-    {
-      title: '复权',
-      width: 86,
-      render: (_, row) => adjustLabel(row.query.adjust)
-    },
-    {
-      title: '状态',
-      dataIndex: 'status',
-      width: 86,
-      render: (status: KlineCacheStatus) => {
-        const meta = statusMeta[status]
-        return <Tag color={meta.color}>{meta.label}</Tag>
-      }
-    },
-    {
-      title: '记录',
-      dataIndex: 'recordCount',
-      width: 76,
-      align: 'right'
-    },
-    {
-      title: '缓存范围',
-      width: 170,
-      render: (_, row) => formatRanges(row.coveredRanges)
-    },
-    {
-      title: '缺失范围',
-      width: 220,
-      render: (_, row) => formatRanges(row.missingRanges)
-    },
-    {
-      title: '最近刷新',
-      dataIndex: 'lastRefreshedAt',
-      width: 150,
-      render: (value?: number) => (value ? new Date(value).toLocaleString('zh-CN') : '-')
-    },
-    {
-      title: '消息',
-      width: 220,
-      render: (_, row) => row.message || row.lastError?.message || '-'
-    }
-  ]
+  const columns = createKlineCacheColumns(stock.sources)
 
   const rowSelection: TableProps<KlineCacheStatusRow>['rowSelection'] = {
     selectedRowKeys: stock.klineCacheSelectedRowIds,
@@ -127,6 +83,12 @@ export const KlineCacheManagementModal = observer(({ stock }: KlineCacheManageme
     >
       <div className="kline-cache-shell">
         <div className="kline-cache-controls">
+          <Segmented
+            className="kline-cache-target-mode"
+            value={stock.klineCacheTargetMode}
+            options={KLINE_CACHE_TARGET_MODE_OPTIONS}
+            onChange={(value) => stock.setKlineCacheTargetMode(value as KlineCacheTargetMode)}
+          />
           <Select
             className="kline-cache-source-select"
             value={stock.klineCacheQuery.sourceId}
@@ -232,8 +194,8 @@ export const KlineCacheManagementModal = observer(({ stock }: KlineCacheManageme
           />
         ) : null}
 
-        {stock.watchlist.length === 0 ? (
-          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无自选股" />
+        {stock.klineCacheTargetItems.length === 0 ? (
+          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={stock.klineCacheEmptyDescription} />
         ) : (
           <Table
             size="small"
@@ -243,13 +205,82 @@ export const KlineCacheManagementModal = observer(({ stock }: KlineCacheManageme
             columns={columns}
             rowSelection={rowSelection}
             pagination={false}
-            scroll={{ x: 1120, y: 360 }}
+            scroll={{ x: 1320, y: 360 }}
           />
         )}
       </div>
     </Modal>
   )
 })
+
+export function createKlineCacheColumns(
+  sources: StockDataSourceMeta[]
+): TableProps<KlineCacheStatusRow>['columns'] {
+  return [
+    {
+      title: '名称',
+      dataIndex: 'name',
+      width: 130,
+      render: (_, row) => (
+        <div className="kline-cache-symbol-cell">
+          <span className="kline-cache-name">{row.name || row.symbol}</span>
+          <span className="kline-cache-symbol">{row.symbol}</span>
+        </div>
+      )
+    },
+    {
+      title: '数据源',
+      width: KLINE_CACHE_SOURCE_COLUMN_WIDTH,
+      render: (_, row) => formatKlineCacheSourceName(sources, row)
+    },
+    {
+      title: '周期',
+      width: 76,
+      render: (_, row) => periodLabel(row.query.period)
+    },
+    {
+      title: '复权',
+      width: 86,
+      render: (_, row) => adjustLabel(row.query.adjust)
+    },
+    {
+      title: '状态',
+      dataIndex: 'status',
+      width: 86,
+      render: (status: KlineCacheStatus) => {
+        const meta = statusMeta[status]
+        return <Tag color={meta.color}>{meta.label}</Tag>
+      }
+    },
+    {
+      title: '记录',
+      dataIndex: 'recordCount',
+      width: 76,
+      align: 'right'
+    },
+    {
+      title: '缓存范围',
+      width: 170,
+      render: (_, row) => formatRanges(row.coveredRanges)
+    },
+    {
+      title: '缺失范围',
+      width: 220,
+      render: (_, row) => formatRanges(row.missingRanges)
+    },
+    {
+      title: '最近刷新',
+      dataIndex: 'lastRefreshedAt',
+      width: 150,
+      render: (value?: number) => (value ? new Date(value).toLocaleString('zh-CN') : '-')
+    },
+    {
+      title: '消息',
+      width: 220,
+      render: (_, row) => row.message || row.lastError?.message || '-'
+    }
+  ]
+}
 
 const JobProgress = ({ job, percent }: { job: KlineCacheJob; percent: number }) => {
   const currentRow = job.currentRowId
@@ -313,4 +344,11 @@ function adjustLabel(adjust: StockAdjust): string {
     hfq: '后复权'
   }
   return labels[adjust] ?? adjust
+}
+
+export function formatKlineCacheSourceName(
+  sources: StockDataSourceMeta[],
+  row: KlineCacheStatusRow
+): string {
+  return sources.find((source) => source.id === row.query.sourceId)?.name ?? row.query.sourceId
 }

@@ -1,5 +1,14 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { AppSettings, NetworkProxySettings, WorkspaceSettings } from '../src/preload/stock-api'
+import type {
+  AppSettings,
+  LocalCacheBackupExportResult,
+  LocalCacheBackupImportRequest,
+  LocalCacheBackupImportResult,
+  LocalCacheBackupInspectResult,
+  LocalCacheBackupSummary,
+  NetworkProxySettings,
+  WorkspaceSettings
+} from '../src/preload/stock-api'
 import type { StockDataAdapter } from '../src/renderer/features/stock-workspace/adapters/ElectronStockDataAdapter'
 import { createDefaultIndicatorSettings } from '../src/renderer/features/stock-workspace/models/indicator-definitions'
 import { createDefaultTimeshareIndicatorSettings } from '../src/renderer/features/stock-workspace/models/timeshare-indicator-definitions'
@@ -35,8 +44,14 @@ class FakeDataAdapter implements StockDataAdapter {
   nextKlineCacheRefreshError: Error | null = null
   nextStockDataset: StockDataset | null = null
   nextCachedKlineDatasetResult: KlineCachedDatasetResult | null = null
+  nextLocalCacheExportResult: LocalCacheBackupExportResult | null = null
+  nextLocalCacheInspectResult: LocalCacheBackupInspectResult | null = null
+  nextLocalCacheImportResult: LocalCacheBackupImportResult | null = null
   cachedKlineDatasetResults: KlineCachedDatasetResult[] = []
   cachedKlineQueries: StockQuery[] = []
+  localCacheExportCount = 0
+  localCacheInspectCount = 0
+  localCacheImportRequests: LocalCacheBackupImportRequest[] = []
 
   constructor(private readonly failingSourceIds: string[] = [], settings?: AppSettings) {
     if (settings) {
@@ -189,6 +204,45 @@ class FakeDataAdapter implements StockDataAdapter {
     return createKlineCacheRows(request)
   }
 
+  async exportLocalCacheBackup(): Promise<LocalCacheBackupExportResult> {
+    this.localCacheExportCount += 1
+    return this.nextLocalCacheExportResult ?? {
+      status: 'success',
+      filePath: '/tmp/stock-monitor.stock-monitor-backup.json',
+      summary: createLocalCacheBackupSummary()
+    }
+  }
+
+  async inspectLocalCacheBackup(): Promise<LocalCacheBackupInspectResult> {
+    this.localCacheInspectCount += 1
+    return this.nextLocalCacheInspectResult ?? {
+      status: 'ready',
+      importToken: 'token-1',
+      filePath: '/tmp/stock-monitor.stock-monitor-backup.json',
+      summary: createLocalCacheBackupSummary()
+    }
+  }
+
+  async importLocalCacheBackup(
+    request: LocalCacheBackupImportRequest
+  ): Promise<LocalCacheBackupImportResult> {
+    this.localCacheImportRequests.push(request)
+    const result = this.nextLocalCacheImportResult ?? {
+      status: 'success' as const,
+      settings: this.settings,
+      summary: {
+        ...createLocalCacheBackupSummary(),
+        strategy: request.strategy,
+        importedKlineCacheEntryCount: 1,
+        removedKlineCacheEntryCount: request.strategy === 'replace' ? 1 : 0
+      }
+    }
+    if (result.status === 'success' && result.settings) {
+      this.settings = result.settings
+    }
+    return result
+  }
+
   async getSettings(): Promise<AppSettings> {
     return this.settings
   }
@@ -225,6 +279,27 @@ class StructuredCloneCacheAdapter extends FakeDataAdapter {
   override async clearKlineCache(request: KlineCacheClearRequest): Promise<KlineCacheStatusRow[]> {
     structuredClone(request)
     return super.clearKlineCache(request)
+  }
+}
+
+class DeferredKlineCacheStatusAdapter extends FakeDataAdapter {
+  private readonly pendingKlineCacheStatusResponses: Array<() => void> = []
+
+  override async getKlineCacheStatus(request: KlineCacheStatusRequest): Promise<KlineCacheStatusRow[]> {
+    this.klineCacheStatusRequests.push(request)
+    return new Promise((resolve) => {
+      this.pendingKlineCacheStatusResponses.push(() => {
+        resolve(this.nextKlineCacheRows ?? createKlineCacheRows(request))
+      })
+    })
+  }
+
+  resolveNextKlineCacheStatus(): void {
+    const resolve = this.pendingKlineCacheStatusResponses.shift()
+    if (!resolve) {
+      throw new Error('没有待处理的 K 线缓存状态请求')
+    }
+    resolve()
   }
 }
 
@@ -354,6 +429,7 @@ describe('StockWorkspaceViewModel', () => {
     expect(viewModel.chart.indicatorSettings.boll.enabled).toBe(false)
     expect(viewModel.chart.indicatorSettings.volumeMa.enabled).toBe(true)
     expect(viewModel.chart.indicatorSettings.bsSignal.enabled).toBe(false)
+    expect(viewModel.chart.indicatorSettings.strategySignal.enabled).toBe(false)
     expect(viewModel.chart.indicatorSettings.macd.enabled).toBe(false)
     expect(viewModel.timeshareSourceId).toBe('eastmoney')
   })
@@ -572,6 +648,87 @@ describe('StockWorkspaceViewModel', () => {
     expect(viewModel.query.adjust).toBe('none')
     expect(viewModel.timeshareSourceId).toBe('tencent')
     expect(viewModel.activeSourceName).toBe('腾讯/QQ 财经')
+  })
+
+  it('exports local cache without changing current market data state', async () => {
+    const adapter = new FakeDataAdapter()
+    const viewModel = new StockWorkspaceViewModel(adapter)
+
+    await viewModel.initialize()
+    const currentSymbol = viewModel.query.symbol
+    const currentRecordCount = viewModel.recordCount
+    const timeshareRequestCount = adapter.timeshareQueries.length
+
+    await viewModel.exportLocalCacheBackup()
+
+    expect(adapter.localCacheExportCount).toBe(1)
+    expect(viewModel.localCacheResultDialogOpen).toBe(true)
+    expect(viewModel.localCacheBackupResult?.status).toBe('success')
+    expect(viewModel.query.symbol).toBe(currentSymbol)
+    expect(viewModel.recordCount).toBe(currentRecordCount)
+    expect(adapter.timeshareQueries).toHaveLength(timeshareRequestCount)
+    expect(adapter.stockQueries).toHaveLength(0)
+  })
+
+  it('imports local cache, reloads local settings, refreshes open cache status, and avoids remote refresh', async () => {
+    const importedSettings: AppSettings = {
+      ...createDefaultSettings(),
+      networkProxy: {
+        enabled: true,
+        protocol: 'http',
+        host: '127.0.0.2',
+        port: 8080
+      },
+      workspace: {
+        ...createDefaultSettings().workspace,
+        viewMode: 'timeshare',
+        query: {
+          ...createDefaultSettings().workspace.query,
+          symbol: 'sz000001'
+        },
+        watchlist: [{ symbol: 'sz000001', name: '平安银行', createdAt: 2 }]
+      }
+    }
+    const adapter = new FakeDataAdapter()
+    adapter.nextLocalCacheImportResult = {
+      status: 'success',
+      settings: importedSettings,
+      summary: {
+        ...createLocalCacheBackupSummary(),
+        strategy: 'replace',
+        importedKlineCacheEntryCount: 1,
+        removedKlineCacheEntryCount: 1
+      }
+    }
+    const onImported = vi.fn()
+    const viewModel = new StockWorkspaceViewModel(adapter, {
+      onLocalCacheImported: onImported
+    })
+
+    await viewModel.initialize()
+    const remoteTimeshareRequestCount = adapter.timeshareQueries.length
+    viewModel.openKlineCacheDialog()
+    await waitForMicrotasks()
+    const cacheStatusRequestCount = adapter.klineCacheStatusRequests.length
+
+    await viewModel.inspectLocalCacheBackup()
+    viewModel.setLocalCacheImportStrategy('replace')
+    await viewModel.confirmLocalCacheImport()
+
+    expect(adapter.localCacheInspectCount).toBe(1)
+    expect(adapter.localCacheImportRequests).toEqual([
+      {
+        importToken: 'token-1',
+        strategy: 'replace'
+      }
+    ])
+    expect(viewModel.networkProxy).toEqual(importedSettings.networkProxy)
+    expect(viewModel.watchlist).toEqual([{ symbol: 'sz000001', name: '平安银行', createdAt: 2 }])
+    expect(viewModel.localCacheResultDialogOpen).toBe(true)
+    expect(onImported).toHaveBeenCalledTimes(1)
+    expect(adapter.klineCacheStatusRequests.length).toBe(cacheStatusRequestCount + 1)
+    expect(adapter.timeshareQueries).toHaveLength(remoteTimeshareRequestCount)
+    expect(adapter.stockQueries).toHaveLength(0)
   })
 
   it('uses the current view mode when marking the active source', async () => {
@@ -854,6 +1011,125 @@ describe('StockWorkspaceViewModel', () => {
     })
   })
 
+  it('filters the watchlist by name, full symbol and bare code without reordering', async () => {
+    const viewModel = new StockWorkspaceViewModel(
+      new FakeDataAdapter([], {
+        ...createDefaultSettings(),
+        workspace: {
+          ...createDefaultSettings().workspace,
+          watchlist: [
+            { symbol: 'sh600519', name: '贵州茅台', createdAt: 1 },
+            { symbol: 'sz000001', name: '平安银行', createdAt: 2 },
+            { symbol: 'sz000002', name: '万科A', createdAt: 3 }
+          ]
+        }
+      })
+    )
+
+    await viewModel.initialize()
+
+    viewModel.setWatchlistSearchText('600519')
+    expect(viewModel.filteredWatchlist.map((item) => item.symbol)).toEqual(['sh600519'])
+
+    viewModel.setWatchlistSearchText('SZ000')
+    expect(viewModel.filteredWatchlist.map((item) => item.symbol)).toEqual(['sz000001', 'sz000002'])
+
+    viewModel.setWatchlistSearchText('平安')
+    expect(viewModel.filteredWatchlist.map((item) => item.symbol)).toEqual(['sz000001'])
+  })
+
+  it('keeps watchlist search local and clears it when closing the panel', async () => {
+    const adapter = new FakeDataAdapter([], {
+      ...createDefaultSettings(),
+      workspace: {
+        ...createDefaultSettings().workspace,
+        watchlist: [
+          { symbol: 'sh600519', name: '贵州茅台', createdAt: 1 },
+          { symbol: 'sz000001', name: '平安银行', createdAt: 2 }
+        ]
+      }
+    })
+    const viewModel = new StockWorkspaceViewModel(adapter)
+
+    await viewModel.initialize()
+    const stockRequestCount = adapter.stockQueries.length
+    const timeshareRequestCount = adapter.timeshareQueries.length
+    const savedSettingsCount = adapter.savedWorkspaceSettings.length
+
+    viewModel.toggleWatchlistOpen()
+    viewModel.setWatchlistSearchText('不存在')
+
+    expect(viewModel.filteredWatchlist).toEqual([])
+    expect(adapter.stockQueries).toHaveLength(stockRequestCount)
+    expect(adapter.timeshareQueries).toHaveLength(timeshareRequestCount)
+    expect(adapter.savedWorkspaceSettings).toHaveLength(savedSettingsCount)
+
+    viewModel.toggleWatchlistOpen()
+    viewModel.toggleWatchlistOpen()
+
+    expect(viewModel.watchlistSearchText).toBe('')
+    expect(viewModel.filteredWatchlist.map((item) => item.symbol)).toEqual(['sh600519', 'sz000001'])
+  })
+
+  it('selects a filtered watchlist item without changing source selections', async () => {
+    const adapter = new FakeDataAdapter([], {
+      ...createDefaultSettings(),
+      workspace: {
+        ...createDefaultSettings().workspace,
+        viewMode: 'kline',
+        query: {
+          ...createDefaultSettings().workspace.query,
+          sourceId: 'sina'
+        },
+        watchlist: [
+          { symbol: 'sh600519', name: '贵州茅台', createdAt: 1 },
+          { symbol: 'sz000001', name: '平安银行', createdAt: 2 }
+        ]
+      }
+    })
+    const viewModel = new StockWorkspaceViewModel(adapter)
+
+    await viewModel.initialize()
+    viewModel.setWatchlistSearchText('平安')
+    await viewModel.selectWatchlistItem(viewModel.filteredWatchlist[0].symbol)
+
+    expect(viewModel.query.symbol).toBe('sz000001')
+    expect(viewModel.query.sourceId).toBe('sina')
+    expect(adapter.stockQueries.at(-1)).toMatchObject({
+      symbol: 'sz000001',
+      sourceId: 'sina'
+    })
+  })
+
+  it('applies watchlist select all and invert only to the filtered rows', async () => {
+    const viewModel = new StockWorkspaceViewModel(
+      new FakeDataAdapter([], {
+        ...createDefaultSettings(),
+        workspace: {
+          ...createDefaultSettings().workspace,
+          watchlist: [
+            { symbol: 'sh000001', name: '上证指数', createdAt: 1 },
+            { symbol: 'sh600519', name: '贵州茅台', createdAt: 2 },
+            { symbol: 'sz000001', name: '平安银行', createdAt: 3 }
+          ]
+        }
+      })
+    )
+
+    await viewModel.initialize()
+    viewModel.toggleWatchlistOpen()
+    viewModel.toggleWatchlistManageMode()
+    viewModel.setWatchlistSearchText('600')
+    viewModel.toggleWatchlistSelection('sz000001', true)
+    viewModel.selectAllWatchlistItems()
+
+    expect(viewModel.selectedWatchlistSymbols).toEqual(['sh600519', 'sz000001'])
+
+    viewModel.invertWatchlistSelection()
+
+    expect(viewModel.selectedWatchlistSymbols).toEqual(['sz000001'])
+  })
+
   it('clears watchlist selection when closing the panel', async () => {
     const viewModel = new StockWorkspaceViewModel(
       new FakeDataAdapter([], {
@@ -872,11 +1148,13 @@ describe('StockWorkspaceViewModel', () => {
     viewModel.toggleWatchlistOpen()
     viewModel.toggleWatchlistManageMode()
     viewModel.selectAllWatchlistItems()
+    viewModel.setWatchlistSearchText('600')
     viewModel.toggleWatchlistOpen()
 
     expect(viewModel.watchlistOpen).toBe(false)
     expect(viewModel.watchlistManageMode).toBe(false)
     expect(viewModel.selectedWatchlistSymbols).toEqual([])
+    expect(viewModel.watchlistSearchText).toBe('')
   })
 
   it('opens kline cache dialog with current source/date and default period/adjust selections without switching timeshare mode', async () => {
@@ -904,6 +1182,7 @@ describe('StockWorkspaceViewModel', () => {
     await Promise.resolve()
 
     expect(viewModel.klineCacheDialogOpen).toBe(true)
+    expect(viewModel.klineCacheTargetMode).toBe('single')
     expect(viewModel.viewMode).toBe('timeshare')
     expect(adapter.timeshareQueries).toHaveLength(timeshareRequestCount)
     expect(adapter.stockQueries).toHaveLength(0)
@@ -911,13 +1190,176 @@ describe('StockWorkspaceViewModel', () => {
     expect(adapter.klineCacheStatusRequests[0]).toMatchObject({
       query: {
         sourceId: 'eastmoney',
-        periods: ['day', 'week', 'month'],
-        adjusts: ['qfq', 'none', 'hfq'],
+        periods: ['day'],
+        adjusts: ['qfq'],
         startDate: '20250101',
         endDate: '20251231'
       },
       items: [{ symbol: 'sh600519' }]
     })
+  })
+
+  it('caches the current stock in single mode even when it is not watched', async () => {
+    const adapter = new FakeDataAdapter([], {
+      ...createKlineSettings(),
+      workspace: {
+        ...createKlineSettings().workspace,
+        query: {
+          ...createKlineSettings().workspace.query,
+          symbol: 'sz000001'
+        },
+        watchlist: []
+      }
+    })
+    const viewModel = new StockWorkspaceViewModel(adapter)
+
+    await viewModel.initialize()
+    viewModel.openKlineCacheDialog()
+    await Promise.resolve()
+    await viewModel.refreshAllKlineCache()
+
+    expect(viewModel.klineCacheTargetMode).toBe('single')
+    expect(viewModel.klineCacheTargetItems.map((item) => item.symbol)).toEqual(['sz000001'])
+    expect(viewModel.canRefreshKlineCache).toBe(true)
+    expect(adapter.klineCacheStatusRequests.at(-1)?.items).toEqual([
+      expect.objectContaining({ symbol: 'sz000001', name: '平安银行' })
+    ])
+    expect(adapter.klineCacheRefreshRequests.at(-1)?.items).toEqual([
+      expect.objectContaining({ symbol: 'sz000001', name: '平安银行' })
+    ])
+    expect(viewModel.klineCacheJob?.total).toBe(1)
+  })
+
+  it('does not remember multi-stock cache mode when reopening the cache dialog', async () => {
+    const adapter = new FakeDataAdapter([], {
+      ...createKlineSettings(),
+      workspace: {
+        ...createKlineSettings().workspace,
+        watchlist: [{ symbol: 'sh600519', name: '贵州茅台', createdAt: 1 }]
+      }
+    })
+    const viewModel = new StockWorkspaceViewModel(adapter)
+
+    await viewModel.initialize()
+    viewModel.openKlineCacheDialog()
+    await Promise.resolve()
+    viewModel.setKlineCacheTargetMode('multiple')
+    await Promise.resolve()
+    viewModel.closeKlineCacheDialog()
+    viewModel.openKlineCacheDialog()
+    await Promise.resolve()
+
+    expect(viewModel.klineCacheTargetMode).toBe('single')
+    expect(adapter.klineCacheStatusRequests.at(-1)?.items).toEqual([
+      expect.objectContaining({ symbol: 'sh000001' })
+    ])
+  })
+
+  it('uses the watchlist in multi-stock cache mode and preserves query selections when switching modes', async () => {
+    const adapter = new FakeDataAdapter([], {
+      ...createKlineSettings(),
+      workspace: {
+        ...createKlineSettings().workspace,
+        watchlist: [
+          { symbol: 'sh600519', name: '贵州茅台', createdAt: 1 },
+          { symbol: 'sz000001', name: '平安银行', createdAt: 2 }
+        ]
+      }
+    })
+    const viewModel = new StockWorkspaceViewModel(adapter)
+
+    await viewModel.initialize()
+    viewModel.openKlineCacheDialog()
+    await Promise.resolve()
+    viewModel.setKlineCachePeriods(['day', 'week'])
+    await Promise.resolve()
+    viewModel.setKlineCacheAdjusts(['qfq', 'none'])
+    await Promise.resolve()
+    viewModel.selectAllKlineCacheRows()
+
+    expect(viewModel.selectedKlineCacheCount).toBe(4)
+
+    viewModel.setKlineCacheTargetMode('multiple')
+    await Promise.resolve()
+
+    expect(viewModel.klineCacheQuery).toMatchObject({
+      periods: ['day', 'week'],
+      adjusts: ['qfq', 'none']
+    })
+    expect(viewModel.klineCacheSelectedRowIds).toEqual([])
+    expect(adapter.klineCacheStatusRequests.at(-1)?.items.map((item) => item.symbol)).toEqual([
+      'sh600519',
+      'sz000001'
+    ])
+
+    await viewModel.refreshAllKlineCache()
+
+    expect(adapter.klineCacheRefreshRequests.at(-1)?.items.map((item) => item.symbol)).toEqual([
+      'sh600519',
+      'sz000001'
+    ])
+    expect(viewModel.klineCacheJob?.total).toBe(8)
+
+    viewModel.setKlineCacheTargetMode('single')
+    await Promise.resolve()
+
+    expect(viewModel.klineCacheQuery).toMatchObject({
+      periods: ['day', 'week'],
+      adjusts: ['qfq', 'none']
+    })
+    expect(viewModel.klineCacheSelectedRowIds).toEqual([])
+    expect(adapter.klineCacheStatusRequests.at(-1)?.items).toEqual([
+      expect.objectContaining({ symbol: 'sh000001' })
+    ])
+  })
+
+  it('disables multi-stock cache refresh when the watchlist is empty', async () => {
+    const adapter = new FakeDataAdapter([], createKlineSettings())
+    const viewModel = new StockWorkspaceViewModel(adapter)
+
+    await viewModel.initialize()
+    viewModel.openKlineCacheDialog()
+    await Promise.resolve()
+    const statusRequestCount = adapter.klineCacheStatusRequests.length
+    viewModel.setKlineCacheTargetMode('multiple')
+    await Promise.resolve()
+    await viewModel.refreshAllKlineCache()
+
+    expect(viewModel.klineCacheTargetMode).toBe('multiple')
+    expect(viewModel.klineCacheTargetItems).toEqual([])
+    expect(viewModel.klineCacheRows).toEqual([])
+    expect(viewModel.klineCacheEmptyDescription).toBe('暂无自选股')
+    expect(viewModel.canRefreshKlineCache).toBe(false)
+    expect(adapter.klineCacheStatusRequests).toHaveLength(statusRequestCount)
+    expect(adapter.klineCacheRefreshRequests).toHaveLength(0)
+  })
+
+  it('ignores stale single-stock cache status after switching to empty multi-stock mode', async () => {
+    const adapter = new DeferredKlineCacheStatusAdapter([], createKlineSettings())
+    const viewModel = new StockWorkspaceViewModel(adapter)
+
+    await viewModel.initialize()
+    viewModel.openKlineCacheDialog()
+    await Promise.resolve()
+
+    expect(adapter.klineCacheStatusRequests).toHaveLength(1)
+    expect(viewModel.klineCacheLoading).toBe(true)
+
+    viewModel.setKlineCacheTargetMode('multiple')
+    await Promise.resolve()
+
+    expect(viewModel.klineCacheTargetItems).toEqual([])
+    expect(viewModel.klineCacheRows).toEqual([])
+    expect(viewModel.klineCacheLoading).toBe(false)
+
+    adapter.resolveNextKlineCacheStatus()
+    await Promise.resolve()
+
+    expect(viewModel.klineCacheTargetMode).toBe('multiple')
+    expect(viewModel.klineCacheTargetItems).toEqual([])
+    expect(viewModel.klineCacheRows).toEqual([])
+    expect(viewModel.klineCacheLoading).toBe(false)
+    expect(adapter.klineCacheStatusRequests).toHaveLength(1)
   })
 
   it('keeps supported cache query selections when switching cache data sources', async () => {
@@ -932,6 +1374,8 @@ describe('StockWorkspaceViewModel', () => {
 
     await viewModel.initialize()
     viewModel.openKlineCacheDialog()
+    viewModel.setKlineCachePeriods(['day', 'week', 'month'])
+    viewModel.setKlineCacheAdjusts(['qfq', 'none', 'hfq'])
     viewModel.setKlineCacheSourceId('sina')
     await Promise.resolve()
 
@@ -992,13 +1436,13 @@ describe('StockWorkspaceViewModel', () => {
 
     expect(adapter.klineCacheRefreshRequests).toHaveLength(1)
     expect(adapter.klineCacheRefreshRequests[0].query).toMatchObject({
-      periods: ['day', 'week', 'month'],
-      adjusts: ['qfq', 'none', 'hfq']
+      periods: ['day'],
+      adjusts: ['qfq']
     })
     expect(adapter.stockQueries).toHaveLength(stockRequestCount)
     expect(viewModel.chart.dataset).toBe(dataset)
     expect(viewModel.klineCacheJob?.status).toBe('completed')
-    expect(viewModel.klineCacheJob?.total).toBe(9)
+    expect(viewModel.klineCacheJob?.total).toBe(1)
   })
 
   it('blocks cache refresh when the date range is invalid', async () => {
@@ -1034,10 +1478,10 @@ describe('StockWorkspaceViewModel', () => {
     await viewModel.initialize()
     viewModel.openKlineCacheDialog()
     await Promise.resolve()
-    viewModel.setKlineCacheSelectedSymbols(['sh600519'])
+    viewModel.setKlineCacheSelectedSymbols(['sh000001'])
 
-    expect(viewModel.klineCacheRows).toHaveLength(9)
-    expect(viewModel.selectedKlineCacheCount).toBe(9)
+    expect(viewModel.klineCacheRows).toHaveLength(1)
+    expect(viewModel.selectedKlineCacheCount).toBe(1)
 
     viewModel.setKlineCacheStartDate('20250101')
     await viewModel.refreshSelectedKlineCache()
@@ -1094,18 +1538,18 @@ describe('StockWorkspaceViewModel', () => {
     viewModel.openKlineCacheDialog()
     await Promise.resolve()
     await viewModel.refreshAllKlineCache()
-    viewModel.setKlineCacheSelectedSymbols(['sh600519'])
+    viewModel.setKlineCacheSelectedSymbols(['sh000001'])
     await viewModel.clearSelectedKlineCache()
 
     expect(viewModel.klineCacheError).toBe('')
     expect(adapter.klineCacheStatusRequests).toHaveLength(2)
     expect(adapter.klineCacheRefreshRequests).toHaveLength(1)
     expect(adapter.klineCacheClearRequests).toHaveLength(1)
-    expect(adapter.klineCacheClearRequests[0].rows).toHaveLength(9)
+    expect(adapter.klineCacheClearRequests[0].rows).toHaveLength(1)
     expect(adapter.klineCacheClearRequests[0].rows?.[0]).toMatchObject({
-      id: 'eastmoney__sh600519__day__qfq',
+      id: 'eastmoney__sh000001__day__qfq',
       query: {
-        symbol: 'sh600519',
+        symbol: 'sh000001',
         period: 'day',
         adjust: 'qfq'
       }
@@ -1113,7 +1557,7 @@ describe('StockWorkspaceViewModel', () => {
   })
 
   it('restores strategy settings on startup', async () => {
-    const strategySettings: KlineStrategySettings = {
+    const strategySettings = {
       selectedTemplateIds: ['ma-cross'],
       paramsByTemplate: {
         'ma-cross': {
@@ -1130,7 +1574,7 @@ describe('StockWorkspaceViewModel', () => {
         startDate: '20240110',
         endDate: '20240210'
       }
-    }
+    } as unknown as KlineStrategySettings
     const viewModel = new StockWorkspaceViewModel(
       new FakeDataAdapter([], {
         ...createKlineSettings(),
@@ -1153,13 +1597,9 @@ describe('StockWorkspaceViewModel', () => {
       feeRate: 0.001,
       slippageRate: 0.002
     })
-    expect(viewModel.strategySettings.dateRange).toEqual({
-      startDate: '20240110',
-      endDate: '20240210'
-    })
+    expect((viewModel.strategySettings as unknown as { dateRange?: unknown }).dateRange).toBeUndefined()
     viewModel.openStrategyPanel()
-    expect(viewModel.strategyStartDateInput).toBe('20240110')
-    expect(viewModel.strategyEndDateInput).toBe('20240210')
+    expect(viewModel.strategyBacktestDateRangeLabel).toBe('20240101 - 20260101')
   })
 
   it('derives strategy template display rows in the view model', async () => {
@@ -1174,6 +1614,9 @@ describe('StockWorkspaceViewModel', () => {
     expect(viewModel.strategyTemplateDraftRows).toHaveLength(1)
     expect(viewModel.strategyTemplateDraftRows[0]).toMatchObject({
       id: 'ma-cross',
+      typeLabel: '趋势',
+      basicLogic: '短期均线与长期均线交叉',
+      recommendationLevel: 4,
       minSampleSize: 30,
       compatiblePeriodLabel: '日线/周线/月线',
       signalDescription: expect.stringContaining('买入信号'),
@@ -1210,16 +1653,15 @@ describe('StockWorkspaceViewModel', () => {
       templateId: 'ma-cross'
     })
     expect(viewModel.strategyResults[0].signals.length).toBeGreaterThan(0)
-    expect(adapter.savedWorkspaceSettings.at(-1)?.klineStrategySettings).toMatchObject({
+    expect(viewModel.chart.strategySignals).toEqual([])
+    const savedStrategySettings = adapter.savedWorkspaceSettings.at(-1)?.klineStrategySettings
+    expect(savedStrategySettings).toMatchObject({
       selectedTemplateIds: ['ma-cross'],
-      dateRange: {
-        startDate: '20240101',
-        endDate: '20260101'
-      },
       assumptions: {
         initialCapital: 50000
       }
     })
+    expect((savedStrategySettings as unknown as { dateRange?: unknown })?.dateRange).toBeUndefined()
   })
 
   it('keeps invalid template params scoped to the affected strategy result', async () => {
@@ -1249,24 +1691,23 @@ describe('StockWorkspaceViewModel', () => {
     })
   })
 
-  it('runs strategy backtest with a selected date range without changing the chart query', async () => {
+  it('runs strategy backtest with the current kline date range', async () => {
     const adapter = new FakeDataAdapter([], createKlineSettings())
-    adapter.nextStockDataset = createCrossingStockDataset()
-    adapter.nextCachedKlineDatasetResult = createCompleteCachedKlineDatasetResult({
+    const expectedQuery: StockQuery = {
       ...createKlineSettings().workspace.query,
-      startDate: '20240101',
       endDate: '20240214'
-    })
+    }
+    adapter.nextStockDataset = createCrossingStockDataset()
+    adapter.nextCachedKlineDatasetResult = createCompleteCachedKlineDatasetResult(expectedQuery)
     const viewModel = new StockWorkspaceViewModel(adapter)
 
     await viewModel.initialize()
-    const chartStartDate = viewModel.query.startDate
-    const chartEndDate = viewModel.query.endDate
+    viewModel.setEndDate('20240214')
     viewModel.openStrategyPanel()
+    expect(viewModel.strategyBacktestDateRangeLabel).toBe('20240101 - 20240214')
     viewModel.setStrategySelectedTemplateIds(['ma-cross'])
     viewModel.setStrategyDraftParam('ma-cross', 'shortPeriod', 3)
     viewModel.setStrategyDraftParam('ma-cross', 'longPeriod', 8)
-    viewModel.setStrategyEndDate('20240214')
     await viewModel.runStrategyBacktest()
 
     expect(adapter.cachedKlineQueries).toHaveLength(1)
@@ -1274,8 +1715,8 @@ describe('StockWorkspaceViewModel', () => {
       startDate: '20240101',
       endDate: '20240214'
     })
-    expect(viewModel.query.startDate).toBe(chartStartDate)
-    expect(viewModel.query.endDate).toBe(chartEndDate)
+    expect(viewModel.query.startDate).toBe('20240101')
+    expect(viewModel.query.endDate).toBe('20240214')
     expect(viewModel.strategyResults[0]).toMatchObject({
       status: 'success',
       query: {
@@ -1285,20 +1726,108 @@ describe('StockWorkspaceViewModel', () => {
       dataStartDate: '20240101',
       dataEndDate: '20240214'
     })
-    expect(adapter.savedWorkspaceSettings.at(-1)?.klineStrategySettings?.dateRange).toEqual({
-      startDate: '20240101',
-      endDate: '20240214'
+    const savedStrategySettings = adapter.savedWorkspaceSettings.at(-1)?.klineStrategySettings
+    expect((savedStrategySettings as unknown as { dateRange?: unknown })?.dateRange).toBeUndefined()
+  })
+
+  it('runs strategy backtest when a complete cache starts after a non-trading boundary', async () => {
+    const adapter = new FakeDataAdapter([], createKlineSettings())
+    const query: StockQuery = {
+      ...createKlineSettings().workspace.query,
+      symbol: 'sh601138',
+      startDate: '20240810',
+      endDate: '20260810'
+    }
+    adapter.nextStockDataset = createCrossingStockDatasetWithDateRange('20240812', '20260810')
+    adapter.nextCachedKlineDatasetResult = createCompleteCachedKlineDatasetResult(
+      query,
+      createCrossingStockDatasetWithDateRange('20240812', '20260810')
+    )
+    const viewModel = new StockWorkspaceViewModel(adapter)
+
+    await viewModel.initialize()
+    viewModel.setSymbol('sh601138')
+    viewModel.setStartDate('20240810')
+    viewModel.setEndDate('20260810')
+    viewModel.openStrategyPanel()
+    viewModel.setStrategySelectedTemplateIds(['ma-cross'])
+    viewModel.setStrategyDraftParam('ma-cross', 'shortPeriod', 3)
+    viewModel.setStrategyDraftParam('ma-cross', 'longPeriod', 8)
+    await viewModel.runStrategyBacktest()
+
+    expect(adapter.cachedKlineQueries.at(-1)).toMatchObject({
+      symbol: 'sh601138',
+      startDate: '20240810',
+      endDate: '20260810'
+    })
+    expect(adapter.klineCacheRefreshRequests).toHaveLength(0)
+    expect(viewModel.strategyError).toBe('')
+    expect(viewModel.strategyResults[0]).toMatchObject({
+      status: 'success',
+      query: {
+        startDate: '20240810',
+        endDate: '20260810'
+      },
+      dataStartDate: '20240812',
+      dataEndDate: '20260810'
     })
   })
 
-  it('blocks strategy backtest when the selected date range is invalid', async () => {
+  it('rejects strategy backtests when a daily boundary gap exceeds the tolerance', async () => {
+    const adapter = new FakeDataAdapter([], createKlineSettings())
+    const query: StockQuery = {
+      ...createKlineSettings().workspace.query,
+      symbol: 'sh601138',
+      startDate: '20240801',
+      endDate: '20240820'
+    }
+    const dataset = createCrossingStockDatasetWithDateRange('20240812', '20240820')
+    adapter.cachedKlineDatasetResults = [
+      createCompleteCachedKlineDatasetResult(query, dataset),
+      createCompleteCachedKlineDatasetResult(query, dataset)
+    ]
+    const viewModel = new StockWorkspaceViewModel(adapter)
+
+    await viewModel.initialize()
+    viewModel.setSymbol('sh601138')
+    viewModel.setStartDate('20240801')
+    viewModel.setEndDate('20240820')
+    viewModel.openStrategyPanel()
+    viewModel.setStrategySelectedTemplateIds(['ma-cross'])
+    viewModel.setStrategyDraftParam('ma-cross', 'shortPeriod', 3)
+    viewModel.setStrategyDraftParam('ma-cross', 'longPeriod', 8)
+    await viewModel.runStrategyBacktest()
+
+    expect(adapter.klineCacheRefreshRequests).toHaveLength(1)
+    expect(viewModel.strategyResults).toEqual([])
+    expect(viewModel.strategyError).toBe(
+      '历史 K 线缓存未覆盖所选回测区间：20240801-20240811'
+    )
+  })
+
+  it('displays the current kline date range in strategy settings', async () => {
     const adapter = new FakeDataAdapter([], createKlineSettings())
     const viewModel = new StockWorkspaceViewModel(adapter)
 
     await viewModel.initialize()
+    viewModel.setStartDate('20240110')
+    viewModel.setEndDate('20240210')
     viewModel.openStrategyPanel()
-    viewModel.setStrategyStartDate('20240210')
-    viewModel.setStrategyEndDate('20240110')
+
+    expect(viewModel.strategyBacktestDateRangeLabel).toBe('20240110 - 20240210')
+    expect(viewModel.strategyFormErrors).not.toContain('回测开始日期不能晚于结束日期')
+    expect(adapter.cachedKlineQueries).toHaveLength(0)
+  })
+
+  it('blocks strategy backtest when the current kline date range is invalid', async () => {
+    const adapter = new FakeDataAdapter([], createKlineSettings())
+    const viewModel = new StockWorkspaceViewModel(adapter)
+
+    await viewModel.initialize()
+    viewModel.setStartDate('20240210')
+    viewModel.setEndDate('20240110')
+    viewModel.openStrategyPanel()
+    viewModel.setStrategySelectedTemplateIds(['ma-cross'])
     await viewModel.runStrategyBacktest()
 
     expect(viewModel.strategyFormErrors).toContain('回测开始日期不能晚于结束日期')
@@ -1372,12 +1901,12 @@ describe('StockWorkspaceViewModel', () => {
     const viewModel = new StockWorkspaceViewModel(adapter)
 
     await viewModel.initialize()
+    viewModel.setStartDate('20230101')
     const stockQueryCount = adapter.stockQueries.length
     viewModel.openStrategyPanel()
     viewModel.setStrategySelectedTemplateIds(['ma-cross'])
     viewModel.setStrategyDraftParam('ma-cross', 'shortPeriod', 3)
     viewModel.setStrategyDraftParam('ma-cross', 'longPeriod', 8)
-    viewModel.setStrategyStartDate('20230101')
     await viewModel.runStrategyBacktest()
 
     expect(adapter.cachedKlineQueries).toHaveLength(2)
@@ -1438,12 +1967,12 @@ describe('StockWorkspaceViewModel', () => {
     const viewModel = new StockWorkspaceViewModel(adapter)
 
     await viewModel.initialize()
+    viewModel.setStartDate('20160810')
+    viewModel.setEndDate('20260810')
     viewModel.openStrategyPanel()
     viewModel.setStrategySelectedTemplateIds(['ma-cross'])
     viewModel.setStrategyDraftParam('ma-cross', 'shortPeriod', 3)
     viewModel.setStrategyDraftParam('ma-cross', 'longPeriod', 8)
-    viewModel.setStrategyStartDate('20160810')
-    viewModel.setStrategyEndDate('20260810')
     await viewModel.runStrategyBacktest()
 
     expect(adapter.klineCacheRefreshRequests).toHaveLength(1)
@@ -1457,19 +1986,15 @@ describe('StockWorkspaceViewModel', () => {
   it('keeps previous strategy results when kline cache refresh fails', async () => {
     const adapter = new FakeDataAdapter([], createKlineSettings())
     adapter.nextStockDataset = createCrossingStockDataset()
-    adapter.nextCachedKlineDatasetResult = createCompleteCachedKlineDatasetResult({
-      ...createKlineSettings().workspace.query,
-      startDate: '20240101',
-      endDate: '20240214'
-    })
+    adapter.nextCachedKlineDatasetResult = createCompleteCachedKlineDatasetResult()
     const viewModel = new StockWorkspaceViewModel(adapter)
 
     await viewModel.initialize()
+    viewModel.toggleIndicator('strategySignal', true)
     viewModel.openStrategyPanel()
     viewModel.setStrategySelectedTemplateIds(['ma-cross'])
     viewModel.setStrategyDraftParam('ma-cross', 'shortPeriod', 3)
     viewModel.setStrategyDraftParam('ma-cross', 'longPeriod', 8)
-    viewModel.setStrategyEndDate('20240214')
     await viewModel.runStrategyBacktest()
     const previousResults = viewModel.strategyResults
     const stockQueryCount = adapter.stockQueries.length
@@ -1478,18 +2003,16 @@ describe('StockWorkspaceViewModel', () => {
     adapter.nextCachedKlineDatasetResult = {
       status: 'empty',
       query: createKlineSettings().workspace.query,
-      missingRanges: [{ startDate: '20230101', endDate: '20231231' }]
+      missingRanges: [{ startDate: '20240101', endDate: '20260101' }]
     }
     adapter.nextKlineCacheRefreshError = new Error('cache refresh failed')
-    viewModel.setStrategyStartDate('20230101')
-    viewModel.setStrategyEndDate('20260101')
     await viewModel.runStrategyBacktest()
 
     expect(adapter.klineCacheRefreshRequests).toHaveLength(1)
     expect(adapter.stockQueries).toHaveLength(stockQueryCount)
     expect(viewModel.klineCacheJob).toBeNull()
     expect(viewModel.klineCacheError).toBe('')
-    expect(viewModel.strategyError).toBe('cache refresh failed；缺失范围：20230101-20231231')
+    expect(viewModel.strategyError).toBe('cache refresh failed；缺失范围：20240101-20260101')
     expect(viewModel.strategyStatusMessage).toBe('')
     expect(viewModel.strategyResults).toBe(previousResults)
     expect(viewModel.chart.strategySignals.length).toBeGreaterThan(0)
@@ -1516,11 +2039,11 @@ describe('StockWorkspaceViewModel', () => {
     const viewModel = new StockWorkspaceViewModel(adapter)
 
     await viewModel.initialize()
+    viewModel.setStartDate('20230101')
     viewModel.openStrategyPanel()
     viewModel.setStrategySelectedTemplateIds(['ma-cross'])
     viewModel.setStrategyDraftParam('ma-cross', 'shortPeriod', 3)
     viewModel.setStrategyDraftParam('ma-cross', 'longPeriod', 8)
-    viewModel.setStrategyStartDate('20230101')
     const runPromise = viewModel.runStrategyBacktest()
     await Promise.resolve()
     await Promise.resolve()
@@ -1559,6 +2082,7 @@ describe('StockWorkspaceViewModel', () => {
     const viewModel = new StockWorkspaceViewModel(adapter)
 
     await viewModel.initialize()
+    viewModel.toggleIndicator('strategySignal', true)
     viewModel.openStrategyPanel()
     viewModel.setStrategySelectedTemplateIds(['ma-cross'])
     viewModel.setStrategyDraftParam('ma-cross', 'shortPeriod', 3)
@@ -1582,6 +2106,7 @@ describe('StockWorkspaceViewModel', () => {
     const viewModel = new StockWorkspaceViewModel(adapter)
 
     await viewModel.initialize()
+    viewModel.toggleIndicator('strategySignal', true)
     viewModel.openStrategyPanel()
     viewModel.setStrategySelectedTemplateIds(['ma-cross'])
     viewModel.setStrategyDraftParam('ma-cross', 'shortPeriod', 3)
@@ -1639,6 +2164,53 @@ describe('StockWorkspaceViewModel', () => {
     viewModel.toggleIndicator('boll', false)
 
     expect(viewModel.chart.indicatorSettings.boll.enabled).toBe(false)
+  })
+
+  it('keeps kline B/S and strategy signal indicators mutually exclusive', async () => {
+    const adapter = new FakeDataAdapter([], createKlineSettings())
+    adapter.nextStockDataset = createCrossingStockDataset()
+    adapter.nextCachedKlineDatasetResult = createCompleteCachedKlineDatasetResult()
+    const viewModel = new StockWorkspaceViewModel(adapter)
+
+    await viewModel.initialize()
+
+    expect(viewModel.chart.indicatorSettings.bsSignal.enabled).toBe(true)
+    expect(viewModel.chart.indicatorSettings.strategySignal.enabled).toBe(false)
+
+    viewModel.openIndicatorDialog()
+    viewModel.setKLineIndicatorDraftEnabled('strategySignal', true)
+
+    expect(viewModel.chart.indicatorDraft.strategySignal.enabled).toBe(true)
+    expect(viewModel.chart.indicatorDraft.bsSignal.enabled).toBe(false)
+    expect(viewModel.chart.previewIndicatorSettings?.strategySignal.enabled).toBe(true)
+    expect(viewModel.chart.previewIndicatorSettings?.bsSignal.enabled).toBe(false)
+
+    viewModel.closeIndicatorDialog()
+
+    expect(viewModel.chart.indicatorSettings.bsSignal.enabled).toBe(true)
+    expect(viewModel.chart.indicatorSettings.strategySignal.enabled).toBe(false)
+    expect(viewModel.chart.previewIndicatorSettings).toBeNull()
+
+    viewModel.openIndicatorDialog()
+    viewModel.setKLineIndicatorDraftEnabled('strategySignal', true)
+    viewModel.applyIndicatorSettingsDraft()
+
+    expect(viewModel.chart.indicatorSettings.strategySignal.enabled).toBe(true)
+    expect(viewModel.chart.indicatorSettings.bsSignal.enabled).toBe(false)
+
+    viewModel.openStrategyPanel()
+    viewModel.setStrategySelectedTemplateIds(['ma-cross'])
+    viewModel.setStrategyDraftParam('ma-cross', 'shortPeriod', 3)
+    viewModel.setStrategyDraftParam('ma-cross', 'longPeriod', 8)
+    await viewModel.runStrategyBacktest()
+
+    expect(viewModel.chart.strategySignals.length).toBeGreaterThan(0)
+
+    viewModel.toggleIndicator('bsSignal', true)
+
+    expect(viewModel.chart.indicatorSettings.bsSignal.enabled).toBe(true)
+    expect(viewModel.chart.indicatorSettings.strategySignal.enabled).toBe(false)
+    expect(viewModel.chart.strategySignals).toEqual([])
   })
 
   it('applies indicator dialog drafts and saves indicator params', async () => {
@@ -1790,6 +2362,23 @@ function createKlineSettings(): AppSettings {
   }
 }
 
+function createLocalCacheBackupSummary(): LocalCacheBackupSummary {
+  return {
+    settingsSections: ['checkUpdatesOnStartup', 'networkProxy', 'workspace', 'tradeProfit'],
+    includesNetworkProxy: true,
+    klineCacheEntryCount: 1,
+    klineCacheBytes: 1024,
+    skippedCount: 0,
+    skippedItems: []
+  }
+}
+
+function waitForMicrotasks(): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, 0)
+  })
+}
+
 function createSampleStockDataset(): StockDataset {
   return {
     meta: {
@@ -1838,6 +2427,35 @@ function createCrossingStockDataset(): StockDataset {
         turnover: 2000 + index
       }
     })
+  }
+}
+
+function createCrossingStockDatasetWithDateRange(
+  firstDateKey: string,
+  lastDateKey: string
+): StockDataset {
+  const source = createCrossingStockDataset()
+  const firstTimestamp = timestampFromDateKey(firstDateKey)
+  const candles = source.candles.map((candle, index) => {
+    const date = new Date(firstTimestamp)
+    date.setDate(date.getDate() + index)
+    return {
+      ...candle,
+      timeKey: formatDateKey(date),
+      timestamp: date.getTime()
+    }
+  })
+  const last = candles.at(-1)
+  if (last && last.timeKey < lastDateKey) {
+    candles.push({
+      ...last,
+      timeKey: lastDateKey,
+      timestamp: timestampFromDateKey(lastDateKey)
+    })
+  }
+  return {
+    ...source,
+    candles
   }
 }
 

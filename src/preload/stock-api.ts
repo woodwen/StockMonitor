@@ -47,6 +47,62 @@ export interface WorkspaceSettings {
   enabledIndicators?: Partial<Record<IndicatorName, boolean>>
 }
 
+export type LocalCacheBackupImportStrategy = 'merge' | 'replace'
+
+export type LocalCacheBackupStatus = 'cancelled' | 'error' | 'ready' | 'success'
+
+export type LocalCacheBackupSection = 'settings' | 'klineCache'
+
+export type LocalCacheBackupSkippedSection = LocalCacheBackupSection | 'backup'
+
+export interface LocalCacheBackupSkippedItem {
+  section: LocalCacheBackupSkippedSection
+  itemId?: string
+  reason: string
+}
+
+export interface LocalCacheBackupSummary {
+  settingsSections: string[]
+  includesNetworkProxy: boolean
+  klineCacheEntryCount: number
+  klineCacheBytes: number
+  skippedCount: number
+  skippedItems: LocalCacheBackupSkippedItem[]
+}
+
+export interface LocalCacheBackupExportResult {
+  status: Extract<LocalCacheBackupStatus, 'cancelled' | 'error' | 'success'>
+  filePath?: string
+  summary?: LocalCacheBackupSummary
+  message?: string
+}
+
+export interface LocalCacheBackupInspectResult {
+  status: Extract<LocalCacheBackupStatus, 'cancelled' | 'error' | 'ready'>
+  importToken?: string
+  filePath?: string
+  summary?: LocalCacheBackupSummary
+  message?: string
+}
+
+export interface LocalCacheBackupImportRequest {
+  importToken: string
+  strategy: LocalCacheBackupImportStrategy
+}
+
+export interface LocalCacheBackupImportSummary extends LocalCacheBackupSummary {
+  strategy: LocalCacheBackupImportStrategy
+  importedKlineCacheEntryCount: number
+  removedKlineCacheEntryCount: number
+}
+
+export interface LocalCacheBackupImportResult {
+  status: Extract<LocalCacheBackupStatus, 'error' | 'success'>
+  settings?: AppSettings
+  summary?: LocalCacheBackupImportSummary
+  message?: string
+}
+
 export type MenuCommand =
   | 'refresh-stock'
   | 'check-update'
@@ -63,6 +119,9 @@ export interface StockApi {
   cancelKlineCacheJob(jobId: string): Promise<KlineCacheJob | null>
   getCachedKlineDataset(query: StockQuery): Promise<KlineCachedDatasetResult>
   clearKlineCache(request: KlineCacheClearRequest): Promise<KlineCacheStatusRow[]>
+  exportLocalCacheBackup(): Promise<LocalCacheBackupExportResult>
+  inspectLocalCacheBackup(): Promise<LocalCacheBackupInspectResult>
+  importLocalCacheBackup(request: LocalCacheBackupImportRequest): Promise<LocalCacheBackupImportResult>
   getSettings(): Promise<AppSettings>
   setCheckUpdatesOnStartup(enabled: boolean): Promise<AppSettings>
   setNetworkProxy(proxy: NetworkProxySettings): Promise<AppSettings>

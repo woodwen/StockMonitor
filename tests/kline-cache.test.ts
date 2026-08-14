@@ -30,7 +30,7 @@ describe('kline cache model', () => {
     })
   })
 
-  it('defaults cache requests to day/week/month and all adjust modes', () => {
+  it('defaults cache requests to day and forward-adjusted mode', () => {
     const request = createKlineCacheRequestQuery({
       sourceId: 'eastmoney',
       symbol: 'sh600519',
@@ -42,8 +42,8 @@ describe('kline cache model', () => {
 
     expect(request).toEqual({
       sourceId: 'eastmoney',
-      periods: ['day', 'week', 'month'],
-      adjusts: ['qfq', 'none', 'hfq'],
+      periods: ['day'],
+      adjusts: ['qfq'],
       startDate: '20260801',
       endDate: '20260810'
     })

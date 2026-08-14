@@ -83,6 +83,9 @@ function createFakeStockApi(): StockApi & {
       missingRanges: []
     })),
     clearKlineCache: vi.fn(async () => []),
+    exportLocalCacheBackup: vi.fn(async () => ({ status: 'cancelled' as const })),
+    inspectLocalCacheBackup: vi.fn(async () => ({ status: 'cancelled' as const })),
+    importLocalCacheBackup: vi.fn(async () => ({ status: 'error' as const })),
     getSettings: vi.fn(async () => settings),
     getStockDataSources: vi.fn(async () => createDataSources()),
     onMenuCommand: vi.fn((callback: (command: MenuCommand) => void) => {

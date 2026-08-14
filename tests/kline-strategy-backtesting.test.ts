@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   createDefaultKlineStrategySettings,
+  getKlineStrategyDatasetMissingRanges,
+  isKlineStrategyDatasetCoveringQuery,
   klineStrategyTemplates,
   normalizeKlineStrategyParams,
   normalizeKlineStrategySettings,
@@ -15,19 +17,61 @@ import type {
 } from '../src/renderer/features/stock-workspace/models/stock-types'
 
 describe('kline-strategy-backtesting', () => {
-  it('provides four daily/weekly/monthly strategy templates', () => {
+  it('provides existing templates plus eight new strategy templates with metadata', () => {
     expect(klineStrategyTemplates.map((template) => template.id)).toEqual([
       'ma-cross',
       'breakout-pullback',
       'rsi-reversion',
-      'macd-trend-confirmation'
+      'macd-trend-confirmation',
+      'ma-bullish-alignment',
+      'n-day-high-breakout',
+      'volume-breakout',
+      'bollinger-breakout',
+      'bollinger-mean-reversion',
+      'kdj-oversold-rebound',
+      'atr-trend-following',
+      'low-volume-ma-pullback'
     ])
     klineStrategyTemplates.forEach((template) => {
       expect(template.compatiblePeriods).toEqual(['day', 'week', 'month'])
       expect(template.parameters.length).toBeGreaterThan(0)
       expect(template.minSampleSize).toBeGreaterThan(0)
       expect(template.signalDescription.length).toBeGreaterThan(0)
+      expect(template.typeLabel.length).toBeGreaterThan(0)
+      expect(template.basicLogic.length).toBeGreaterThan(0)
+      expect(template.recommendationLevel).toBeGreaterThanOrEqual(1)
+      expect(template.recommendationLevel).toBeLessThanOrEqual(5)
     })
+    expect(
+      Object.fromEntries(
+        klineStrategyTemplates
+          .filter((template) =>
+            [
+              'ma-bullish-alignment',
+              'n-day-high-breakout',
+              'volume-breakout',
+              'bollinger-breakout',
+              'bollinger-mean-reversion',
+              'kdj-oversold-rebound',
+              'atr-trend-following',
+              'low-volume-ma-pullback'
+            ].includes(template.id)
+          )
+          .map((template) => [template.id, template.recommendationLevel])
+      )
+    ).toEqual({
+      'ma-bullish-alignment': 5,
+      'n-day-high-breakout': 5,
+      'volume-breakout': 5,
+      'bollinger-breakout': 4,
+      'bollinger-mean-reversion': 4,
+      'kdj-oversold-rebound': 3,
+      'atr-trend-following': 5,
+      'low-volume-ma-pullback': 5
+    })
+    expect(createDefaultKlineStrategySettings().selectedTemplateIds).toEqual(
+      klineStrategyTemplates.map((template) => template.id)
+    )
   })
 
   it('uses practical non-zero default backtest cost assumptions', () => {
@@ -74,26 +118,15 @@ describe('kline-strategy-backtesting', () => {
     })
   })
 
-  it('normalizes strategy date range preferences', () => {
-    expect(
-      normalizeKlineStrategySettings({
-        dateRange: {
-          startDate: '2024-01-10',
-          endDate: '2024/02/10'
-        }
-      }).dateRange
-    ).toEqual({
-      startDate: '20240110',
-      endDate: '20240210'
+  it('ignores legacy strategy date range preferences after normalization', () => {
+    const settings = normalizeKlineStrategySettings({
+      dateRange: {
+        startDate: '2024-01-10',
+        endDate: '2024/02/10'
+      }
     })
-    expect(
-      normalizeKlineStrategySettings({
-        dateRange: {
-          startDate: '20240210',
-          endDate: '20240110'
-        }
-      }).dateRange
-    ).toBeUndefined()
+
+    expect((settings as unknown as { dateRange?: unknown }).dateRange).toBeUndefined()
   })
 
   it('normalizes params and reports invalid parameter relations', () => {
@@ -107,6 +140,29 @@ describe('kline-strategy-backtesting', () => {
       longPeriod: 5
     })
     expect(result.errors).toContain('短期均线必须小于长期均线')
+  })
+
+  it('normalizes new template params and reports invalid parameter relations', () => {
+    expect(
+      normalizeKlineStrategyParams('ma-bullish-alignment', {
+        fastPeriod: 20,
+        shortPeriod: 10,
+        mediumPeriod: 5,
+        longPeriod: 60
+      }).errors
+    ).toContain('均线周期必须满足快速 < 短期 < 中期 < 长期')
+    expect(
+      normalizeKlineStrategyParams('kdj-oversold-rebound', {
+        oversold: 80,
+        overbought: 20
+      }).errors
+    ).toContain('超卖阈值必须小于高位阈值')
+    expect(
+      normalizeKlineStrategyParams('low-volume-ma-pullback', {
+        supportPeriod: 60,
+        trendPeriod: 20
+      }).errors
+    ).toContain('支撑均线周期必须小于趋势均线周期')
   })
 
   it('marks minute periods unavailable without running templates', () => {
@@ -198,6 +254,246 @@ describe('kline-strategy-backtesting', () => {
     expect(result.rank).toBe(1)
   })
 
+  it.each([
+    {
+      templateId: 'ma-bullish-alignment' as const,
+      candles: createMaBullishAlignmentCandles(),
+      params: { fastPeriod: 2, shortPeriod: 3, mediumPeriod: 4, longPeriod: 5 },
+      requiredBuyKeys: ['fastMa', 'shortMa', 'mediumMa', 'longMa'],
+      requiredSellKeys: ['fastMa', 'shortMa', 'mediumMa', 'longMa'],
+      expectedSignals: [
+        {
+          side: 'buy' as const,
+          timeKey: '20240123',
+          price: 33.4,
+          explanation: '均线多头排列首次成立（快速均线 33.80，短期均线 33.20，中期均线 33.00，长期均线 32.96）'
+        },
+        {
+          side: 'sell' as const,
+          timeKey: '20240227',
+          price: 72.2,
+          explanation: '均线多头排列失效（快速均线 71.90，短期均线 72.60，中期均线 72.65，长期均线 72.44）'
+        }
+      ]
+    },
+    {
+      templateId: 'n-day-high-breakout' as const,
+      candles: createBreakoutPullbackCandles(),
+      params: { lookbackPeriod: 5, exitPeriod: 3 },
+      requiredBuyKeys: ['previousHigh', 'close', 'exitMa'],
+      requiredSellKeys: ['breakoutLevel', 'exitMa', 'close'],
+      expectedSignals: [
+        {
+          side: 'buy' as const,
+          timeKey: '20240113',
+          price: 17,
+          explanation: '收盘价突破过去 5 根 K 线最高价（观察窗口高点 11.88，收盘价 18，退出参考 13.23）'
+        },
+        {
+          side: 'sell' as const,
+          timeKey: '20240130',
+          price: 29.6,
+          explanation: '收盘价跌破退出均线或突破价（突破参考位 11.88，退出参考 29.53，收盘价 28.60）'
+        }
+      ]
+    },
+    {
+      templateId: 'volume-breakout' as const,
+      candles: createVolumeBreakoutCandles(),
+      params: { resistancePeriod: 5, volumeMaPeriod: 3, volumeMultiplier: 2, exitPeriod: 3 },
+      requiredBuyKeys: ['resistance', 'volume', 'volumeMa', 'volumeMultiplier'],
+      requiredSellKeys: ['resistance', 'volume', 'volumeMa', 'volumeMultiplier'],
+      expectedSignals: [
+        {
+          side: 'buy' as const,
+          timeKey: '20240116',
+          price: 15,
+          explanation: '突破压力位且成交量明显放大（压力位 11.70，成交量 5000，成交量均线 1000，放量倍数 5）'
+        },
+        {
+          side: 'sell' as const,
+          timeKey: '20240203',
+          price: 23.3,
+          explanation: '收盘价跌破退出均线或突破位（压力位 11.70，突破参考位 11.70，退出参考 22.57，收盘价 22.30，成交量 1000，成交量均线 1000，放量倍数 1）'
+        }
+      ]
+    },
+    {
+      templateId: 'bollinger-breakout' as const,
+      candles: createBollingerBreakoutCandles(),
+      params: { period: 5, deviation: 1 },
+      requiredBuyKeys: ['upper', 'mid', 'close'],
+      requiredSellKeys: ['upper', 'mid', 'close'],
+      expectedSignals: [
+        {
+          side: 'buy' as const,
+          timeKey: '20240121',
+          price: 15,
+          explanation: '收盘价向上突破 Bollinger 上轨（上轨 13.60，中轨 11.20，收盘价 16）'
+        },
+        {
+          side: 'sell' as const,
+          timeKey: '20240123',
+          price: 16,
+          explanation: '收盘价跌回 Bollinger 中轨或上轨突破失效（上轨 16.61，中轨 13.60，收盘价 15）'
+        }
+      ]
+    },
+    {
+      templateId: 'bollinger-mean-reversion' as const,
+      candles: createBollingerMeanReversionCandles(),
+      params: { period: 5, deviation: 1 },
+      requiredBuyKeys: ['lower', 'mid', 'close'],
+      requiredSellKeys: ['lower', 'mid', 'close'],
+      expectedSignals: [
+        {
+          side: 'buy' as const,
+          timeKey: '20240122',
+          price: 8,
+          explanation: '跌破下轨后重新回到 Bollinger 通道（下轨 7.45，中轨 9，收盘价 9）'
+        },
+        {
+          side: 'sell' as const,
+          timeKey: '20240123',
+          price: 12,
+          explanation: '收盘价回到 Bollinger 中轨（下轨 7.48，中轨 9.20，收盘价 11）'
+        }
+      ]
+    },
+    {
+      templateId: 'kdj-oversold-rebound' as const,
+      candles: createKdjOversoldReboundCandles(),
+      params: { rsvPeriod: 3, kSmoothing: 2, dSmoothing: 2, oversold: 40, overbought: 70 },
+      requiredBuyKeys: ['k', 'd', 'oversold'],
+      requiredSellKeys: ['k', 'd', 'overbought'],
+      expectedSignals: [
+        {
+          side: 'buy' as const,
+          timeKey: '20240108',
+          price: 12,
+          explanation: 'K/D 低位金叉（K 33.85，D 27.08，超卖阈值 40）'
+        },
+        {
+          side: 'sell' as const,
+          timeKey: '20240113',
+          price: 25,
+          explanation: 'K/D 死叉或高位回落（K 67.53，D 72.12，高位阈值 70）'
+        },
+        {
+          side: 'buy' as const,
+          timeKey: '20240118',
+          price: 14.479425538604204,
+          explanation: 'K/D 低位金叉（K 39.73，D 32.47，超卖阈值 40）'
+        },
+        {
+          side: 'sell' as const,
+          timeKey: '20240122',
+          price: 16.598472144103958,
+          explanation: 'K/D 死叉或高位回落（K 47.29，D 49.20，高位阈值 70）'
+        }
+      ]
+    },
+    {
+      templateId: 'atr-trend-following' as const,
+      candles: createAtrTrendFollowingCandles(),
+      params: { trendPeriod: 5, atrPeriod: 3, atrMultiplier: 1 },
+      requiredBuyKeys: ['atr', 'stopReference', 'trendMa'],
+      requiredSellKeys: ['atr', 'stopReference', 'trendMa'],
+      expectedSignals: [
+        {
+          side: 'buy' as const,
+          timeKey: '20240121',
+          price: 10,
+          explanation: '趋势过滤成立且收盘价站上 ATR 动态止损参考（ATR 2，动态止损参考 9，趋势均线 10.20）'
+        },
+        {
+          side: 'sell' as const,
+          timeKey: '20240215',
+          price: 31.2,
+          explanation: '收盘价跌破 ATR 动态止损参考或趋势过滤失效（ATR 2.27，动态止损参考 30，趋势均线 30.92，收盘价 30.20）'
+        }
+      ]
+    },
+    {
+      templateId: 'low-volume-ma-pullback' as const,
+      candles: createLowVolumeMaPullbackCandles(),
+      params: {
+        trendPeriod: 5,
+        supportPeriod: 3,
+        volumeMaPeriod: 3,
+        volumeRatio: 0.8,
+        tolerancePercent: 8
+      },
+      requiredBuyKeys: ['trendMa', 'supportMa', 'volume', 'volumeMa'],
+      requiredSellKeys: ['trendMa', 'supportMa', 'volume', 'volumeMa'],
+      expectedSignals: [
+        {
+          side: 'buy' as const,
+          timeKey: '20240123',
+          price: 39,
+          explanation: '上涨趋势中缩量回踩均线后重新走强（趋势均线 37.84，支撑均线 38.63，成交量 1000，成交量均线 766.67）'
+        },
+        {
+          side: 'sell' as const,
+          timeKey: '20240211',
+          price: 48,
+          explanation: '收盘价跌破支撑均线或上涨趋势失效（趋势均线 48.00，支撑均线 48.17，收盘价 47，成交量 1000，成交量均线 1000）'
+        }
+      ]
+    }
+  ])(
+    'runs deterministic signals and trades for new template $templateId',
+    ({
+      templateId,
+      candles,
+      params,
+      requiredBuyKeys,
+      requiredSellKeys,
+      expectedSignals
+    }) => {
+      const query = {
+        ...defaultQuery,
+        endDate: '20241231'
+      }
+      const first = runKlineStrategyBacktests({
+        dataset: createDataset(candles),
+        query,
+        settings: settingsFor([templateId], {
+          [templateId]: params
+        })
+      })
+      const second = runKlineStrategyBacktests({
+        dataset: createDataset(candles),
+        query,
+        settings: settingsFor([templateId], {
+          [templateId]: params
+        })
+      })
+      const result = first.results[0]
+
+      expect(first).toEqual(second)
+      expect(result.status).toBe('success')
+      expect(result.signals).toHaveLength(expectedSignals.length)
+      expectedSignals.forEach((expected, index) => {
+        expect(result.signals[index]).toMatchObject({
+          side: expected.side,
+          timeKey: expected.timeKey,
+          explanation: expected.explanation
+        })
+        expect(result.signals[index].price).toBeCloseTo(expected.price, 6)
+      })
+      expect(
+        Object.keys(result.signals.find((signal) => signal.side === 'buy')?.indicatorValues ?? {})
+      ).toEqual(expect.arrayContaining(requiredBuyKeys))
+      expect(
+        Object.keys(result.signals.find((signal) => signal.side === 'sell')?.indicatorValues ?? {})
+      ).toEqual(expect.arrayContaining(requiredSellKeys))
+      expect(result.trades.some((trade) => trade.closed)).toBe(true)
+      expect(result.metrics?.tradeCount).toBeGreaterThan(0)
+      expect(result.rank).toBe(1)
+    }
+  )
+
   it('rejects empty, duplicated, descending or non-finite candle inputs', () => {
     const empty = runKlineStrategyBacktests({
       dataset: createDataset([]),
@@ -246,6 +542,40 @@ describe('kline-strategy-backtesting', () => {
     expect(result.query.endDate).toBe('20250101')
     expect(result.dataStartDate).toBe('20240101')
     expect(result.dataEndDate).toBe('20240214')
+  })
+
+  it('ignores daily boundary gaps within the non-trading offset tolerance', () => {
+    const weekendQuery: StockQuery = {
+      ...defaultQuery,
+      startDate: '20240810',
+      endDate: '20240820'
+    }
+    const holidayQuery: StockQuery = {
+      ...defaultQuery,
+      startDate: '20241001',
+      endDate: '20241011'
+    }
+    const outOfToleranceQuery: StockQuery = {
+      ...weekendQuery,
+      startDate: '20240801'
+    }
+    const weekendDataset = createDataset([
+      createDateCandle('20240812', 10),
+      createDateCandle('20240820', 12)
+    ])
+    const holidayDataset = createDataset([
+      createDateCandle('20241008', 10),
+      createDateCandle('20241011', 12)
+    ])
+
+    expect(isKlineStrategyDatasetCoveringQuery(weekendDataset, weekendQuery)).toBe(true)
+    expect(getKlineStrategyDatasetMissingRanges(weekendDataset, weekendQuery)).toEqual([])
+    expect(isKlineStrategyDatasetCoveringQuery(holidayDataset, holidayQuery)).toBe(true)
+    expect(getKlineStrategyDatasetMissingRanges(holidayDataset, holidayQuery)).toEqual([])
+    expect(isKlineStrategyDatasetCoveringQuery(weekendDataset, outOfToleranceQuery)).toBe(false)
+    expect(getKlineStrategyDatasetMissingRanges(weekendDataset, outOfToleranceQuery)).toEqual([
+      { startDate: '20240801', endDate: '20240811' }
+    ])
   })
 
   it('keeps win rate and profit loss ratio unavailable without closed trades', () => {
@@ -394,6 +724,105 @@ function createMacdTrendCandles(): StockCandle[] {
   return closes.map((close, index) => createCandle(index, close))
 }
 
+function createMaBullishAlignmentCandles(): StockCandle[] {
+  const closes = [
+    ...Array.from({ length: 20 }, (_, index) => 40 - index * 0.4),
+    ...Array.from({ length: 35 }, (_, index) => 32 + index * 1.2),
+    ...Array.from({ length: 35 }, (_, index) => 74 - index * 1.4)
+  ]
+  return closes.map((close, index) => createCandle(index, close))
+}
+
+function createVolumeBreakoutCandles(): StockCandle[] {
+  return Array.from({ length: 70 }, (_, index) => {
+    const close =
+      index < 15
+        ? 10 + index * 0.05
+        : index === 15
+          ? 16
+          : index < 32
+            ? 16 + (index - 15) * 0.4
+            : 23 - (index - 32) * 0.7
+    return {
+      ...createCandle(index, close),
+      volume: index === 15 ? 5000 : 1000
+    }
+  })
+}
+
+function createBollingerBreakoutCandles(): StockCandle[] {
+  const closes = [
+    ...Array.from({ length: 20 }, () => 10),
+    16,
+    17,
+    15,
+    12,
+    9,
+    ...Array.from({ length: 35 }, () => 9)
+  ]
+  return closes.map((close, index) => createCandle(index, close))
+}
+
+function createBollingerMeanReversionCandles(): StockCandle[] {
+  const closes = [
+    ...Array.from({ length: 20 }, () => 10),
+    6,
+    9,
+    11,
+    10,
+    9,
+    ...Array.from({ length: 35 }, () => 9)
+  ]
+  return closes.map((close, index) => createCandle(index, close))
+}
+
+function createKdjOversoldReboundCandles(): StockCandle[] {
+  const closes = [
+    24,
+    22,
+    20,
+    18,
+    16,
+    14,
+    12,
+    13,
+    15,
+    18,
+    22,
+    26,
+    24,
+    21,
+    18,
+    15,
+    ...Array.from({ length: 45 }, (_, index) => 15 + Math.sin(index / 2))
+  ]
+  return closes.map((close, index) => createCandle(index, close))
+}
+
+function createAtrTrendFollowingCandles(): StockCandle[] {
+  const closes = [
+    ...Array.from({ length: 20 }, () => 10),
+    ...Array.from({ length: 24 }, (_, index) => 11 + index * 0.9),
+    ...Array.from({ length: 20 }, (_, index) => 32 - index * 1.8)
+  ]
+  return closes.map((close, index) => createCandle(index, close))
+}
+
+function createLowVolumeMaPullbackCandles(): StockCandle[] {
+  const closes = [
+    ...Array.from({ length: 20 }, (_, index) => 20 + index * 0.9),
+    38.5,
+    37.4,
+    40,
+    ...Array.from({ length: 18 }, (_, index) => 40.5 + index * 0.5),
+    ...Array.from({ length: 35 }, (_, index) => 47 - index * 1.1)
+  ]
+  return closes.map((close, index) => ({
+    ...createCandle(index, close),
+    volume: index === 21 ? 300 : 1000
+  }))
+}
+
 function createCandle(index: number, close: number): StockCandle {
   const date = new Date(2024, 0, index + 1)
   return {
@@ -405,6 +834,23 @@ function createCandle(index: number, close: number): StockCandle {
     close,
     volume: 1000 + index,
     turnover: 2000 + index
+  }
+}
+
+function createDateCandle(timeKey: string, close: number): StockCandle {
+  return {
+    timeKey,
+    timestamp: new Date(
+      Number(timeKey.slice(0, 4)),
+      Number(timeKey.slice(4, 6)) - 1,
+      Number(timeKey.slice(6, 8))
+    ).getTime(),
+    open: close - 0.2,
+    high: close + 1,
+    low: close - 1,
+    close,
+    volume: 1000,
+    turnover: 2000
   }
 }
 

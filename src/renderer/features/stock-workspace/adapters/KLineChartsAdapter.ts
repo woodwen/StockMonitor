@@ -22,7 +22,7 @@ const SIGNAL_SELL_BORDER_COLOR = '#e6f4ff'
 
 let signalOverlayRegistered = false
 
-type ChartIndicatorName = Exclude<IndicatorName, 'bsSignal'>
+type ChartIndicatorName = Exclude<IndicatorName, 'bsSignal' | 'strategySignal'>
 
 interface ActiveIndicator {
   paneId: string
@@ -119,7 +119,12 @@ export class KLineChartsAdapter {
     )
     this.syncIndicators(indicatorSettings)
     this.syncSignalOverlays(dataset, indicatorSettings.bsSignal, datasetChanged)
-    this.syncStrategySignalOverlays(strategySignals, datasetChanged)
+    this.syncStrategySignalOverlays(
+      indicatorSettings.strategySignal.enabled && !indicatorSettings.bsSignal.enabled
+        ? strategySignals
+        : [],
+      datasetChanged
+    )
   }
 
   resize(): void {

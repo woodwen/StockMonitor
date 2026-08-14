@@ -13,6 +13,9 @@ const stockApi: StockApi = {
   cancelKlineCacheJob: (jobId) => ipcRenderer.invoke('stock:cancelKlineCacheJob', jobId),
   getCachedKlineDataset: (query) => ipcRenderer.invoke('stock:getCachedKlineDataset', query),
   clearKlineCache: (request) => ipcRenderer.invoke('stock:clearKlineCache', request),
+  exportLocalCacheBackup: () => ipcRenderer.invoke('localCache:exportBackup'),
+  inspectLocalCacheBackup: () => ipcRenderer.invoke('localCache:inspectBackup'),
+  importLocalCacheBackup: (request) => ipcRenderer.invoke('localCache:importBackup', request),
   getSettings: () => ipcRenderer.invoke('settings:get'),
   setCheckUpdatesOnStartup: (enabled) =>
     ipcRenderer.invoke('settings:setCheckUpdatesOnStartup', enabled),
