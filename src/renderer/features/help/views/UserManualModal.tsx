@@ -74,7 +74,8 @@ export function UserManualModal({ open, onClose }: UserManualModalProps): React.
               <li>在顶部输入框输入证券代码，例如 <Text code>sh000001</Text> 或 <Text code>sh600519</Text>。</li>
               <li>按 Enter 或点击“刷新”，加载当前视图对应的远端行情。</li>
               <li>使用“分时 / K线”切换视图；分时和 K 线会分别保存数据源选择。</li>
-              <li>K 线模式下可以使用“缓存”准备自选股历史 K 线，也可以使用“策略”查看候选策略历史回测。</li>
+              <li>K 线模式下可以使用“缓存”准备自选股历史 K 线，也可以使用顶部“策略”查看候选策略历史回测。</li>
+              <li>顶部“更多”菜单聚合数据源、代理、缓存导入导出和更新检查等低频操作。</li>
               <li>通过底部状态栏查看当前数据源、证券代码、记录数、加载状态和更新状态。</li>
             </ul>
           </section>
@@ -181,7 +182,7 @@ export function UserManualModal({ open, onClose }: UserManualModalProps): React.
           <section className="manual-section" id="manual-sources">
             <Title level={4}>数据源</Title>
             <ul>
-              <li>点击顶部工具栏“数据源”打开测试和切换弹窗。</li>
+              <li>点击顶部“更多”菜单中的“数据源”打开测试和切换弹窗。</li>
               <li>弹窗会展示各数据源请求状态、耗时、记录数和分时能力。</li>
               <li>K 线和分时数据源独立保存，切换一个视图的数据源不会覆盖另一个视图。</li>
               <li>免费网页接口不提供稳定 SLA，请以弹窗测试结果和状态栏提示为准。</li>
@@ -191,7 +192,7 @@ export function UserManualModal({ open, onClose }: UserManualModalProps): React.
           <section className="manual-section" id="manual-proxy">
             <Title level={4}>网络代理</Title>
             <ul>
-              <li>点击顶部工具栏“代理”打开网络代理配置。</li>
+              <li>点击顶部“更多”菜单中的“代理”打开网络代理配置。</li>
               <li>默认直连，不读取系统代理环境变量。</li>
               <li>需要代理时可手动启用 SOCKS5 或 HTTP，并配置地址和端口。</li>
               <li>代理设置同时影响行情请求和更新检查。</li>
@@ -202,9 +203,9 @@ export function UserManualModal({ open, onClose }: UserManualModalProps): React.
             <Title level={4}>应用更新</Title>
             <ul>
               <li>
-                可通过 <Text code>帮助 -&gt; 检查更新</Text> 或顶部工具栏“检查更新”手动检查新版本。
+                可通过 <Text code>帮助 -&gt; 检查更新</Text> 或顶部 <Text code>更多 -&gt; 检查更新</Text> 手动检查新版本。
               </li>
-              <li>“启动检查更新”开关控制应用启动后是否自动检查更新。</li>
+              <li>顶部 <Text code>更多 -&gt; 启动检查更新</Text> 控制应用启动后是否自动检查更新。</li>
               <li>有新版本时应用会提示下载；下载完成后可选择重启安装。</li>
               <li>macOS 未签名构建会打开 GitHub Release 下载页，需要手动下载 DMG 安装。</li>
               <li>开发环境不会真实安装更新，只展示状态流。</li>

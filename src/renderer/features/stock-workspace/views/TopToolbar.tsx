@@ -1,5 +1,6 @@
 import { observer } from 'mobx-react-lite'
-import { Badge, Button, Divider, Input, Segmented, Select, Space, Switch, Tooltip } from 'antd'
+import { Badge, Button, Dropdown, Input, Segmented, Select, Tooltip } from 'antd'
+import type { MenuProps } from 'antd'
 import {
   ApiOutlined,
   BarChartOutlined,
@@ -9,6 +10,7 @@ import {
   FundProjectionScreenOutlined,
   GlobalOutlined,
   LineChartOutlined,
+  MoreOutlined,
   ReloadOutlined,
   SearchOutlined,
   UploadOutlined,
@@ -26,10 +28,110 @@ interface TopToolbarProps {
   tradeProfit: TradeProfitCalculatorViewModel
 }
 
+interface TopToolbarMoreMenuOptions {
+  activeSourceName: string
+  networkProxyEnabled: boolean
+  localCacheExporting: boolean
+  localCacheImportInspecting: boolean
+  localCacheImporting: boolean
+  checkUpdatesOnStartup: boolean
+  isCheckingForUpdates: boolean
+  onOpenSourceTestDialog: () => void
+  onOpenProxyDialog: () => void
+  onExportLocalCacheBackup: () => void | Promise<void>
+  onInspectLocalCacheBackup: () => void | Promise<void>
+  onCheckForUpdates: () => void | Promise<void>
+  onSetCheckUpdatesOnStartup: (enabled: boolean) => void | Promise<void>
+}
+
+export function createTopToolbarMoreMenuItems(
+  options: TopToolbarMoreMenuOptions
+): NonNullable<MenuProps['items']> {
+  const importBusy = options.localCacheImportInspecting || options.localCacheImporting
+
+  return [
+    {
+      key: 'data-source',
+      icon: <ApiOutlined />,
+      label: `数据源：${options.activeSourceName}`,
+      onClick: options.onOpenSourceTestDialog
+    },
+    {
+      key: 'network-proxy',
+      icon: <GlobalOutlined />,
+      label: options.networkProxyEnabled ? '代理：已启用' : '代理：直连',
+      onClick: options.onOpenProxyDialog
+    },
+    {
+      key: 'cache-divider',
+      type: 'divider'
+    },
+    {
+      key: 'export-cache',
+      icon: <DownloadOutlined />,
+      label: options.localCacheExporting ? '正在导出缓存' : '导出缓存',
+      disabled: options.localCacheExporting,
+      onClick: () => {
+        void options.onExportLocalCacheBackup()
+      }
+    },
+    {
+      key: 'import-cache',
+      icon: <UploadOutlined />,
+      label: options.localCacheImportInspecting
+        ? '正在检查备份'
+        : options.localCacheImporting
+          ? '正在导入缓存'
+          : '导入缓存',
+      disabled: importBusy,
+      onClick: () => {
+        void options.onInspectLocalCacheBackup()
+      }
+    },
+    {
+      key: 'updates-divider',
+      type: 'divider'
+    },
+    {
+      key: 'check-updates',
+      icon: <CloudDownloadOutlined />,
+      label: options.isCheckingForUpdates ? '正在检查更新' : '检查更新',
+      disabled: options.isCheckingForUpdates,
+      onClick: () => {
+        void options.onCheckForUpdates()
+      }
+    },
+    {
+      key: 'check-updates-on-startup',
+      icon: <CloudDownloadOutlined />,
+      label: options.checkUpdatesOnStartup ? '启动检查更新：已开启' : '启动检查更新：已关闭',
+      onClick: () => {
+        void options.onSetCheckUpdatesOnStartup(!options.checkUpdatesOnStartup)
+      }
+    }
+  ]
+}
+
 export const TopToolbar = observer(({ stock, updates, tradeProfit }: TopToolbarProps) => {
+  const moreMenuItems = createTopToolbarMoreMenuItems({
+    activeSourceName: stock.activeSourceName,
+    networkProxyEnabled: stock.networkProxy.enabled,
+    localCacheExporting: stock.localCacheExporting,
+    localCacheImportInspecting: stock.localCacheImportInspecting,
+    localCacheImporting: stock.localCacheImporting,
+    checkUpdatesOnStartup: updates.settings.checkUpdatesOnStartup,
+    isCheckingForUpdates: updates.state.status === 'checking',
+    onOpenSourceTestDialog: stock.openSourceTestDialog,
+    onOpenProxyDialog: stock.openProxyDialog,
+    onExportLocalCacheBackup: stock.exportLocalCacheBackup,
+    onInspectLocalCacheBackup: stock.inspectLocalCacheBackup,
+    onCheckForUpdates: updates.checkForUpdates,
+    onSetCheckUpdatesOnStartup: updates.setCheckUpdatesOnStartup
+  })
+
   return (
     <div className="top-toolbar">
-      <Space size={8}>
+      <div className="toolbar-group toolbar-query-group">
         <Input
           className="toolbar-symbol-input"
           prefix={<SearchOutlined />}
@@ -43,8 +145,9 @@ export const TopToolbar = observer(({ stock, updates, tradeProfit }: TopToolbarP
               icon={stock.isCurrentSymbolWatched ? <StarFilled /> : <StarOutlined />}
               type={stock.watchlistOpen ? 'primary' : 'default'}
               onClick={stock.toggleWatchlistOpen}
+              aria-label="自选"
             >
-              自选
+              <span className="toolbar-button-text">自选</span>
             </Button>
           </Badge>
         </Tooltip>
@@ -57,122 +160,88 @@ export const TopToolbar = observer(({ stock, updates, tradeProfit }: TopToolbarP
           ]}
           onChange={stock.setViewMode}
         />
-        {stock.viewMode === 'kline' ? (
-          <>
-            <Select
-              className="toolbar-period-select"
-              value={stock.query.period}
-              options={stock.availablePeriodOptions}
-              onChange={(value: StockPeriod) => stock.setPeriod(value)}
-            />
-            <Select
-              className="toolbar-adjust-select"
-              value={stock.query.adjust}
-              options={stock.availableAdjustOptions}
-              onChange={(value: StockAdjust) => stock.setAdjust(value)}
-            />
-            <Input
-              className="toolbar-date-input"
-              value={stock.query.startDate}
-              maxLength={8}
-              onChange={(event) => stock.setStartDate(event.target.value)}
-              onPressEnter={() => stock.refreshStock()}
-            />
-            <Input
-              className="toolbar-date-input"
-              value={stock.query.endDate}
-              maxLength={8}
-              onChange={(event) => stock.setEndDate(event.target.value)}
-              onPressEnter={() => stock.refreshStock()}
-            />
-          </>
-        ) : null}
+      </div>
+
+      {stock.viewMode === 'kline' ? (
+        <div className="toolbar-group toolbar-kline-params">
+          <Select
+            className="toolbar-period-select"
+            value={stock.query.period}
+            options={stock.availablePeriodOptions}
+            onChange={(value: StockPeriod) => stock.setPeriod(value)}
+          />
+          <Select
+            className="toolbar-adjust-select"
+            value={stock.query.adjust}
+            options={stock.availableAdjustOptions}
+            onChange={(value: StockAdjust) => stock.setAdjust(value)}
+          />
+          <Input
+            className="toolbar-date-input"
+            value={stock.query.startDate}
+            maxLength={8}
+            onChange={(event) => stock.setStartDate(event.target.value)}
+            onPressEnter={() => stock.refreshStock()}
+          />
+          <Input
+            className="toolbar-date-input"
+            value={stock.query.endDate}
+            maxLength={8}
+            onChange={(event) => stock.setEndDate(event.target.value)}
+            onPressEnter={() => stock.refreshStock()}
+          />
+        </div>
+      ) : null}
+
+      <div className="toolbar-group toolbar-primary-actions">
         <Tooltip title="刷新远端行情">
           <Button
             icon={<ReloadOutlined />}
             type="primary"
             loading={stock.loading}
             onClick={() => stock.refreshStock()}
+            aria-label="刷新"
           >
-            刷新
+            <span className="toolbar-button-text">刷新</span>
           </Button>
         </Tooltip>
-        <Tooltip title={`查看、测试和切换数据源；当前：${stock.activeSourceName}`}>
-          <Button icon={<ApiOutlined />} onClick={stock.openSourceTestDialog}>
-            数据源
-          </Button>
-        </Tooltip>
-        <Tooltip title={stock.networkProxy.enabled ? '代理已启用' : '代理未启用，当前直连'}>
-          <Button icon={<GlobalOutlined />} onClick={stock.openProxyDialog}>
-            代理
-          </Button>
-        </Tooltip>
-        <Tooltip title="导出本地设置、自选股、做T测算和历史 K 线缓存">
-          <Button
-            icon={<DownloadOutlined />}
-            loading={stock.localCacheExporting}
-            onClick={() => void stock.exportLocalCacheBackup()}
-          >
-            导出缓存
-          </Button>
-        </Tooltip>
-        <Tooltip title="从备份文件导入本地缓存">
-          <Button
-            icon={<UploadOutlined />}
-            loading={stock.localCacheImportInspecting || stock.localCacheImporting}
-            onClick={() => void stock.inspectLocalCacheBackup()}
-          >
-            导入缓存
+        <Tooltip title="管理指标开关和参数">
+          <Button icon={<LineChartOutlined />} onClick={stock.openIndicatorDialog} aria-label="指标">
+            <span className="toolbar-button-text">指标</span>
           </Button>
         </Tooltip>
         <Tooltip title="测算买入卖出费用和盈亏">
-          <Button icon={<CalculatorOutlined />} onClick={tradeProfit.openCalculator}>
-            做T
+          <Button icon={<CalculatorOutlined />} onClick={tradeProfit.openCalculator} aria-label="做T">
+            <span className="toolbar-button-text">做T</span>
           </Button>
         </Tooltip>
         {stock.viewMode === 'kline' ? (
           <Tooltip title="查看 K 线历史回测和候选策略">
-            <Button icon={<FundProjectionScreenOutlined />} onClick={stock.openStrategyPanel}>
-              策略
+            <Button
+              icon={<FundProjectionScreenOutlined />}
+              onClick={stock.openStrategyPanel}
+              aria-label="策略"
+            >
+              <span className="toolbar-button-text">策略</span>
             </Button>
           </Tooltip>
         ) : null}
-        <div className="toolbar-symbol-title" title={stock.activeTitle}>
-          <BarChartOutlined />
-          <span>{stock.activeTitle}</span>
-        </div>
-        <Tooltip title="检查应用更新">
-          <Button icon={<CloudDownloadOutlined />} onClick={updates.checkForUpdates}>
-            检查更新
-          </Button>
-        </Tooltip>
-      </Space>
+      </div>
 
-      <>
-        <Divider type="vertical" />
-
-        <Space size={8}>
-          <Tooltip title="管理指标开关和参数">
-            <Button icon={<LineChartOutlined />} onClick={stock.openIndicatorDialog}>
-              指标
-            </Button>
-          </Tooltip>
-        </Space>
-      </>
+      <div className="toolbar-symbol-title" title={stock.activeTitle}>
+        <BarChartOutlined />
+        <span>{stock.activeTitle}</span>
+      </div>
 
       <div className="toolbar-spacer" />
 
-      <Space size={12}>
-        <Space size={6}>
-          <CloudDownloadOutlined />
-          <span className="subtle-text">启动检查更新</span>
-          <Switch
-            size="small"
-            checked={updates.settings.checkUpdatesOnStartup}
-            onChange={updates.setCheckUpdatesOnStartup}
-          />
-        </Space>
-      </Space>
+      <div className="toolbar-group toolbar-more-group">
+        <Dropdown menu={{ items: moreMenuItems }} trigger={['click']} placement="bottomRight">
+          <Button icon={<MoreOutlined />} aria-label="更多">
+            更多
+          </Button>
+        </Dropdown>
+      </div>
     </div>
   )
 })
