@@ -4,7 +4,7 @@
 TBD - created by archiving change add-kline-strategy-backtest-recommendations. Update Purpose after archive.
 ## Requirements
 ### Requirement: K 线策略模板可发现且可参数化
-系统 SHALL 提供 K 线策略模板 registry，用于展示可用模板、类型、基本逻辑、推荐程度、说明、参数、默认值、参数约束、最小样本数、兼容周期和信号解释。系统 SHALL 保留既有 `ma-cross`、`breakout-pullback`、`rsi-reversion` 和 `macd-trend-confirmation` 模板 id 的兼容性，并 SHALL 新增附件中的 8 个候选策略模板。策略周期范围 SHALL 限定为 `day`、`week`、`month`。推荐程度 SHALL 按附件星级固定为 1-5 的模板元数据，SHALL NOT 替代历史回测评分或排名。fresh settings SHALL 默认选中全部可用策略模板；已有用户设置 SHALL 保留已保存的可识别模板选择。
+系统 SHALL 提供 K 线策略模板 registry，用于展示可用模板、类型、基本逻辑、推荐程度、说明、参数、默认值、参数约束、最小样本数、兼容周期和信号解释。系统 SHALL 保留既有 `ma-cross`、`breakout-pullback`、`rsi-reversion` 和 `macd-trend-confirmation` 模板 id 的兼容性，并 SHALL 保留附件中的 8 个候选策略模板。策略周期范围 SHALL 限定为 `day`、`week`、`month`。推荐程度 SHALL 按附件星级固定为 1-5 的模板元数据，SHALL NOT 替代历史回测评分或排名。fresh/default settings SHALL 默认选中全部可用策略模板；已有用户设置 SHALL 保留已保存的可识别非空模板选择，设置缺失、无效、全部未知或过滤后为空时 SHALL 回落为全部可用策略模板。
 
 新增模板 SHALL 至少包含以下元数据：
 
@@ -44,9 +44,19 @@ TBD - created by archiving change add-kline-strategy-backtest-recommendations. U
 
 #### Scenario: 新用户默认模板选择
 - **WHEN** 用户尚未保存任何策略回测偏好并首次打开 K 线策略面板
-- **THEN** 系统 SHALL 使用 fresh settings 默认选中全部可用策略模板
+- **THEN** 系统 SHALL 使用 fresh/default settings 默认选中全部可用策略模板
 - **AND** 默认选择 SHALL 同时包含既有模板和新增附件模板
 - **AND** 系统 SHALL 为全部可用模板补齐默认参数
+
+#### Scenario: 策略模板选择缺失或无效
+- **WHEN** 已保存策略回测偏好缺少 `selectedTemplateIds`，或 `selectedTemplateIds` 无效、全部未知、过滤后为空
+- **THEN** 系统 SHALL 默认选中全部可用策略模板
+- **AND** 系统 SHALL 为全部可用模板补齐默认参数
+
+#### Scenario: 已保存有效模板选择
+- **WHEN** 已保存策略回测偏好包含可识别的非空模板选择
+- **THEN** 系统 SHALL 保留这些可识别模板选择
+- **AND** 系统 SHALL 过滤未知模板 id
 
 #### Scenario: 展示模板推荐程度
 - **WHEN** 系统展示模板推荐程度或星级

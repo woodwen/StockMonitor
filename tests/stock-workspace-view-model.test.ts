@@ -428,8 +428,8 @@ describe('StockWorkspaceViewModel', () => {
     })
     expect(viewModel.chart.indicatorSettings.boll.enabled).toBe(false)
     expect(viewModel.chart.indicatorSettings.volumeMa.enabled).toBe(true)
-    expect(viewModel.chart.indicatorSettings.bsSignal.enabled).toBe(false)
-    expect(viewModel.chart.indicatorSettings.strategySignal.enabled).toBe(false)
+    expect('bsSignal' in viewModel.chart.indicatorSettings).toBe(false)
+    expect(viewModel.chart.indicatorSettings.strategySignal.enabled).toBe(true)
     expect(viewModel.chart.indicatorSettings.macd.enabled).toBe(false)
     expect(viewModel.timeshareSourceId).toBe('eastmoney')
   })
@@ -1653,7 +1653,7 @@ describe('StockWorkspaceViewModel', () => {
       templateId: 'ma-cross'
     })
     expect(viewModel.strategyResults[0].signals.length).toBeGreaterThan(0)
-    expect(viewModel.chart.strategySignals).toEqual([])
+    expect(viewModel.chart.strategySignals.length).toBeGreaterThan(0)
     const savedStrategySettings = adapter.savedWorkspaceSettings.at(-1)?.klineStrategySettings
     expect(savedStrategySettings).toMatchObject({
       selectedTemplateIds: ['ma-cross'],
@@ -2166,7 +2166,7 @@ describe('StockWorkspaceViewModel', () => {
     expect(viewModel.chart.indicatorSettings.boll.enabled).toBe(false)
   })
 
-  it('keeps kline B/S and strategy signal indicators mutually exclusive', async () => {
+  it('enables kline strategy signals by default and ignores legacy B/S settings', async () => {
     const adapter = new FakeDataAdapter([], createKlineSettings())
     adapter.nextStockDataset = createCrossingStockDataset()
     adapter.nextCachedKlineDatasetResult = createCompleteCachedKlineDatasetResult()
@@ -2174,29 +2174,20 @@ describe('StockWorkspaceViewModel', () => {
 
     await viewModel.initialize()
 
-    expect(viewModel.chart.indicatorSettings.bsSignal.enabled).toBe(true)
-    expect(viewModel.chart.indicatorSettings.strategySignal.enabled).toBe(false)
+    expect('bsSignal' in viewModel.chart.indicatorSettings).toBe(false)
+    expect(viewModel.chart.indicatorSettings.strategySignal.enabled).toBe(true)
 
     viewModel.openIndicatorDialog()
-    viewModel.setKLineIndicatorDraftEnabled('strategySignal', true)
+    viewModel.setKLineIndicatorDraftEnabled('strategySignal', false)
 
-    expect(viewModel.chart.indicatorDraft.strategySignal.enabled).toBe(true)
-    expect(viewModel.chart.indicatorDraft.bsSignal.enabled).toBe(false)
-    expect(viewModel.chart.previewIndicatorSettings?.strategySignal.enabled).toBe(true)
-    expect(viewModel.chart.previewIndicatorSettings?.bsSignal.enabled).toBe(false)
+    expect(viewModel.chart.indicatorDraft.strategySignal.enabled).toBe(false)
+    expect('bsSignal' in viewModel.chart.indicatorDraft).toBe(false)
+    expect(viewModel.chart.previewIndicatorSettings?.strategySignal.enabled).toBe(false)
 
     viewModel.closeIndicatorDialog()
 
-    expect(viewModel.chart.indicatorSettings.bsSignal.enabled).toBe(true)
-    expect(viewModel.chart.indicatorSettings.strategySignal.enabled).toBe(false)
-    expect(viewModel.chart.previewIndicatorSettings).toBeNull()
-
-    viewModel.openIndicatorDialog()
-    viewModel.setKLineIndicatorDraftEnabled('strategySignal', true)
-    viewModel.applyIndicatorSettingsDraft()
-
     expect(viewModel.chart.indicatorSettings.strategySignal.enabled).toBe(true)
-    expect(viewModel.chart.indicatorSettings.bsSignal.enabled).toBe(false)
+    expect(viewModel.chart.previewIndicatorSettings).toBeNull()
 
     viewModel.openStrategyPanel()
     viewModel.setStrategySelectedTemplateIds(['ma-cross'])
@@ -2206,11 +2197,15 @@ describe('StockWorkspaceViewModel', () => {
 
     expect(viewModel.chart.strategySignals.length).toBeGreaterThan(0)
 
-    viewModel.toggleIndicator('bsSignal', true)
+    viewModel.toggleIndicator('strategySignal', false)
 
-    expect(viewModel.chart.indicatorSettings.bsSignal.enabled).toBe(true)
     expect(viewModel.chart.indicatorSettings.strategySignal.enabled).toBe(false)
     expect(viewModel.chart.strategySignals).toEqual([])
+
+    viewModel.toggleIndicator('strategySignal', true)
+
+    expect(viewModel.chart.indicatorSettings.strategySignal.enabled).toBe(true)
+    expect(viewModel.chart.strategySignals.length).toBeGreaterThan(0)
   })
 
   it('applies indicator dialog drafts and saves indicator params', async () => {

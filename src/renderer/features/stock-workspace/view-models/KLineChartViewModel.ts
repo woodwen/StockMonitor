@@ -291,7 +291,7 @@ function patchIndicatorSetting(
   name: IndicatorName,
   patch: Partial<IndicatorSettings>
 ): IndicatorSettingsMap {
-  const next = {
+  return {
     ...settings,
     [name]: {
       ...settings[name],
@@ -300,17 +300,4 @@ function patchIndicatorSetting(
       styles: patch.styles ? cloneIndicatorStyles(patch.styles) : cloneIndicatorStyles(settings[name].styles)
     }
   }
-  if (patch.enabled === true && name === 'bsSignal') {
-    next.strategySignal = {
-      ...next.strategySignal,
-      enabled: false
-    }
-  }
-  if (patch.enabled === true && name === 'strategySignal') {
-    next.bsSignal = {
-      ...next.bsSignal,
-      enabled: false
-    }
-  }
-  return next
 }

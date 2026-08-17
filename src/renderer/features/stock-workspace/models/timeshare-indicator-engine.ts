@@ -1,5 +1,4 @@
 import type {
-  BsSignal,
   EnrichedStockTimeshareDataset,
   StockTimeshareAdvancedContext,
   StockTimeshareDataset,
@@ -39,13 +38,6 @@ export function enrichTimeshareDataset(
     : new Map<number, Array<number | undefined>>()
   const bollValues = resolvedSettings.boll.enabled
     ? calculateBoll(prices, resolvedSettings.boll.params[0], resolvedSettings.boll.params[1])
-    : []
-  const bsSignals = resolvedSettings.bsSignal.enabled
-    ? calculateTimeshareBsSignals(
-        prices,
-        resolvedSettings.bsSignal.params[0],
-        resolvedSettings.bsSignal.params[1]
-      )
     : []
   const volumeMaByPeriod = resolvedSettings.volumeMa.enabled
     ? createSeriesByPeriod(volumes, resolvedSettings.volumeMa.params, calculateMovingAverage)
@@ -101,7 +93,6 @@ export function enrichTimeshareDataset(
         ...(maByPeriod.size > 0 ? { ma: valuesAtIndex(maByPeriod, index) } : {}),
         ...(emaByPeriod.size > 0 ? { ema: valuesAtIndex(emaByPeriod, index) } : {}),
         ...(bollValues[index] ? { boll: bollValues[index] } : {}),
-        ...(bsSignals[index] ? { bsSignal: bsSignals[index] } : {}),
         ...(volumeMaByPeriod.size > 0 ? { volumeMa: valuesAtIndex(volumeMaByPeriod, index) } : {}),
         ...(kdjValues[index] ? { kdj: kdjValues[index] } : {}),
         ...(macdValues[index] ? { macd: macdValues[index] } : {}),
@@ -169,44 +160,6 @@ export function createTimeshareIndicatorAvailability(
       reason: dataset.advanced?.unavailableReasons?.capitalFlow ?? '缺少资金流聚合字段'
     })
   }
-}
-
-export function calculateTimeshareBsSignals(
-  prices: number[],
-  fastPeriod: number,
-  slowPeriod: number
-): Array<BsSignal | undefined> {
-  if (fastPeriod <= 0 || slowPeriod <= 0) {
-    throw new Error('B/S 周期必须大于 0')
-  }
-  if (fastPeriod >= slowPeriod) {
-    throw new Error('B/S 快线必须小于慢线')
-  }
-
-  const fastEma = calculateEma(prices, fastPeriod)
-  const slowEma = calculateEma(prices, slowPeriod)
-  const signals: Array<BsSignal | undefined> = []
-
-  for (let index = 1; index < prices.length; index += 1) {
-    const previousFast = fastEma[index - 1]
-    const previousSlow = slowEma[index - 1]
-    const currentFast = fastEma[index]
-    const currentSlow = slowEma[index]
-
-    if (previousFast <= previousSlow && currentFast > currentSlow) {
-      signals[index] = {
-        side: 'buy',
-        value: prices[index]
-      }
-    } else if (previousFast >= previousSlow && currentFast < currentSlow) {
-      signals[index] = {
-        side: 'sell',
-        value: prices[index]
-      }
-    }
-  }
-
-  return signals
 }
 
 export function calculateMacd(

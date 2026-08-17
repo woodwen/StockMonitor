@@ -978,16 +978,12 @@ export class StockWorkspaceViewModel {
   }
 
   setKLineIndicatorDraftEnabled(name: IndicatorName, enabled: boolean): void {
-    const previousRevision = this.chart.revision
     this.chart.setIndicatorDraftEnabled(name, enabled)
-    this.reenrichPreviewDatasetIfNeeded(name, previousRevision)
     this.syncSelectedStrategySignals()
   }
 
   setKLineIndicatorDraftParam(name: IndicatorName, index: number, value: number): void {
-    const previousRevision = this.chart.revision
     this.chart.setIndicatorDraftParam(name, index, value)
-    this.reenrichPreviewDatasetIfNeeded(name, previousRevision)
   }
 
   setKLineIndicatorDraftPrecision(name: IndicatorName, precision: number): void {
@@ -1023,9 +1019,7 @@ export class StockWorkspaceViewModel {
   }
 
   resetKLineIndicatorDraftParams(name: IndicatorName): void {
-    const previousRevision = this.chart.revision
     this.chart.resetIndicatorDraftParams(name)
-    this.reenrichPreviewDatasetIfNeeded(name, previousRevision)
   }
 
   resetKLineIndicatorDraftStyle(name: IndicatorName): void {
@@ -2100,13 +2094,6 @@ export class StockWorkspaceViewModel {
       return
     }
     this.chart.setDataset(enrichStockDataset(this.chart.dataset, settings))
-  }
-
-  private reenrichPreviewDatasetIfNeeded(name: IndicatorName, previousRevision: number): void {
-    if (name !== 'bsSignal' || this.chart.revision === previousRevision) {
-      return
-    }
-    this.reenrichCurrentDataset(this.chart.effectiveIndicatorSettings)
   }
 
   private exitWatchlistManageMode(): void {

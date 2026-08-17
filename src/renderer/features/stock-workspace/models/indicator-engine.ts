@@ -1,10 +1,8 @@
 import type {
   BollValue,
-  BsSignal,
   EnrichedStockCandle,
   EnrichedStockDataset,
   IndicatorSettingsMap,
-  StockCandle,
   StockDataset,
   VolumeMaValue
 } from './stock-types'
@@ -14,8 +12,6 @@ export interface IndicatorConfig {
   bollPeriod: number
   bollDeviation: number
   volumeMaPeriods: number[]
-  fastSignalPeriod: number
-  slowSignalPeriod: number
 }
 
 export const defaultIndicatorConfig: IndicatorConfig = indicatorConfigFromSettings(
@@ -29,19 +25,16 @@ export function enrichStockDataset(
   const resolvedConfig = resolveIndicatorConfig(config)
   const closes = dataset.candles.map((item) => item.close)
   const volumes = dataset.candles.map((item) => item.volume)
-  const typicalPrices = dataset.candles.map((item) => (item.close + item.high + item.low) / 3)
 
   const bollValues = calculateBoll(closes, resolvedConfig.bollPeriod, resolvedConfig.bollDeviation)
   const volumeMas = calculateVolumeMas(volumes, resolvedConfig.volumeMaPeriods)
-  const signals = calculateBsSignals(dataset.candles, typicalPrices, resolvedConfig)
 
   return {
     ...dataset,
     candles: dataset.candles.map((candle, index) => ({
       ...candle,
       boll: bollValues[index],
-      volumeMa: volumeMas[index],
-      bsSignal: signals[index]
+      volumeMa: volumeMas[index]
     }))
   }
 }
@@ -49,13 +42,10 @@ export function enrichStockDataset(
 export function indicatorConfigFromSettings(settings: IndicatorSettingsMap): IndicatorConfig {
   const bollParams = settings.boll.params
   const volumeParams = settings.volumeMa.params
-  const signalParams = settings.bsSignal.params
   return {
     bollPeriod: bollParams[0],
     bollDeviation: bollParams[1],
-    volumeMaPeriods: [...volumeParams],
-    fastSignalPeriod: signalParams[0],
-    slowSignalPeriod: signalParams[1]
+    volumeMaPeriods: [...volumeParams]
   }
 }
 
@@ -127,37 +117,6 @@ function calculateVolumeMas(values: number[], periods: number[]): VolumeMaValue[
     ma10: maByPeriod.get(10)?.[index],
     ma20: maByPeriod.get(20)?.[index]
   }))
-}
-
-function calculateBsSignals(
-  candles: StockCandle[],
-  typicalPrices: number[],
-  config: IndicatorConfig
-): Array<BsSignal | undefined> {
-  const fastEma = calculateEma(typicalPrices, config.fastSignalPeriod)
-  const slowEma = calculateEma(typicalPrices, config.slowSignalPeriod)
-  const signals: Array<BsSignal | undefined> = []
-
-  for (let index = 1; index < candles.length; index += 1) {
-    const previousFast = fastEma[index - 1]
-    const previousSlow = slowEma[index - 1]
-    const currentFast = fastEma[index]
-    const currentSlow = slowEma[index]
-
-    if (previousFast <= previousSlow && currentFast > currentSlow) {
-      signals[index] = {
-        side: 'buy',
-        value: candles[index].low
-      }
-    } else if (previousFast >= previousSlow && currentFast < currentSlow) {
-      signals[index] = {
-        side: 'sell',
-        value: candles[index].high
-      }
-    }
-  }
-
-  return signals
 }
 
 function resolveIndicatorConfig(config: IndicatorConfig | IndicatorSettingsMap): IndicatorConfig {
