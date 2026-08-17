@@ -2,7 +2,8 @@ import type {
   TimeshareIndicatorName,
   TimeshareIndicatorPane,
   TimeshareIndicatorSettings,
-  TimeshareIndicatorSettingsMap
+  TimeshareIndicatorSettingsMap,
+  LegacyTimeshareIndicatorName
 } from './stock-types'
 
 export type TimeshareIndicatorParamKind = 'period' | 'decimal'
@@ -89,16 +90,6 @@ export const timeshareIndicatorDefinitions: TimeshareIndicatorDefinition[] = [
         precision: 1
       }
     ]
-  },
-  {
-    name: 'bsSignal',
-    label: 'B/S',
-    pane: 'signal',
-    defaultEnabled: false,
-    defaultParams: [5, 20],
-    params: [periodParam('快线'), periodParam('慢线')],
-    uniqueParams: true,
-    fastLessThanSlow: true
   },
   {
     name: 'volume',
@@ -233,7 +224,7 @@ export function cloneTimeshareIndicatorSettings(
 }
 
 export function normalizeTimeshareIndicatorSettings(
-  settings?: Partial<Record<TimeshareIndicatorName, Partial<TimeshareIndicatorSettings>>> | null
+  settings?: Partial<Record<LegacyTimeshareIndicatorName, Partial<TimeshareIndicatorSettings>>> | null
 ): TimeshareIndicatorSettingsMap {
   const normalized = Object.fromEntries(
     timeshareIndicatorDefinitions.map((definition) => {

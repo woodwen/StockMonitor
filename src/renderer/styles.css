@@ -37,18 +37,29 @@ body {
   display: flex;
   align-items: center;
   height: 56px;
-  gap: 8px;
-  overflow-x: auto;
+  min-width: 0;
+  gap: 10px;
+  overflow: hidden;
   white-space: nowrap;
 }
 
-.top-toolbar > .ant-space {
-  flex-shrink: 0;
+.toolbar-group {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  min-width: 0;
+  gap: 8px;
+}
+
+.toolbar-primary-actions,
+.toolbar-more-group {
+  padding-left: 8px;
+  border-left: 1px solid #263241;
 }
 
 .toolbar-spacer {
-  flex: 1;
-  min-width: 12px;
+  flex: 1 1 8px;
+  min-width: 8px;
 }
 
 .toolbar-symbol-input {
@@ -70,10 +81,11 @@ body {
 
 .toolbar-symbol-title {
   display: inline-flex;
+  flex: 1 1 180px;
   align-items: center;
   gap: 6px;
-  max-width: 300px;
-  min-width: 120px;
+  max-width: 260px;
+  min-width: 96px;
   overflow: hidden;
   color: #d7e0ea;
   font-size: 13px;
@@ -86,6 +98,55 @@ body {
 .toolbar-symbol-title > span {
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+@media (max-width: 1180px) {
+  .toolbar-primary-actions .toolbar-button-text {
+    display: none;
+  }
+
+  .toolbar-primary-actions .ant-btn {
+    width: 32px;
+    padding-inline: 0;
+  }
+
+  .toolbar-date-input {
+    width: 88px;
+  }
+
+  .toolbar-symbol-title {
+    max-width: 180px;
+    min-width: 80px;
+  }
+}
+
+@media (max-width: 980px) {
+  .toolbar-symbol-title {
+    display: none;
+  }
+
+  .toolbar-period-select {
+    width: 78px;
+  }
+
+  .toolbar-adjust-select {
+    width: 84px;
+  }
+}
+
+@media (max-width: 860px) {
+  .toolbar-query-group .toolbar-button-text {
+    display: none;
+  }
+
+  .toolbar-query-group .ant-btn {
+    width: 32px;
+    padding-inline: 0;
+  }
+
+  .toolbar-kline-params {
+    gap: 6px;
+  }
 }
 
 .subtle-text {

@@ -12,9 +12,8 @@ import type {
 } from '../models/stock-types'
 
 const CANDLE_PANE_ID = 'candle_pane'
-const BS_SIGNAL_GROUP_ID = 'bs-signal'
 const STRATEGY_SIGNAL_GROUP_ID = 'strategy-signal'
-const BS_SIGNAL_OVERLAY_NAME = 'stockMonitorBsSignal'
+const SIGNAL_OVERLAY_NAME = 'stockMonitorSignal'
 const DEFAULT_SIGNAL_BUY_COLOR = '#ff4d4f'
 const DEFAULT_SIGNAL_SELL_COLOR = '#1677ff'
 const SIGNAL_BUY_BORDER_COLOR = '#fff1f0'
@@ -22,7 +21,7 @@ const SIGNAL_SELL_BORDER_COLOR = '#e6f4ff'
 
 let signalOverlayRegistered = false
 
-type ChartIndicatorName = Exclude<IndicatorName, 'bsSignal' | 'strategySignal'>
+type ChartIndicatorName = Exclude<IndicatorName, 'strategySignal'>
 
 interface ActiveIndicator {
   paneId: string
@@ -35,8 +34,6 @@ export class KLineChartsAdapter {
   private chart: any = null
   private container: HTMLElement | null = null
   private readonly indicatorStates = new Map<ChartIndicatorName, ActiveIndicator>()
-  private overlayIds: string[] = []
-  private overlaySignature = ''
   private strategyOverlayIds: string[] = []
   private strategyOverlaySignature = ''
   private currentDataset: EnrichedStockDataset | null = null
@@ -118,11 +115,8 @@ export class KLineChartsAdapter {
       true
     )
     this.syncIndicators(indicatorSettings)
-    this.syncSignalOverlays(dataset, indicatorSettings.bsSignal, datasetChanged)
     this.syncStrategySignalOverlays(
-      indicatorSettings.strategySignal.enabled && !indicatorSettings.bsSignal.enabled
-        ? strategySignals
-        : [],
+      indicatorSettings.strategySignal.enabled ? strategySignals : [],
       datasetChanged
     )
   }
@@ -138,8 +132,6 @@ export class KLineChartsAdapter {
     this.chart = null
     this.container = null
     this.indicatorStates.clear()
-    this.overlayIds = []
-    this.overlaySignature = ''
     this.strategyOverlayIds = []
     this.strategyOverlaySignature = ''
     this.currentDataset = null
@@ -217,60 +209,6 @@ export class KLineChartsAdapter {
     }
   }
 
-  private syncSignalOverlays(
-    dataset: EnrichedStockDataset,
-    setting: IndicatorSettings,
-    datasetChanged: boolean
-  ): void {
-    if (!setting.enabled) {
-      this.removeSignalOverlays()
-      return
-    }
-
-    const overlaySignature = createSignalOverlaySignature(dataset, setting)
-    if (this.overlayIds.length > 0 && !datasetChanged && this.overlaySignature === overlaySignature) {
-      return
-    }
-
-    this.removeSignalOverlays()
-
-    const overlays = dataset.candles
-      .filter((item) => item.bsSignal)
-      .map((item) => ({
-        name: BS_SIGNAL_OVERLAY_NAME,
-        groupId: BS_SIGNAL_GROUP_ID,
-        lock: true,
-        needDefaultPointFigure: false,
-        needDefaultXAxisFigure: false,
-        needDefaultYAxisFigure: false,
-        points: [
-          {
-            timestamp: item.timestamp,
-            value: item.bsSignal?.value
-          }
-        ],
-        extendData: {
-          side: item.bsSignal?.side,
-          buyColor: setting.styles.marker?.buyColor,
-          sellColor: setting.styles.marker?.sellColor
-        }
-      }))
-
-    if (overlays.length === 0) {
-      return
-    }
-
-    const createdIds = this.chart.createOverlay?.(overlays, CANDLE_PANE_ID)
-    this.overlayIds = normalizeCreatedOverlayIds(createdIds)
-    this.overlaySignature = overlaySignature
-  }
-
-  private removeSignalOverlays(): void {
-    this.removeOverlayGroup(this.overlayIds, BS_SIGNAL_GROUP_ID)
-    this.overlayIds = []
-    this.overlaySignature = ''
-  }
-
   private syncStrategySignalOverlays(
     signals: KlineStrategySignal[],
     datasetChanged: boolean
@@ -292,7 +230,7 @@ export class KLineChartsAdapter {
     this.removeStrategySignalOverlays()
 
     const overlays = signals.map((signal) => ({
-      name: BS_SIGNAL_OVERLAY_NAME,
+      name: SIGNAL_OVERLAY_NAME,
       groupId: STRATEGY_SIGNAL_GROUP_ID,
       lock: true,
       needDefaultPointFigure: false,
@@ -393,18 +331,6 @@ function createIndicatorStyleSignature(setting: IndicatorSettings): string {
   })
 }
 
-function createSignalOverlaySignature(
-  dataset: EnrichedStockDataset,
-  setting: IndicatorSettings
-): string {
-  return JSON.stringify({
-    marker: setting.styles.marker,
-    signals: dataset.candles
-      .filter((item) => item.bsSignal)
-      .map((item) => [item.timestamp, item.bsSignal?.value, item.bsSignal?.side])
-  })
-}
-
 function createStrategySignalOverlaySignature(signals: KlineStrategySignal[]): string {
   return JSON.stringify(
     signals.map((signal) => [
@@ -431,7 +357,7 @@ function registerSignalOverlay(): void {
   signalOverlayRegistered = true
 
   registerOverlay({
-    name: BS_SIGNAL_OVERLAY_NAME,
+    name: SIGNAL_OVERLAY_NAME,
     totalStep: 2,
     lock: true,
     needDefaultPointFigure: false,

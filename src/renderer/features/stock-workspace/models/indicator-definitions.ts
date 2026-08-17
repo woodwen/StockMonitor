@@ -7,7 +7,8 @@ import type {
   IndicatorPane,
   IndicatorSettings,
   IndicatorSettingsMap,
-  IndicatorVisualSettings
+  IndicatorVisualSettings,
+  LegacyIndicatorName
 } from './stock-types'
 
 export type IndicatorParamKind = 'period' | 'decimal'
@@ -114,20 +115,10 @@ export const indicatorDefinitions: IndicatorDefinition[] = [
     uniqueParams: true
   },
   {
-    name: 'bsSignal',
-    label: 'B/S',
-    pane: 'overlay',
-    defaultEnabled: true,
-    defaultParams: [5, 20],
-    hasMarkerStyle: true,
-    params: [periodParam('快线'), periodParam('慢线')],
-    uniqueParams: true
-  },
-  {
     name: 'strategySignal',
     label: '策略',
     pane: 'overlay',
-    defaultEnabled: false,
+    defaultEnabled: true,
     defaultParams: [],
     params: []
   },
@@ -274,8 +265,8 @@ export function getIndicatorLineStyleLabels(name: IndicatorName, params?: number
 }
 
 export function normalizeIndicatorSettings(
-  settings?: Partial<Record<IndicatorName, Partial<IndicatorSettings>>> | null,
-  legacyEnabledIndicators?: Partial<Record<IndicatorName, boolean>> | null
+  settings?: Partial<Record<LegacyIndicatorName, Partial<IndicatorSettings>>> | null,
+  legacyEnabledIndicators?: Partial<Record<LegacyIndicatorName, boolean>> | null
 ): IndicatorSettingsMap {
   const normalized = Object.fromEntries(
     indicatorDefinitions.map((definition) => {
@@ -299,7 +290,6 @@ export function normalizeIndicatorSettings(
   ) as IndicatorSettingsMap
 
   enforceSubIndicatorLimit(normalized)
-  enforceSignalIndicatorExclusivity(normalized)
   return normalized
 }
 
@@ -543,12 +533,4 @@ function enforceSubIndicatorLimit(settings: IndicatorSettingsMap): void {
       settings[name].enabled = false
     }
   })
-}
-
-function enforceSignalIndicatorExclusivity(
-  settings: IndicatorSettingsMap
-): void {
-  if (settings.bsSignal?.enabled && settings.strategySignal?.enabled) {
-    settings.strategySignal.enabled = false
-  }
 }

@@ -83,6 +83,25 @@ describe('kline-strategy-backtesting', () => {
     })
   })
 
+  it('normalizes strategy template selection defaults and legacy preferences', () => {
+    const allTemplateIds = klineStrategyTemplates.map((template) => template.id)
+
+    expect(normalizeKlineStrategySettings().selectedTemplateIds).toEqual(allTemplateIds)
+    expect(normalizeKlineStrategySettings({ selectedTemplateIds: [] }).selectedTemplateIds).toEqual(
+      allTemplateIds
+    )
+    expect(
+      normalizeKlineStrategySettings({
+        selectedTemplateIds: ['unknown-template' as KlineStrategyTemplateId]
+      }).selectedTemplateIds
+    ).toEqual(allTemplateIds)
+    expect(
+      normalizeKlineStrategySettings({
+        selectedTemplateIds: ['ma-cross', 'unknown-template' as KlineStrategyTemplateId]
+      }).selectedTemplateIds
+    ).toEqual(['ma-cross'])
+  })
+
   it('normalizes missing and legacy backtest cost assumptions while preserving explicit zero values', () => {
     expect(normalizeKlineStrategySettings({ assumptions: {} }).assumptions).toEqual({
       initialCapital: 100000,

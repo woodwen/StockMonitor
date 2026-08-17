@@ -4,7 +4,6 @@ import {
   calculateMacd,
   calculateOrderRatio,
   calculateRsi,
-  calculateTimeshareBsSignals,
   calculateTurnoverRate,
   calculateVolumeRatio,
   createTimeshareIndicatorAvailability,
@@ -26,13 +25,6 @@ describe('timeshare-indicator-engine', () => {
     expect(calculateRsi([1, 2, 3, 4], 3)[3]).toBe(100)
     expect(calculateRsi([1, 1, 1, 1], 3)[3]).toBe(50)
     expect(calculateRsi([4, 3, 2, 1], 3)[3]).toBe(0)
-  })
-
-  it('calculates B/S signals from fast and slow EMA crosses', () => {
-    const signals = calculateTimeshareBsSignals([10, 9, 8, 9, 10, 11, 10, 9, 8], 2, 4)
-
-    expect(signals.some((signal) => signal?.side === 'buy')).toBe(true)
-    expect(signals.some((signal) => signal?.side === 'sell')).toBe(true)
   })
 
   it('calculates KDJ from minute OHLC and uses RSV 50 for flat ranges', () => {
@@ -108,8 +100,6 @@ describe('timeshare-indicator-engine', () => {
     const settings = createDefaultTimeshareIndicatorSettings()
     settings.ma.enabled = true
     settings.boll.enabled = true
-    settings.bsSignal.enabled = true
-    settings.bsSignal.params = [2, 4]
     settings.volumeMa.enabled = true
     settings.macd.enabled = true
     settings.rsi.enabled = true
@@ -139,7 +129,7 @@ describe('timeshare-indicator-engine', () => {
       totalOutflow: 3000,
       netInflow: 2000
     })
-    expect(enriched.points.some((point) => point.indicators.bsSignal)).toBe(true)
+    expect(enriched.points.some((point) => 'bsSignal' in point.indicators)).toBe(false)
   })
 })
 

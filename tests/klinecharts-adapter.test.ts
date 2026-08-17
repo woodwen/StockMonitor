@@ -124,7 +124,7 @@ describe('KLineChartsAdapter', () => {
 
     expect(fakeChart.indicators.filter((item) => item.name === 'BOLL')).toHaveLength(1)
     expect(fakeChart.indicators.filter((item) => item.name === 'VOL')).toHaveLength(1)
-    expect(fakeChart.overlays).toHaveLength(1)
+    expect(fakeChart.overlays).toHaveLength(0)
   })
 
   it('recreates indicators when calc params change', () => {
@@ -212,39 +212,12 @@ describe('KLineChartsAdapter', () => {
     expect(fakeChart.overriddenIndicators.find((item) => item.value.name === 'BOLL')).toBeDefined()
   })
 
-  it('uses configured B/S marker colors for overlays', () => {
-    const { adapter, fakeChart } = createAdapterWithChart()
-
-    adapter.setDataset(
-      sampleDataset,
-      createIndicatorSettings({
-        bsSignal: {
-          styles: {
-            marker: {
-              buyColor: '#123456',
-              sellColor: '#654321'
-            }
-          }
-        }
-      })
-    )
-
-    expect(fakeChart.overlays[0].extendData).toMatchObject({
-      side: 'buy',
-      buyColor: '#123456',
-      sellColor: '#654321'
-    })
-  })
-
   it('renders strategy signals in a separate overlay group', () => {
     const { adapter, fakeChart } = createAdapterWithChart()
 
     adapter.setDataset(
       sampleDataset,
-      createIndicatorSettings({
-        bsSignal: { enabled: false },
-        strategySignal: { enabled: true }
-      }),
+      createIndicatorSettings(),
       [sampleStrategySignal]
     )
 
@@ -257,16 +230,21 @@ describe('KLineChartsAdapter', () => {
     })
   })
 
-  it('does not render strategy signals while B/S markers are enabled', () => {
+  it('does not render strategy signals when strategy indicator is disabled', () => {
     const { adapter, fakeChart } = createAdapterWithChart()
 
-    adapter.setDataset(sampleDataset, createIndicatorSettings(), [sampleStrategySignal])
+    adapter.setDataset(
+      sampleDataset,
+      createIndicatorSettings({
+        strategySignal: { enabled: false }
+      }),
+      [sampleStrategySignal]
+    )
 
-    expect(fakeChart.overlays).toHaveLength(1)
-    expect(fakeChart.overlays[0].groupId).toBe('bs-signal')
+    expect(fakeChart.overlays).toHaveLength(0)
   })
 
-  it('draws buy and sell B/S markers with visibly distinct colors', () => {
+  it('draws buy and sell signal markers with visibly distinct colors', () => {
     const buyFigures = createSignalOverlayPointFigures({
       coordinates: [{ x: 10, y: 20 }],
       overlay: {
@@ -366,11 +344,7 @@ const sampleDataset: EnrichedStockDataset = {
       close: 1.5,
       volume: 100,
       turnover: 200,
-      volumeMa: {},
-      bsSignal: {
-        side: 'buy',
-        value: 0.5
-      }
+      volumeMa: {}
     }
   ]
 }

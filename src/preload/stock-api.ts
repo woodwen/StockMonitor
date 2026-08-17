@@ -2,6 +2,7 @@ import type { AppUpdateEvent } from '../renderer/features/app-update/models/upda
 import type {
   IndicatorName,
   IndicatorSettingsMap,
+  LegacyIndicatorName,
   StockDataSourceMeta,
   StockDataset,
   StockQuery,
@@ -44,7 +45,7 @@ export interface WorkspaceSettings {
   timeshareIndicatorSettings?: TimeshareIndicatorSettingsMap
   klineStrategySettings?: KlineStrategySettings
   watchlist?: WatchlistItem[]
-  enabledIndicators?: Partial<Record<IndicatorName, boolean>>
+  enabledIndicators?: Partial<Record<LegacyIndicatorName, boolean>>
 }
 
 export type LocalCacheBackupImportStrategy = 'merge' | 'replace'

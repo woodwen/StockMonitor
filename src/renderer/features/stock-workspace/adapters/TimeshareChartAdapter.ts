@@ -43,11 +43,7 @@ const colors = {
     up: '#ef5350',
     down: '#26a69a'
   },
-  rsi: ['#facc15', '#60a5fa', '#fb7185'],
-  bsSignal: {
-    buy: '#ff4d4f',
-    sell: '#13c2c2'
-  }
+  rsi: ['#facc15', '#60a5fa', '#fb7185']
 }
 
 interface PointCoordinate {
@@ -469,9 +465,6 @@ function drawPriceLines(
     drawPreviousClose(context, layout, priceRange, dataset.previousClose)
   }
 
-  if (settings.bsSignal.enabled) {
-    drawBsSignals(context, layout, priceRange, coordinates)
-  }
 }
 
 function drawVolume(
@@ -510,40 +503,6 @@ function drawVolume(
   }
 
   drawVolumeLegend(context, layout, settings)
-}
-
-function drawBsSignals(
-  context: CanvasRenderingContext2D,
-  layout: ChartLayout,
-  priceRange: PriceRange,
-  coordinates: PointCoordinate[]
-): void {
-  coordinates.forEach((coordinate) => {
-    const signal = coordinate.point.indicators.bsSignal
-    if (!signal) {
-      return
-    }
-
-    const color = signal.side === 'buy' ? colors.bsSignal.buy : colors.bsSignal.sell
-    const label = signal.side === 'buy' ? 'B' : 'S'
-    const baseY = priceToY(signal.value, layout, priceRange)
-    const markerY = clamp(
-      signal.side === 'buy' ? baseY + 16 : baseY - 16,
-      layout.top + 10,
-      layout.priceBottom - 10
-    )
-
-    context.fillStyle = color
-    context.beginPath()
-    context.arc(coordinate.x, markerY, 8, 0, Math.PI * 2)
-    context.fill()
-
-    context.fillStyle = '#ffffff'
-    context.font = '11px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
-    context.textAlign = 'center'
-    context.textBaseline = 'middle'
-    context.fillText(label, coordinate.x, markerY)
-  })
 }
 
 function drawSubPanes(
@@ -724,10 +683,6 @@ function createTooltipLines(
     `${formatSigned(changePercent)}%`
   ]
   const pane = getPointerPane(y, layout)
-
-  if (settings.bsSignal.enabled && point.indicators.bsSignal) {
-    lines.push(point.indicators.bsSignal.side === 'buy' ? 'B/S 买入' : 'B/S 卖出')
-  }
 
   if (pane === 'price') {
     if (settings.avgPriceLine.enabled && Number.isFinite(point.avgPrice)) {
@@ -939,10 +894,6 @@ function createPriceLegendItems(settings: TimeshareIndicatorSettingsMap): Legend
     items.push({ label: 'BOLL上', color: colors.boll.upper })
     items.push({ label: 'BOLL中', color: colors.boll.mid })
     items.push({ label: 'BOLL下', color: colors.boll.lower })
-  }
-  if (settings.bsSignal.enabled) {
-    items.push({ label: 'B 买入', color: colors.bsSignal.buy, marker: 'B' })
-    items.push({ label: 'S 卖出', color: colors.bsSignal.sell, marker: 'S' })
   }
   return items
 }

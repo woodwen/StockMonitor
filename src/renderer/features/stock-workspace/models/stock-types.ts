@@ -8,8 +8,9 @@ export type IndicatorName =
   | 'macd'
   | 'kdj'
   | 'rsi'
-  | 'bsSignal'
   | 'strategySignal'
+
+export type LegacyIndicatorName = IndicatorName | 'bsSignal'
 
 export type IndicatorPane = 'main' | 'sub' | 'overlay'
 
@@ -53,7 +54,6 @@ export type TimeshareIndicatorName =
   | 'ma'
   | 'ema'
   | 'boll'
-  | 'bsSignal'
   | 'volumeMa'
   | 'kdj'
   | 'macd'
@@ -64,7 +64,9 @@ export type TimeshareIndicatorName =
   | 'inOutVolume'
   | 'capitalFlow'
 
-export type TimeshareIndicatorPane = 'base' | 'main' | 'signal' | 'volume' | 'sub' | 'advanced'
+export type LegacyTimeshareIndicatorName = TimeshareIndicatorName | 'bsSignal'
+
+export type TimeshareIndicatorPane = 'base' | 'main' | 'volume' | 'sub' | 'advanced'
 
 export interface TimeshareIndicatorSettings {
   enabled: boolean
@@ -382,11 +384,6 @@ export interface VolumeMaValue {
 
 export type SignalSide = 'buy' | 'sell'
 
-export interface BsSignal {
-  side: SignalSide
-  value: number
-}
-
 export interface TimeshareMacdValue {
   dif: number
   dea: number
@@ -431,7 +428,6 @@ export interface TimeshareIndicatorValues {
   ma?: Record<string, number | undefined>
   ema?: Record<string, number | undefined>
   boll?: BollValue
-  bsSignal?: BsSignal
   volumeMa?: Record<string, number | undefined>
   kdj?: TimeshareKdjValue
   macd?: TimeshareMacdValue
@@ -454,7 +450,6 @@ export interface EnrichedStockTimeshareDataset extends Omit<StockTimeshareDatase
 export interface EnrichedStockCandle extends StockCandle {
   boll?: BollValue
   volumeMa: VolumeMaValue
-  bsSignal?: BsSignal
 }
 
 export interface StockDataset {

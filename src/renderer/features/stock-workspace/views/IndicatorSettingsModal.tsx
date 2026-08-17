@@ -76,9 +76,6 @@ const TimeshareIndicatorSettings = observer(({ stock }: IndicatorSettingsProps) 
   const timeshare = stock.timeshare
   const baseIndicators = timeshareIndicatorDefinitions.filter((definition) => definition.pane === 'base')
   const mainIndicators = timeshareIndicatorDefinitions.filter((definition) => definition.pane === 'main')
-  const signalIndicators = timeshareIndicatorDefinitions.filter(
-    (definition) => definition.pane === 'signal'
-  )
   const volumeIndicators = timeshareIndicatorDefinitions.filter(
     (definition) => definition.pane === 'volume'
   )
@@ -91,7 +88,6 @@ const TimeshareIndicatorSettings = observer(({ stock }: IndicatorSettingsProps) 
     <div className="indicator-settings">
       <TimeshareIndicatorGroup title="基础显示" definitions={baseIndicators} stock={stock} />
       <TimeshareIndicatorGroup title="主图指标" definitions={mainIndicators} stock={stock} />
-      <TimeshareIndicatorGroup title="信号指标" definitions={signalIndicators} stock={stock} />
       <TimeshareIndicatorGroup title="成交量指标" definitions={volumeIndicators} stock={stock} />
       <div className="indicator-group-hint">
         分时副图 {timeshare.draftEnabledSubIndicatorCount}/{TIMESHARE_SUB_INDICATOR_LIMIT}

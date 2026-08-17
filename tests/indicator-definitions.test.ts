@@ -4,7 +4,6 @@ import {
   createDefaultIndicatorSettings,
   defaultIndicatorBarStyle,
   defaultIndicatorLineColors,
-  defaultIndicatorMarkerStyle,
   indicatorNames,
   normalizeIndicatorParams,
   normalizeIndicatorSettings,
@@ -21,7 +20,6 @@ describe('indicator-definitions', () => {
       'boll',
       'ma',
       'ema',
-      'bsSignal',
       'strategySignal',
       'volumeMa',
       'macd',
@@ -31,19 +29,16 @@ describe('indicator-definitions', () => {
     expect(subIndicatorNames).toEqual(['volumeMa', 'macd', 'kdj', 'rsi'])
     expect(settings.boll.enabled).toBe(true)
     expect(settings.volumeMa.enabled).toBe(true)
-    expect(settings.bsSignal.enabled).toBe(true)
-    expect(settings.strategySignal.enabled).toBe(false)
+    expect(settings.strategySignal.enabled).toBe(true)
     expect(settings.macd.enabled).toBe(false)
     expect(settings.boll.precision).toBe(2)
     expect(settings.volumeMa.precision).toBe(0)
-    expect(settings.bsSignal.precision).toBeUndefined()
     expect(settings.strategySignal.params).toEqual([])
     expect(settings.strategySignal.precision).toBeUndefined()
     expect(settings.boll.styles.lines?.map((line) => line.color)).toEqual(
       defaultIndicatorLineColors.slice(0, 3)
     )
     expect(settings.volumeMa.styles.bar).toEqual(defaultIndicatorBarStyle)
-    expect(settings.bsSignal.styles.marker).toEqual(defaultIndicatorMarkerStyle)
   })
 
   it('validates parameter ranges and MACD fast/slow order', () => {
@@ -75,8 +70,8 @@ describe('indicator-definitions', () => {
     )
 
     expect(settings.boll.enabled).toBe(false)
-    expect(settings.bsSignal.enabled).toBe(false)
-    expect(settings.strategySignal.enabled).toBe(false)
+    expect(settings.strategySignal.enabled).toBe(true)
+    expect('bsSignal' in settings).toBe(false)
     expect(countEnabledSubIndicators(settings)).toBe(3)
     expect(settings.volumeMa.enabled).toBe(true)
     expect(settings.macd.enabled).toBe(true)
@@ -99,14 +94,6 @@ describe('indicator-definitions', () => {
             { color: '#123456', lineStyle: 'dashed' }
           ]
         } as any
-      },
-      bsSignal: {
-        styles: {
-          marker: {
-            buyColor: '#abcdef',
-            sellColor: 'bad'
-          }
-        }
       }
     })
 
@@ -120,37 +107,25 @@ describe('indicator-definitions', () => {
       lineStyle: 'dashed'
     })
     expect(settings.boll.styles.lines).toHaveLength(3)
-    expect(settings.bsSignal.styles.marker).toEqual({
-      buyColor: '#abcdef',
-      sellColor: '#13c2c2'
-    })
   })
 
-  it('normalizes strategy and B/S signal exclusivity', () => {
+  it('ignores legacy B/S settings and preserves explicit strategy state', () => {
     const legacy = normalizeIndicatorSettings({
       bsSignal: { enabled: false }
     })
-    expect(legacy.bsSignal.enabled).toBe(false)
-    expect(legacy.strategySignal.enabled).toBe(false)
+    expect('bsSignal' in legacy).toBe(false)
+    expect(legacy.strategySignal.enabled).toBe(true)
 
     const partialStrategyOnly = normalizeIndicatorSettings({
       strategySignal: { enabled: true }
     })
-    expect(partialStrategyOnly.bsSignal.enabled).toBe(true)
-    expect(partialStrategyOnly.strategySignal.enabled).toBe(false)
+    expect(partialStrategyOnly.strategySignal.enabled).toBe(true)
 
-    const explicitStrategyOnly = normalizeIndicatorSettings({
-      bsSignal: { enabled: false },
-      strategySignal: { enabled: true }
-    })
-    expect(explicitStrategyOnly.bsSignal.enabled).toBe(false)
-    expect(explicitStrategyOnly.strategySignal.enabled).toBe(true)
-
-    const invalidDoubleEnabled = normalizeIndicatorSettings({
+    const explicitStrategyDisabled = normalizeIndicatorSettings({
       bsSignal: { enabled: true },
-      strategySignal: { enabled: true }
+      strategySignal: { enabled: false }
     })
-    expect(invalidDoubleEnabled.bsSignal.enabled).toBe(true)
-    expect(invalidDoubleEnabled.strategySignal.enabled).toBe(false)
+    expect('bsSignal' in explicitStrategyDisabled).toBe(false)
+    expect(explicitStrategyDisabled.strategySignal.enabled).toBe(false)
   })
 })

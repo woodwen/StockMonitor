@@ -1,6 +1,4 @@
 import { describe, expect, it } from 'vitest'
-import { createElement } from 'react'
-import { renderToStaticMarkup } from 'react-dom/server'
 import {
   createLocalCacheBackupSummaryItems,
   formatLocalCacheBackupSettingsSections,
@@ -8,26 +6,30 @@ import {
   isLocalCacheImportDanger,
   LOCAL_CACHE_IMPORT_STRATEGY_OPTIONS
 } from '../src/renderer/features/stock-workspace/views/LocalCachePortabilityModal'
-import { TopToolbar } from '../src/renderer/features/stock-workspace/views/TopToolbar'
+import { createTopToolbarMoreMenuItems } from '../src/renderer/features/stock-workspace/views/TopToolbar'
 
 describe('LocalCachePortabilityModal', () => {
-  it('renders local cache import and export entries in the toolbar', () => {
-    const html = renderToStaticMarkup(
-      createElement(TopToolbar, {
-        stock: createToolbarStockViewModel() as any,
-        updates: {
-          checkForUpdates: () => undefined,
-          settings: { checkUpdatesOnStartup: true },
-          setCheckUpdatesOnStartup: () => undefined
-        } as any,
-        tradeProfit: {
-          openCalculator: () => undefined
-        } as any
-      })
-    )
+  it('keeps local cache import and export entries in the toolbar more menu', () => {
+    const labels = (createTopToolbarMoreMenuItems({
+      activeSourceName: '东方财富',
+      networkProxyEnabled: false,
+      localCacheExporting: false,
+      localCacheImportInspecting: false,
+      localCacheImporting: false,
+      checkUpdatesOnStartup: true,
+      isCheckingForUpdates: false,
+      onOpenSourceTestDialog: () => undefined,
+      onOpenProxyDialog: () => undefined,
+      onExportLocalCacheBackup: () => undefined,
+      onInspectLocalCacheBackup: () => undefined,
+      onCheckForUpdates: () => undefined,
+      onSetCheckUpdatesOnStartup: () => undefined
+    }) as Array<{ label?: unknown }>)
+      .filter((item) => typeof item.label === 'string')
+      .map((item) => item.label)
 
-    expect(html).toContain('导出缓存')
-    expect(html).toContain('导入缓存')
+    expect(labels).toContain('导出缓存')
+    expect(labels).toContain('导入缓存')
   })
 
   it('offers merge as the first import strategy and replace as an explicit option', () => {
@@ -71,43 +73,3 @@ describe('LocalCachePortabilityModal', () => {
     ])
   })
 })
-
-function createToolbarStockViewModel() {
-  return {
-    query: {
-      sourceId: 'eastmoney',
-      symbol: 'sh000001',
-      period: 'day',
-      adjust: 'qfq',
-      startDate: '20260801',
-      endDate: '20260814'
-    },
-    setSymbol: () => undefined,
-    refreshStock: () => undefined,
-    isCurrentSymbolWatched: false,
-    watchlist: [],
-    watchlistOpen: false,
-    toggleWatchlistOpen: () => undefined,
-    viewMode: 'timeshare',
-    setViewMode: () => undefined,
-    availablePeriodOptions: [],
-    setPeriod: () => undefined,
-    availableAdjustOptions: [],
-    setAdjust: () => undefined,
-    setStartDate: () => undefined,
-    setEndDate: () => undefined,
-    loading: false,
-    activeSourceName: '东方财富',
-    openSourceTestDialog: () => undefined,
-    networkProxy: { enabled: false },
-    openProxyDialog: () => undefined,
-    localCacheExporting: false,
-    exportLocalCacheBackup: () => undefined,
-    localCacheImportInspecting: false,
-    localCacheImporting: false,
-    inspectLocalCacheBackup: () => undefined,
-    openStrategyPanel: () => undefined,
-    activeTitle: '上证指数',
-    openIndicatorDialog: () => undefined
-  }
-}
