@@ -82,6 +82,7 @@ export type LocalCacheBackupResult = LocalCacheBackupExportResult | LocalCacheBa
 
 export interface StockWorkspaceViewModelOptions {
   onLocalCacheImported?: () => Promise<void> | void
+  getStartupDate?: () => Date
 }
 
 export interface SourceTestResult {
@@ -214,7 +215,7 @@ export class StockWorkspaceViewModel {
     }
     this.initialized = true
     await this.loadSources()
-    await this.loadSettings()
+    await this.loadSettings({ refreshDateBaseline: true })
     this.addVisibilityListener()
     await this.refreshStock({ allowStartupFallback: true })
   }
@@ -1571,15 +1572,22 @@ export class StockWorkspaceViewModel {
     })
   }
 
-  private async loadSettings(): Promise<void> {
+  private async loadSettings(options: { refreshDateBaseline?: boolean } = {}): Promise<void> {
     try {
       const settings = await this.dataAdapter.getSettings()
+      const normalizedQuery = this.normalizeQueryForSource(settings.workspace.query)
+      const baselineResult = options.refreshDateBaseline
+        ? refreshStockQueryDateBaseline(
+            normalizedQuery,
+            this.options.getStartupDate?.() ?? new Date()
+          )
+        : { query: normalizedQuery, changed: false }
       runInAction(() => {
         this.networkProxy = settings.networkProxy
         this.proxyDraft = { ...settings.networkProxy }
         this.viewMode = normalizeWorkspaceViewMode(settings.workspace.viewMode)
         this.timeshareSourceId = this.normalizeTimeshareSourceId(settings.workspace.timeshareSourceId)
-        this.query = this.normalizeQueryForSource(settings.workspace.query)
+        this.query = baselineResult.query
         this.chart.setIndicatorSettings(
           settings.workspace.indicatorSettings,
           settings.workspace.enabledIndicators
@@ -1591,6 +1599,9 @@ export class StockWorkspaceViewModel {
         this.watchlist = normalizeWatchlist(settings.workspace.watchlist)
         this.watchlistAddPreview = parseWatchlistText(this.watchlistAddText, this.watchlist)
       })
+      if (baselineResult.changed) {
+        this.saveWorkspaceSettingsNow()
+      }
     } catch (error) {
       console.warn('Failed to load workspace settings', error)
     }
@@ -2149,16 +2160,59 @@ function formatNumber(value: number, digits = 2): string {
 
 function createDefaultStockQuery(): StockQuery {
   const endDate = new Date()
-  const startDate = new Date(endDate)
-  startDate.setFullYear(startDate.getFullYear() - 2)
+  const defaultDateRange = createDefaultDateRange(endDate)
 
   return {
     sourceId: 'eastmoney',
     symbol: 'sh000001',
     period: 'day',
     adjust: 'qfq',
-    startDate: formatDateKey(startDate),
-    endDate: formatDateKey(endDate)
+    startDate: defaultDateRange.startDate,
+    endDate: defaultDateRange.endDate
+  }
+}
+
+export interface StockQueryDateBaselineRefreshResult {
+  query: StockQuery
+  changed: boolean
+}
+
+export function refreshStockQueryDateBaseline(
+  query: StockQuery,
+  startupDate: Date
+): StockQueryDateBaselineRefreshResult {
+  const startupDateKey = formatDateKey(startupDate)
+  const spanDays = getDateKeySpanDays(query.startDate, query.endDate)
+
+  if (spanDays === null) {
+    const defaultDateRange = createDefaultDateRange(startupDate)
+    const nextQuery = {
+      ...query,
+      startDate: defaultDateRange.startDate,
+      endDate: defaultDateRange.endDate
+    }
+    return {
+      query: nextQuery,
+      changed: !stockQueryEquals(query, nextQuery)
+    }
+  }
+
+  if (query.endDate === startupDateKey) {
+    return {
+      query,
+      changed: false
+    }
+  }
+
+  const nextQuery = {
+    ...query,
+    startDate: addDaysToDateKey(startupDateKey, -spanDays),
+    endDate: startupDateKey
+  }
+
+  return {
+    query: nextQuery,
+    changed: !stockQueryEquals(query, nextQuery)
   }
 }
 
@@ -2185,6 +2239,59 @@ function formatDateKey(date: Date): string {
   const month = String(date.getMonth() + 1).padStart(2, '0')
   const day = String(date.getDate()).padStart(2, '0')
   return `${year}${month}${day}`
+}
+
+function createDefaultDateRange(endDate: Date): Pick<StockQuery, 'startDate' | 'endDate'> {
+  const startDate = new Date(endDate)
+  startDate.setFullYear(startDate.getFullYear() - 2)
+  return {
+    startDate: formatDateKey(startDate),
+    endDate: formatDateKey(endDate)
+  }
+}
+
+function getDateKeySpanDays(startDateKey: string, endDateKey: string): number | null {
+  const startTimestamp = parseDateKeyToUtcTimestamp(startDateKey)
+  const endTimestamp = parseDateKeyToUtcTimestamp(endDateKey)
+  if (startTimestamp === null || endTimestamp === null || startTimestamp > endTimestamp) {
+    return null
+  }
+  return Math.round((endTimestamp - startTimestamp) / 86_400_000)
+}
+
+function addDaysToDateKey(dateKey: string, amount: number): string {
+  const timestamp = parseDateKeyToUtcTimestamp(dateKey)
+  if (timestamp === null) {
+    return dateKey
+  }
+  return formatUtcDateKey(new Date(timestamp + amount * 86_400_000))
+}
+
+function parseDateKeyToUtcTimestamp(dateKey: string): number | null {
+  if (!/^\d{8}$/.test(dateKey)) {
+    return null
+  }
+  const year = Number(dateKey.slice(0, 4))
+  const month = Number(dateKey.slice(4, 6))
+  const day = Number(dateKey.slice(6, 8))
+  const timestamp = Date.UTC(year, month - 1, day)
+  const date = new Date(timestamp)
+  if (
+    date.getUTCFullYear() !== year ||
+    date.getUTCMonth() !== month - 1 ||
+    date.getUTCDate() !== day
+  ) {
+    return null
+  }
+  return timestamp
+}
+
+function formatUtcDateKey(date: Date): string {
+  return [
+    date.getUTCFullYear(),
+    String(date.getUTCMonth() + 1).padStart(2, '0'),
+    String(date.getUTCDate()).padStart(2, '0')
+  ].join('')
 }
 
 function normalizeDateInput(value: string): string {

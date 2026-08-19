@@ -28,7 +28,10 @@ import type {
 } from '../src/renderer/features/stock-workspace/models/stock-types'
 import { expandKlineCacheStockQueries } from '../src/renderer/features/stock-workspace/models/kline-cache'
 import { createDefaultTradeProfitSettings } from '../src/renderer/features/trade-profit-calculator/models/trade-profit'
-import { StockWorkspaceViewModel } from '../src/renderer/features/stock-workspace/view-models/StockWorkspaceViewModel'
+import {
+  StockWorkspaceViewModel,
+  type StockWorkspaceViewModelOptions
+} from '../src/renderer/features/stock-workspace/view-models/StockWorkspaceViewModel'
 
 class FakeDataAdapter implements StockDataAdapter {
   private settings: AppSettings = createDefaultSettings()
@@ -47,6 +50,7 @@ class FakeDataAdapter implements StockDataAdapter {
   nextLocalCacheExportResult: LocalCacheBackupExportResult | null = null
   nextLocalCacheInspectResult: LocalCacheBackupInspectResult | null = null
   nextLocalCacheImportResult: LocalCacheBackupImportResult | null = null
+  failWorkspaceSaves = false
   cachedKlineDatasetResults: KlineCachedDatasetResult[] = []
   cachedKlineQueries: StockQuery[] = []
   localCacheExportCount = 0
@@ -57,6 +61,10 @@ class FakeDataAdapter implements StockDataAdapter {
     if (settings) {
       this.settings = settings
     }
+  }
+
+  get workspaceEndDate(): string {
+    return this.settings.workspace.query.endDate
   }
 
   async getStockDataSources(): Promise<StockDataSourceMeta[]> {
@@ -257,6 +265,9 @@ class FakeDataAdapter implements StockDataAdapter {
 
   async setWorkspaceSettings(workspace: WorkspaceSettings): Promise<AppSettings> {
     this.savedWorkspaceSettings.push(workspace)
+    if (this.failWorkspaceSaves) {
+      throw new Error('save failed')
+    }
     this.settings = {
       ...this.settings,
       workspace
@@ -317,13 +328,48 @@ const stockNameBySymbol: Record<string, string> = {
   sz000002: '万科A'
 }
 
+function createStockWorkspaceViewModel(
+  adapter: StockDataAdapter,
+  options: StockWorkspaceViewModelOptions = {}
+): StockWorkspaceViewModel {
+  return new StockWorkspaceViewModel(adapter, {
+    getStartupDate: () => getStartupDateForAdapter(adapter),
+    ...options
+  })
+}
+
+function getStartupDateForAdapter(adapter: StockDataAdapter): Date {
+  if (adapter instanceof FakeDataAdapter) {
+    return dateFromDateKey(adapter.workspaceEndDate) ?? new Date(2026, 0, 1)
+  }
+  return new Date(2026, 0, 1)
+}
+
+function dateFromDateKey(dateKey: string): Date | null {
+  if (!/^\d{8}$/.test(dateKey)) {
+    return null
+  }
+  const year = Number(dateKey.slice(0, 4))
+  const month = Number(dateKey.slice(4, 6))
+  const day = Number(dateKey.slice(6, 8))
+  const date = new Date(year, month - 1, day)
+  if (
+    date.getFullYear() !== year ||
+    date.getMonth() !== month - 1 ||
+    date.getDate() !== day
+  ) {
+    return null
+  }
+  return date
+}
+
 afterEach(() => {
   vi.useRealTimers()
 })
 
 describe('StockWorkspaceViewModel', () => {
   it('loads default timeshare data into timeshare state', async () => {
-    const viewModel = new StockWorkspaceViewModel(new FakeDataAdapter())
+    const viewModel = createStockWorkspaceViewModel(new FakeDataAdapter())
 
     await viewModel.initialize()
 
@@ -335,7 +381,7 @@ describe('StockWorkspaceViewModel', () => {
   })
 
   it('reports advanced timeshare indicator availability from the current dataset', async () => {
-    const viewModel = new StockWorkspaceViewModel(new FakeDataAdapter())
+    const viewModel = createStockWorkspaceViewModel(new FakeDataAdapter())
 
     await viewModel.initialize()
 
@@ -350,7 +396,7 @@ describe('StockWorkspaceViewModel', () => {
   })
 
   it('falls back to Tencent during startup when Eastmoney fails', async () => {
-    const viewModel = new StockWorkspaceViewModel(
+    const viewModel = createStockWorkspaceViewModel(
       new FakeDataAdapter(['eastmoney'], createKlineSettings())
     )
 
@@ -362,7 +408,7 @@ describe('StockWorkspaceViewModel', () => {
   })
 
   it('tests all data sources and records request status', async () => {
-    const viewModel = new StockWorkspaceViewModel(
+    const viewModel = createStockWorkspaceViewModel(
       new FakeDataAdapter(['eastmoney'], createKlineSettings())
     )
 
@@ -384,7 +430,7 @@ describe('StockWorkspaceViewModel', () => {
   })
 
   it('normalizes query options when switching data sources', async () => {
-    const viewModel = new StockWorkspaceViewModel(new FakeDataAdapter([], createKlineSettings()))
+    const viewModel = createStockWorkspaceViewModel(new FakeDataAdapter([], createKlineSettings()))
 
     await viewModel.initialize()
     viewModel.setSourceId('sina')
@@ -394,7 +440,7 @@ describe('StockWorkspaceViewModel', () => {
   })
 
   it('restores cached workspace query and indicator settings on startup', async () => {
-    const viewModel = new StockWorkspaceViewModel(
+    const viewModel = createStockWorkspaceViewModel(
       new FakeDataAdapter([], {
         ...createDefaultSettings(),
         workspace: {
@@ -434,8 +480,190 @@ describe('StockWorkspaceViewModel', () => {
     expect(viewModel.timeshareSourceId).toBe('eastmoney')
   })
 
+  it('refreshes the saved kline date baseline to the startup date', async () => {
+    const adapter = new FakeDataAdapter([], {
+      ...createKlineSettings(),
+      workspace: {
+        ...createKlineSettings().workspace,
+        query: {
+          ...createKlineSettings().workspace.query,
+          symbol: 'sz000001',
+          startDate: '20260801',
+          endDate: '20260810'
+        }
+      }
+    })
+    const viewModel = createStockWorkspaceViewModel(adapter, {
+      getStartupDate: () => new Date(2026, 7, 19)
+    })
+
+    await viewModel.initialize()
+
+    expect(viewModel.query).toMatchObject({
+      symbol: 'sz000001',
+      startDate: '20260810',
+      endDate: '20260819'
+    })
+    expect(adapter.stockQueries[0]).toMatchObject({
+      symbol: 'sz000001',
+      startDate: '20260810',
+      endDate: '20260819'
+    })
+    expect(adapter.savedWorkspaceSettings).toHaveLength(1)
+    expect(adapter.savedWorkspaceSettings[0].query).toMatchObject({
+      symbol: 'sz000001',
+      startDate: '20260810',
+      endDate: '20260819'
+    })
+  })
+
+  it('continues startup refresh when saving the adjusted date baseline fails', async () => {
+    const adapter = new FakeDataAdapter([], {
+      ...createKlineSettings(),
+      workspace: {
+        ...createKlineSettings().workspace,
+        query: {
+          ...createKlineSettings().workspace.query,
+          startDate: '20260801',
+          endDate: '20260810'
+        }
+      }
+    })
+    adapter.failWorkspaceSaves = true
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const viewModel = createStockWorkspaceViewModel(adapter, {
+      getStartupDate: () => new Date(2026, 7, 19)
+    })
+
+    await viewModel.initialize()
+
+    expect(viewModel.status).toBe('success')
+    expect(viewModel.query).toMatchObject({
+      startDate: '20260810',
+      endDate: '20260819'
+    })
+    expect(adapter.stockQueries[0]).toMatchObject({
+      startDate: '20260810',
+      endDate: '20260819'
+    })
+    expect(adapter.savedWorkspaceSettings).toHaveLength(1)
+    expect(warnSpy).toHaveBeenCalledWith('Failed to save workspace settings', expect.any(Error))
+    warnSpy.mockRestore()
+  })
+
+  it('keeps the saved kline dates on same-day startup without saving', async () => {
+    const adapter = new FakeDataAdapter([], {
+      ...createKlineSettings(),
+      workspace: {
+        ...createKlineSettings().workspace,
+        query: {
+          ...createKlineSettings().workspace.query,
+          startDate: '20260810',
+          endDate: '20260819'
+        }
+      }
+    })
+    const viewModel = createStockWorkspaceViewModel(adapter, {
+      getStartupDate: () => new Date(2026, 7, 19)
+    })
+
+    await viewModel.initialize()
+
+    expect(viewModel.query).toMatchObject({
+      startDate: '20260810',
+      endDate: '20260819'
+    })
+    expect(adapter.stockQueries[0]).toMatchObject({
+      startDate: '20260810',
+      endDate: '20260819'
+    })
+    expect(adapter.savedWorkspaceSettings).toHaveLength(0)
+  })
+
+  it('falls back to the default startup date range when saved kline dates are invalid', async () => {
+    const adapter = new FakeDataAdapter([], {
+      ...createKlineSettings(),
+      workspace: {
+        ...createKlineSettings().workspace,
+        query: {
+          ...createKlineSettings().workspace.query,
+          sourceId: 'tencent',
+          symbol: 'sz000001',
+          startDate: '20260820',
+          endDate: '20260810'
+        }
+      }
+    })
+    const viewModel = createStockWorkspaceViewModel(adapter, {
+      getStartupDate: () => new Date(2026, 7, 19)
+    })
+
+    await viewModel.initialize()
+
+    expect(viewModel.query).toMatchObject({
+      sourceId: 'tencent',
+      symbol: 'sz000001',
+      startDate: '20240819',
+      endDate: '20260819'
+    })
+    expect(adapter.stockQueries[0]).toMatchObject({
+      sourceId: 'tencent',
+      symbol: 'sz000001',
+      startDate: '20240819',
+      endDate: '20260819'
+    })
+    expect(adapter.savedWorkspaceSettings).toHaveLength(1)
+    expect(adapter.savedWorkspaceSettings[0].query).toMatchObject({
+      sourceId: 'tencent',
+      symbol: 'sz000001',
+      startDate: '20240819',
+      endDate: '20260819'
+    })
+  })
+
+  it('falls back to the default startup date range when saved kline dates are unparseable', async () => {
+    const adapter = new FakeDataAdapter([], {
+      ...createKlineSettings(),
+      workspace: {
+        ...createKlineSettings().workspace,
+        query: {
+          ...createKlineSettings().workspace.query,
+          sourceId: 'tencent',
+          symbol: 'sz000001',
+          startDate: 'not-a-date',
+          endDate: '20260810'
+        }
+      }
+    })
+    const viewModel = createStockWorkspaceViewModel(adapter, {
+      getStartupDate: () => new Date(2026, 7, 19)
+    })
+
+    await viewModel.initialize()
+
+    expect(viewModel.query).toMatchObject({
+      sourceId: 'tencent',
+      symbol: 'sz000001',
+      startDate: '20240819',
+      endDate: '20260819'
+    })
+    expect(adapter.stockQueries[0]).toMatchObject({
+      sourceId: 'tencent',
+      symbol: 'sz000001',
+      startDate: '20240819',
+      endDate: '20260819'
+    })
+    expect(adapter.savedWorkspaceSettings).toHaveLength(1)
+    expect(adapter.savedWorkspaceSettings[0].query).toMatchObject({
+      sourceId: 'tencent',
+      symbol: 'sz000001',
+      startDate: '20240819',
+      endDate: '20260819'
+    })
+  })
+
   it('restores cached watchlist on startup', async () => {
-    const viewModel = new StockWorkspaceViewModel(
+    const viewModel = createStockWorkspaceViewModel(
       new FakeDataAdapter([], {
         ...createDefaultSettings(),
         workspace: {
@@ -459,7 +687,7 @@ describe('StockWorkspaceViewModel', () => {
   })
 
   it('restores timeshare mode and loads timeshare data on startup', async () => {
-    const viewModel = new StockWorkspaceViewModel(
+    const viewModel = createStockWorkspaceViewModel(
       new FakeDataAdapter([], {
         ...createDefaultSettings(),
         workspace: {
@@ -478,7 +706,7 @@ describe('StockWorkspaceViewModel', () => {
   })
 
   it('restores cached Tencent timeshare source on startup', async () => {
-    const viewModel = new StockWorkspaceViewModel(
+    const viewModel = createStockWorkspaceViewModel(
       new FakeDataAdapter([], {
         ...createDefaultSettings(),
         workspace: {
@@ -508,7 +736,7 @@ describe('StockWorkspaceViewModel', () => {
         }
       }
     })
-    const viewModel = new StockWorkspaceViewModel(adapter)
+    const viewModel = createStockWorkspaceViewModel(adapter)
 
     await viewModel.initialize()
 
@@ -530,7 +758,7 @@ describe('StockWorkspaceViewModel', () => {
         }
       }
     })
-    const viewModel = new StockWorkspaceViewModel(adapter)
+    const viewModel = createStockWorkspaceViewModel(adapter)
 
     await viewModel.initialize()
 
@@ -540,7 +768,7 @@ describe('StockWorkspaceViewModel', () => {
   })
 
   it('tests timeshare-capable sources in timeshare mode', async () => {
-    const viewModel = new StockWorkspaceViewModel(
+    const viewModel = createStockWorkspaceViewModel(
       new FakeDataAdapter([], {
         ...createDefaultSettings(),
         workspace: {
@@ -586,7 +814,7 @@ describe('StockWorkspaceViewModel', () => {
         }
       }
     })
-    const viewModel = new StockWorkspaceViewModel(adapter)
+    const viewModel = createStockWorkspaceViewModel(adapter)
 
     await viewModel.initialize()
 
@@ -609,7 +837,7 @@ describe('StockWorkspaceViewModel', () => {
         }
       }
     })
-    const viewModel = new StockWorkspaceViewModel(adapter)
+    const viewModel = createStockWorkspaceViewModel(adapter)
 
     await viewModel.initialize()
 
@@ -634,7 +862,7 @@ describe('StockWorkspaceViewModel', () => {
         }
       }
     })
-    const viewModel = new StockWorkspaceViewModel(adapter)
+    const viewModel = createStockWorkspaceViewModel(adapter)
 
     await viewModel.initialize()
 
@@ -652,7 +880,7 @@ describe('StockWorkspaceViewModel', () => {
 
   it('exports local cache without changing current market data state', async () => {
     const adapter = new FakeDataAdapter()
-    const viewModel = new StockWorkspaceViewModel(adapter)
+    const viewModel = createStockWorkspaceViewModel(adapter)
 
     await viewModel.initialize()
     const currentSymbol = viewModel.query.symbol
@@ -701,7 +929,7 @@ describe('StockWorkspaceViewModel', () => {
       }
     }
     const onImported = vi.fn()
-    const viewModel = new StockWorkspaceViewModel(adapter, {
+    const viewModel = createStockWorkspaceViewModel(adapter, {
       onLocalCacheImported: onImported
     })
 
@@ -732,7 +960,7 @@ describe('StockWorkspaceViewModel', () => {
   })
 
   it('uses the current view mode when marking the active source', async () => {
-    const viewModel = new StockWorkspaceViewModel(
+    const viewModel = createStockWorkspaceViewModel(
       new FakeDataAdapter([], {
         ...createDefaultSettings(),
         workspace: {
@@ -758,7 +986,7 @@ describe('StockWorkspaceViewModel', () => {
 
   it('switches only the kline source in kline mode', async () => {
     const adapter = new FakeDataAdapter([], createKlineSettings())
-    const viewModel = new StockWorkspaceViewModel(adapter)
+    const viewModel = createStockWorkspaceViewModel(adapter)
 
     await viewModel.initialize()
     viewModel.setSourceId('netease163')
@@ -789,7 +1017,7 @@ describe('StockWorkspaceViewModel', () => {
         }
       }
     })
-    const viewModel = new StockWorkspaceViewModel(adapter)
+    const viewModel = createStockWorkspaceViewModel(adapter)
 
     await viewModel.initialize()
     viewModel.setSourceId('tencent')
@@ -811,7 +1039,7 @@ describe('StockWorkspaceViewModel', () => {
 
   it('saves workspace settings when users change controls', async () => {
     const adapter = new FakeDataAdapter([], createKlineSettings())
-    const viewModel = new StockWorkspaceViewModel(adapter)
+    const viewModel = createStockWorkspaceViewModel(adapter)
 
     await viewModel.initialize()
     viewModel.setPeriod('week')
@@ -833,7 +1061,7 @@ describe('StockWorkspaceViewModel', () => {
   it('debounces workspace saves for text inputs', async () => {
     vi.useFakeTimers()
     const adapter = new FakeDataAdapter([], createKlineSettings())
-    const viewModel = new StockWorkspaceViewModel(adapter)
+    const viewModel = createStockWorkspaceViewModel(adapter)
 
     await viewModel.initialize()
     viewModel.setSymbol('s')
@@ -850,7 +1078,7 @@ describe('StockWorkspaceViewModel', () => {
 
   it('adds the current stock to the watchlist and saves workspace settings', async () => {
     const adapter = new FakeDataAdapter()
-    const viewModel = new StockWorkspaceViewModel(adapter)
+    const viewModel = createStockWorkspaceViewModel(adapter)
 
     await viewModel.initialize()
     viewModel.addCurrentToWatchlist()
@@ -868,7 +1096,7 @@ describe('StockWorkspaceViewModel', () => {
 
   it('batch adds watchlist items and skips duplicates and invalid lines', async () => {
     const adapter = new FakeDataAdapter()
-    const viewModel = new StockWorkspaceViewModel(adapter)
+    const viewModel = createStockWorkspaceViewModel(adapter)
 
     await viewModel.initialize()
     viewModel.setWatchlistAddText(['600519 贵州茅台', 'sh600519', 'sz000001 平安银行', 'bad'].join('\n'))
@@ -884,7 +1112,7 @@ describe('StockWorkspaceViewModel', () => {
   })
 
   it('appends pasted clipboard text into the batch add draft and previews it', async () => {
-    const viewModel = new StockWorkspaceViewModel(new FakeDataAdapter())
+    const viewModel = createStockWorkspaceViewModel(new FakeDataAdapter())
 
     await viewModel.initialize()
     viewModel.setWatchlistAddText('600519 贵州茅台')
@@ -899,7 +1127,7 @@ describe('StockWorkspaceViewModel', () => {
   })
 
   it('shows a paste error when clipboard text is empty', async () => {
-    const viewModel = new StockWorkspaceViewModel(new FakeDataAdapter())
+    const viewModel = createStockWorkspaceViewModel(new FakeDataAdapter())
 
     await viewModel.initialize()
     viewModel.appendWatchlistAddText('   ')
@@ -919,7 +1147,7 @@ describe('StockWorkspaceViewModel', () => {
         ]
       }
     })
-    const viewModel = new StockWorkspaceViewModel(adapter)
+    const viewModel = createStockWorkspaceViewModel(adapter)
 
     await viewModel.initialize()
     viewModel.toggleWatchlistManageMode()
@@ -946,7 +1174,7 @@ describe('StockWorkspaceViewModel', () => {
         ]
       }
     })
-    const viewModel = new StockWorkspaceViewModel(adapter)
+    const viewModel = createStockWorkspaceViewModel(adapter)
 
     await viewModel.initialize()
     viewModel.toggleWatchlistManageMode()
@@ -972,7 +1200,7 @@ describe('StockWorkspaceViewModel', () => {
         watchlist: [{ symbol: 'sh600519', name: '贵州茅台', createdAt: 1 }]
       }
     })
-    const viewModel = new StockWorkspaceViewModel(adapter)
+    const viewModel = createStockWorkspaceViewModel(adapter)
 
     await viewModel.initialize()
     await viewModel.selectWatchlistItem('sh600519')
@@ -997,7 +1225,7 @@ describe('StockWorkspaceViewModel', () => {
         watchlist: [{ symbol: 'sh600519', name: '', createdAt: 1 }]
       }
     })
-    const viewModel = new StockWorkspaceViewModel(adapter)
+    const viewModel = createStockWorkspaceViewModel(adapter)
 
     await viewModel.initialize()
 
@@ -1012,7 +1240,7 @@ describe('StockWorkspaceViewModel', () => {
   })
 
   it('filters the watchlist by name, full symbol and bare code without reordering', async () => {
-    const viewModel = new StockWorkspaceViewModel(
+    const viewModel = createStockWorkspaceViewModel(
       new FakeDataAdapter([], {
         ...createDefaultSettings(),
         workspace: {
@@ -1049,7 +1277,7 @@ describe('StockWorkspaceViewModel', () => {
         ]
       }
     })
-    const viewModel = new StockWorkspaceViewModel(adapter)
+    const viewModel = createStockWorkspaceViewModel(adapter)
 
     await viewModel.initialize()
     const stockRequestCount = adapter.stockQueries.length
@@ -1087,7 +1315,7 @@ describe('StockWorkspaceViewModel', () => {
         ]
       }
     })
-    const viewModel = new StockWorkspaceViewModel(adapter)
+    const viewModel = createStockWorkspaceViewModel(adapter)
 
     await viewModel.initialize()
     viewModel.setWatchlistSearchText('平安')
@@ -1102,7 +1330,7 @@ describe('StockWorkspaceViewModel', () => {
   })
 
   it('applies watchlist select all and invert only to the filtered rows', async () => {
-    const viewModel = new StockWorkspaceViewModel(
+    const viewModel = createStockWorkspaceViewModel(
       new FakeDataAdapter([], {
         ...createDefaultSettings(),
         workspace: {
@@ -1131,7 +1359,7 @@ describe('StockWorkspaceViewModel', () => {
   })
 
   it('clears watchlist selection when closing the panel', async () => {
-    const viewModel = new StockWorkspaceViewModel(
+    const viewModel = createStockWorkspaceViewModel(
       new FakeDataAdapter([], {
         ...createDefaultSettings(),
         workspace: {
@@ -1174,7 +1402,7 @@ describe('StockWorkspaceViewModel', () => {
         watchlist: [{ symbol: 'sh600519', name: '贵州茅台', createdAt: 1 }]
       }
     })
-    const viewModel = new StockWorkspaceViewModel(adapter)
+    const viewModel = createStockWorkspaceViewModel(adapter)
 
     await viewModel.initialize()
     const timeshareRequestCount = adapter.timeshareQueries.length
@@ -1211,7 +1439,7 @@ describe('StockWorkspaceViewModel', () => {
         watchlist: []
       }
     })
-    const viewModel = new StockWorkspaceViewModel(adapter)
+    const viewModel = createStockWorkspaceViewModel(adapter)
 
     await viewModel.initialize()
     viewModel.openKlineCacheDialog()
@@ -1238,7 +1466,7 @@ describe('StockWorkspaceViewModel', () => {
         watchlist: [{ symbol: 'sh600519', name: '贵州茅台', createdAt: 1 }]
       }
     })
-    const viewModel = new StockWorkspaceViewModel(adapter)
+    const viewModel = createStockWorkspaceViewModel(adapter)
 
     await viewModel.initialize()
     viewModel.openKlineCacheDialog()
@@ -1266,7 +1494,7 @@ describe('StockWorkspaceViewModel', () => {
         ]
       }
     })
-    const viewModel = new StockWorkspaceViewModel(adapter)
+    const viewModel = createStockWorkspaceViewModel(adapter)
 
     await viewModel.initialize()
     viewModel.openKlineCacheDialog()
@@ -1315,7 +1543,7 @@ describe('StockWorkspaceViewModel', () => {
 
   it('disables multi-stock cache refresh when the watchlist is empty', async () => {
     const adapter = new FakeDataAdapter([], createKlineSettings())
-    const viewModel = new StockWorkspaceViewModel(adapter)
+    const viewModel = createStockWorkspaceViewModel(adapter)
 
     await viewModel.initialize()
     viewModel.openKlineCacheDialog()
@@ -1336,7 +1564,7 @@ describe('StockWorkspaceViewModel', () => {
 
   it('ignores stale single-stock cache status after switching to empty multi-stock mode', async () => {
     const adapter = new DeferredKlineCacheStatusAdapter([], createKlineSettings())
-    const viewModel = new StockWorkspaceViewModel(adapter)
+    const viewModel = createStockWorkspaceViewModel(adapter)
 
     await viewModel.initialize()
     viewModel.openKlineCacheDialog()
@@ -1370,7 +1598,7 @@ describe('StockWorkspaceViewModel', () => {
         watchlist: [{ symbol: 'sh600519', name: '贵州茅台', createdAt: 1 }]
       }
     })
-    const viewModel = new StockWorkspaceViewModel(adapter)
+    const viewModel = createStockWorkspaceViewModel(adapter)
 
     await viewModel.initialize()
     viewModel.openKlineCacheDialog()
@@ -1394,7 +1622,7 @@ describe('StockWorkspaceViewModel', () => {
         watchlist: [{ symbol: 'sh600519', name: '贵州茅台', createdAt: 1 }]
       }
     })
-    const viewModel = new StockWorkspaceViewModel(adapter)
+    const viewModel = createStockWorkspaceViewModel(adapter)
 
     await viewModel.initialize()
     viewModel.openKlineCacheDialog()
@@ -1425,7 +1653,7 @@ describe('StockWorkspaceViewModel', () => {
         watchlist: [{ symbol: 'sh600519', name: '贵州茅台', createdAt: 1 }]
       }
     })
-    const viewModel = new StockWorkspaceViewModel(adapter)
+    const viewModel = createStockWorkspaceViewModel(adapter)
 
     await viewModel.initialize()
     const dataset = viewModel.chart.dataset
@@ -1453,7 +1681,7 @@ describe('StockWorkspaceViewModel', () => {
         watchlist: [{ symbol: 'sh600519', name: '贵州茅台', createdAt: 1 }]
       }
     })
-    const viewModel = new StockWorkspaceViewModel(adapter)
+    const viewModel = createStockWorkspaceViewModel(adapter)
 
     await viewModel.initialize()
     viewModel.openKlineCacheDialog()
@@ -1473,7 +1701,7 @@ describe('StockWorkspaceViewModel', () => {
         watchlist: [{ symbol: 'sh600519', name: '贵州茅台', createdAt: 1 }]
       }
     })
-    const viewModel = new StockWorkspaceViewModel(adapter)
+    const viewModel = createStockWorkspaceViewModel(adapter)
 
     await viewModel.initialize()
     viewModel.openKlineCacheDialog()
@@ -1501,7 +1729,7 @@ describe('StockWorkspaceViewModel', () => {
         watchlist: [{ symbol: 'sh600519', name: '贵州茅台', createdAt: 1 }]
       }
     })
-    const viewModel = new StockWorkspaceViewModel(adapter)
+    const viewModel = createStockWorkspaceViewModel(adapter)
 
     await viewModel.initialize()
     viewModel.openKlineCacheDialog()
@@ -1532,7 +1760,7 @@ describe('StockWorkspaceViewModel', () => {
         watchlist: [{ symbol: 'sh600519', name: '贵州茅台', createdAt: 1 }]
       }
     })
-    const viewModel = new StockWorkspaceViewModel(adapter)
+    const viewModel = createStockWorkspaceViewModel(adapter)
 
     await viewModel.initialize()
     viewModel.openKlineCacheDialog()
@@ -1575,7 +1803,7 @@ describe('StockWorkspaceViewModel', () => {
         endDate: '20240210'
       }
     } as unknown as KlineStrategySettings
-    const viewModel = new StockWorkspaceViewModel(
+    const viewModel = createStockWorkspaceViewModel(
       new FakeDataAdapter([], {
         ...createKlineSettings(),
         workspace: {
@@ -1603,7 +1831,7 @@ describe('StockWorkspaceViewModel', () => {
   })
 
   it('derives strategy template display rows in the view model', async () => {
-    const viewModel = new StockWorkspaceViewModel(new FakeDataAdapter([], createKlineSettings()))
+    const viewModel = createStockWorkspaceViewModel(new FakeDataAdapter([], createKlineSettings()))
 
     await viewModel.initialize()
     viewModel.openStrategyPanel()
@@ -1628,7 +1856,7 @@ describe('StockWorkspaceViewModel', () => {
     const adapter = new FakeDataAdapter([], createKlineSettings())
     adapter.nextStockDataset = createCrossingStockDataset()
     adapter.nextCachedKlineDatasetResult = createCompleteCachedKlineDatasetResult()
-    const viewModel = new StockWorkspaceViewModel(adapter)
+    const viewModel = createStockWorkspaceViewModel(adapter)
 
     await viewModel.initialize()
     viewModel.openStrategyPanel()
@@ -1668,7 +1896,7 @@ describe('StockWorkspaceViewModel', () => {
     const adapter = new FakeDataAdapter([], createKlineSettings())
     adapter.nextStockDataset = createCrossingStockDataset()
     adapter.nextCachedKlineDatasetResult = createCompleteCachedKlineDatasetResult()
-    const viewModel = new StockWorkspaceViewModel(adapter)
+    const viewModel = createStockWorkspaceViewModel(adapter)
 
     await viewModel.initialize()
     viewModel.openStrategyPanel()
@@ -1699,7 +1927,7 @@ describe('StockWorkspaceViewModel', () => {
     }
     adapter.nextStockDataset = createCrossingStockDataset()
     adapter.nextCachedKlineDatasetResult = createCompleteCachedKlineDatasetResult(expectedQuery)
-    const viewModel = new StockWorkspaceViewModel(adapter)
+    const viewModel = createStockWorkspaceViewModel(adapter)
 
     await viewModel.initialize()
     viewModel.setEndDate('20240214')
@@ -1730,6 +1958,58 @@ describe('StockWorkspaceViewModel', () => {
     expect((savedStrategySettings as unknown as { dateRange?: unknown })?.dateRange).toBeUndefined()
   })
 
+  it('keeps a manually selected historical date range during the current session', async () => {
+    const adapter = new FakeDataAdapter([], {
+      ...createKlineSettings(),
+      workspace: {
+        ...createKlineSettings().workspace,
+        query: {
+          ...createKlineSettings().workspace.query,
+          startDate: '20260810',
+          endDate: '20260819'
+        }
+      }
+    })
+    const expectedQuery: StockQuery = {
+      ...createKlineSettings().workspace.query,
+      startDate: '20240101',
+      endDate: '20240214'
+    }
+    adapter.nextCachedKlineDatasetResult = createCompleteCachedKlineDatasetResult(expectedQuery)
+    const viewModel = createStockWorkspaceViewModel(adapter, {
+      getStartupDate: () => new Date(2026, 7, 19)
+    })
+
+    await viewModel.initialize()
+    viewModel.setStartDate('20240101')
+    viewModel.setEndDate('20240214')
+    await viewModel.refreshStock()
+    viewModel.openKlineCacheDialog()
+    await Promise.resolve()
+    viewModel.openStrategyPanel()
+    viewModel.setStrategySelectedTemplateIds(['ma-cross'])
+    viewModel.setStrategyDraftParam('ma-cross', 'shortPeriod', 3)
+    viewModel.setStrategyDraftParam('ma-cross', 'longPeriod', 8)
+    await viewModel.runStrategyBacktest()
+
+    expect(adapter.stockQueries.at(-1)).toMatchObject({
+      startDate: '20240101',
+      endDate: '20240214'
+    })
+    expect(adapter.klineCacheStatusRequests.at(-1)?.query).toMatchObject({
+      startDate: '20240101',
+      endDate: '20240214'
+    })
+    expect(adapter.cachedKlineQueries.at(-1)).toMatchObject({
+      startDate: '20240101',
+      endDate: '20240214'
+    })
+    expect(viewModel.query).toMatchObject({
+      startDate: '20240101',
+      endDate: '20240214'
+    })
+  })
+
   it('runs strategy backtest when a complete cache starts after a non-trading boundary', async () => {
     const adapter = new FakeDataAdapter([], createKlineSettings())
     const query: StockQuery = {
@@ -1743,7 +2023,7 @@ describe('StockWorkspaceViewModel', () => {
       query,
       createCrossingStockDatasetWithDateRange('20240812', '20260810')
     )
-    const viewModel = new StockWorkspaceViewModel(adapter)
+    const viewModel = createStockWorkspaceViewModel(adapter)
 
     await viewModel.initialize()
     viewModel.setSymbol('sh601138')
@@ -1786,7 +2066,7 @@ describe('StockWorkspaceViewModel', () => {
       createCompleteCachedKlineDatasetResult(query, dataset),
       createCompleteCachedKlineDatasetResult(query, dataset)
     ]
-    const viewModel = new StockWorkspaceViewModel(adapter)
+    const viewModel = createStockWorkspaceViewModel(adapter)
 
     await viewModel.initialize()
     viewModel.setSymbol('sh601138')
@@ -1807,7 +2087,7 @@ describe('StockWorkspaceViewModel', () => {
 
   it('displays the current kline date range in strategy settings', async () => {
     const adapter = new FakeDataAdapter([], createKlineSettings())
-    const viewModel = new StockWorkspaceViewModel(adapter)
+    const viewModel = createStockWorkspaceViewModel(adapter)
 
     await viewModel.initialize()
     viewModel.setStartDate('20240110')
@@ -1821,7 +2101,7 @@ describe('StockWorkspaceViewModel', () => {
 
   it('blocks strategy backtest when the current kline date range is invalid', async () => {
     const adapter = new FakeDataAdapter([], createKlineSettings())
-    const viewModel = new StockWorkspaceViewModel(adapter)
+    const viewModel = createStockWorkspaceViewModel(adapter)
 
     await viewModel.initialize()
     viewModel.setStartDate('20240210')
@@ -1836,7 +2116,7 @@ describe('StockWorkspaceViewModel', () => {
   })
 
   it('keeps strategy assumption inputs empty while users are editing numeric fields', async () => {
-    const viewModel = new StockWorkspaceViewModel(new FakeDataAdapter([], createKlineSettings()))
+    const viewModel = createStockWorkspaceViewModel(new FakeDataAdapter([], createKlineSettings()))
 
     await viewModel.initialize()
     viewModel.openStrategyPanel()
@@ -1862,7 +2142,7 @@ describe('StockWorkspaceViewModel', () => {
       }),
       missingRanges: []
     }
-    const viewModel = new StockWorkspaceViewModel(adapter)
+    const viewModel = createStockWorkspaceViewModel(adapter)
 
     await viewModel.initialize()
     viewModel.setStartDate('20230101')
@@ -1898,7 +2178,7 @@ describe('StockWorkspaceViewModel', () => {
         missingRanges: []
       }
     ]
-    const viewModel = new StockWorkspaceViewModel(adapter)
+    const viewModel = createStockWorkspaceViewModel(adapter)
 
     await viewModel.initialize()
     viewModel.setStartDate('20230101')
@@ -1964,7 +2244,7 @@ describe('StockWorkspaceViewModel', () => {
         missingRanges: []
       }
     ]
-    const viewModel = new StockWorkspaceViewModel(adapter)
+    const viewModel = createStockWorkspaceViewModel(adapter)
 
     await viewModel.initialize()
     viewModel.setStartDate('20160810')
@@ -1987,7 +2267,7 @@ describe('StockWorkspaceViewModel', () => {
     const adapter = new FakeDataAdapter([], createKlineSettings())
     adapter.nextStockDataset = createCrossingStockDataset()
     adapter.nextCachedKlineDatasetResult = createCompleteCachedKlineDatasetResult()
-    const viewModel = new StockWorkspaceViewModel(adapter)
+    const viewModel = createStockWorkspaceViewModel(adapter)
 
     await viewModel.initialize()
     viewModel.toggleIndicator('strategySignal', true)
@@ -2036,7 +2316,7 @@ describe('StockWorkspaceViewModel', () => {
       rows: [],
       startedAt: 1
     }
-    const viewModel = new StockWorkspaceViewModel(adapter)
+    const viewModel = createStockWorkspaceViewModel(adapter)
 
     await viewModel.initialize()
     viewModel.setStartDate('20230101')
@@ -2063,7 +2343,7 @@ describe('StockWorkspaceViewModel', () => {
 
   it('blocks strategy backtest for minute kline periods without reading cache', async () => {
     const adapter = new FakeDataAdapter([], createKlineSettings())
-    const viewModel = new StockWorkspaceViewModel(adapter)
+    const viewModel = createStockWorkspaceViewModel(adapter)
 
     await viewModel.initialize()
     viewModel.setPeriod('5')
@@ -2079,7 +2359,7 @@ describe('StockWorkspaceViewModel', () => {
     const adapter = new FakeDataAdapter([], createKlineSettings())
     adapter.nextStockDataset = createCrossingStockDataset()
     adapter.nextCachedKlineDatasetResult = createCompleteCachedKlineDatasetResult()
-    const viewModel = new StockWorkspaceViewModel(adapter)
+    const viewModel = createStockWorkspaceViewModel(adapter)
 
     await viewModel.initialize()
     viewModel.toggleIndicator('strategySignal', true)
@@ -2103,7 +2383,7 @@ describe('StockWorkspaceViewModel', () => {
     const adapter = new FakeDataAdapter([], createKlineSettings())
     adapter.nextStockDataset = createCrossingStockDataset()
     adapter.nextCachedKlineDatasetResult = createCompleteCachedKlineDatasetResult()
-    const viewModel = new StockWorkspaceViewModel(adapter)
+    const viewModel = createStockWorkspaceViewModel(adapter)
 
     await viewModel.initialize()
     viewModel.toggleIndicator('strategySignal', true)
@@ -2126,7 +2406,7 @@ describe('StockWorkspaceViewModel', () => {
 
   it('does not run strategy backtest in timeshare mode', async () => {
     const adapter = new FakeDataAdapter()
-    const viewModel = new StockWorkspaceViewModel(adapter)
+    const viewModel = createStockWorkspaceViewModel(adapter)
 
     await viewModel.initialize()
     viewModel.openStrategyPanel()
@@ -2139,7 +2419,7 @@ describe('StockWorkspaceViewModel', () => {
   })
 
   it('saves proxy settings from the workspace state', async () => {
-    const viewModel = new StockWorkspaceViewModel(new FakeDataAdapter([], createKlineSettings()))
+    const viewModel = createStockWorkspaceViewModel(new FakeDataAdapter([], createKlineSettings()))
 
     await viewModel.initialize()
     viewModel.openProxyDialog()
@@ -2159,7 +2439,7 @@ describe('StockWorkspaceViewModel', () => {
   })
 
   it('toggles chart indicators', () => {
-    const viewModel = new StockWorkspaceViewModel(new FakeDataAdapter())
+    const viewModel = createStockWorkspaceViewModel(new FakeDataAdapter())
 
     viewModel.toggleIndicator('boll', false)
 
@@ -2170,7 +2450,7 @@ describe('StockWorkspaceViewModel', () => {
     const adapter = new FakeDataAdapter([], createKlineSettings())
     adapter.nextStockDataset = createCrossingStockDataset()
     adapter.nextCachedKlineDatasetResult = createCompleteCachedKlineDatasetResult()
-    const viewModel = new StockWorkspaceViewModel(adapter)
+    const viewModel = createStockWorkspaceViewModel(adapter)
 
     await viewModel.initialize()
 
@@ -2210,7 +2490,7 @@ describe('StockWorkspaceViewModel', () => {
 
   it('applies indicator dialog drafts and saves indicator params', async () => {
     const adapter = new FakeDataAdapter([], createKlineSettings())
-    const viewModel = new StockWorkspaceViewModel(adapter)
+    const viewModel = createStockWorkspaceViewModel(adapter)
 
     await viewModel.initialize()
     viewModel.openIndicatorDialog()
@@ -2226,7 +2506,7 @@ describe('StockWorkspaceViewModel', () => {
 
   it('previews kline indicator drafts without saving until apply', async () => {
     const adapter = new FakeDataAdapter([], createKlineSettings())
-    const viewModel = new StockWorkspaceViewModel(adapter)
+    const viewModel = createStockWorkspaceViewModel(adapter)
 
     await viewModel.initialize()
     const saveCount = adapter.savedWorkspaceSettings.length
@@ -2249,7 +2529,7 @@ describe('StockWorkspaceViewModel', () => {
 
   it('saves kline indicator style and precision after applying the draft', async () => {
     const adapter = new FakeDataAdapter([], createKlineSettings())
-    const viewModel = new StockWorkspaceViewModel(adapter)
+    const viewModel = createStockWorkspaceViewModel(adapter)
 
     await viewModel.initialize()
     viewModel.openIndicatorDialog()
@@ -2272,7 +2552,7 @@ describe('StockWorkspaceViewModel', () => {
   })
 
   it('keeps the last valid preview when kline indicator draft has errors', async () => {
-    const viewModel = new StockWorkspaceViewModel(new FakeDataAdapter([], createKlineSettings()))
+    const viewModel = createStockWorkspaceViewModel(new FakeDataAdapter([], createKlineSettings()))
 
     await viewModel.initialize()
     viewModel.openIndicatorDialog()
@@ -2285,7 +2565,7 @@ describe('StockWorkspaceViewModel', () => {
 
   it('applies timeshare indicator drafts without refetching remote data', async () => {
     const adapter = new FakeDataAdapter([], createDefaultSettings())
-    const viewModel = new StockWorkspaceViewModel(adapter)
+    const viewModel = createStockWorkspaceViewModel(adapter)
 
     await viewModel.initialize()
     const requestCount = adapter.timeshareQueries.length
@@ -2307,7 +2587,7 @@ describe('StockWorkspaceViewModel', () => {
   })
 
   it('prevents enabling more than three sub indicators in the draft', () => {
-    const viewModel = new StockWorkspaceViewModel(new FakeDataAdapter())
+    const viewModel = createStockWorkspaceViewModel(new FakeDataAdapter())
 
     viewModel.openIndicatorDialog()
     viewModel.setKLineIndicatorDraftEnabled('macd', true)
