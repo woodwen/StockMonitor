@@ -226,9 +226,13 @@ export const TopToolbar = observer(({ stock, updates, tradeProfit }: TopToolbarP
             <span className="toolbar-button-text">做T</span>
           </Button>
         </Tooltip>
-        <Tooltip title="手动发送当前工作区摘要给 AI">
-          <Button icon={<BulbOutlined />} onClick={stock.openAiAnalysisPanel} aria-label="AI">
-            <span className="toolbar-button-text">AI</span>
+        <Tooltip title="AI 分析（测试中）：手动发送当前工作区摘要给 AI">
+          <Button
+            icon={<BulbOutlined />}
+            onClick={stock.openAiAnalysisPanel}
+            aria-label="AI 分析（测试中）"
+          >
+            <span className="toolbar-button-text">AI（测试中）</span>
           </Button>
         </Tooltip>
         {stock.viewMode === 'kline' ? (

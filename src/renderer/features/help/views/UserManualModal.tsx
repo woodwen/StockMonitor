@@ -18,7 +18,7 @@ const manualSections = [
   { id: 'manual-kline-cache', label: 'K 线缓存' },
   { id: 'manual-strategy', label: '策略回测' },
   { id: 'manual-trade-profit', label: '做T测算' },
-  { id: 'manual-ai', label: 'AI 分析' },
+  { id: 'manual-ai', label: 'AI 分析（测试中）' },
   { id: 'manual-sources', label: '数据源' },
   { id: 'manual-proxy', label: '网络代理' },
   { id: 'manual-updates', label: '应用更新' },
@@ -76,7 +76,7 @@ export function UserManualModal({ open, onClose }: UserManualModalProps): React.
               <li>按 Enter 或点击“刷新”，加载当前视图对应的远端行情。</li>
               <li>使用“分时 / K线”切换视图；分时和 K 线会分别保存数据源选择。</li>
               <li>K 线模式下可以使用“缓存”准备自选股历史 K 线，也可以使用顶部“策略”查看候选策略历史回测。</li>
-              <li>点击顶部“AI”手动生成当前工作区摘要分析；AI connector 默认禁用，需要先在“更多 -&gt; AI 设置”中配置。</li>
+              <li>点击顶部“AI（测试中）”手动生成当前工作区摘要分析；AI connector 默认禁用，需要先在“更多 -&gt; AI 设置”中配置。</li>
               <li>顶部“更多”菜单聚合数据源、代理、缓存导入导出和更新检查等低频操作。</li>
               <li>通过底部状态栏查看当前数据源、证券代码、记录数、加载状态和更新状态。</li>
             </ul>
@@ -236,7 +236,7 @@ export function UserManualModal({ open, onClose }: UserManualModalProps): React.
           </section>
 
           <section className="manual-section" id="manual-ai">
-            <Title level={4}>AI 分析</Title>
+            <Title level={4}>AI 分析（测试中）</Title>
             <Paragraph>
               AI connector 默认禁用。启用前需要在 <Text code>更多 -&gt; AI 设置</Text> 中配置 HTTP provider，并手动测试当前 connector。HTTP API key 只在 main process 凭据仓库处理；普通设置、renderer 响应、日志和本地备份不会包含明文密钥、加密密文或 Authorization header。当前平台不支持 Electron <Text code>safeStorage</Text> 时，API key 只在本次会话临时可用。
             </Paragraph>

@@ -10,6 +10,10 @@
 - 新增手动 AI 分析弹窗，覆盖自然语言生成策略、回测报告解读、策略诊断、参数优化助手、自然语言智能选股、策略多周期/多股票对比、市场环境识别、每日复盘、新闻/公告 + K 线联合分析和实验性涨跌预测；默认上下文只发送当前证券，不携带自选股列表或其它股票样本。
 - AI 分析新增实时内容反馈：HTTP provider 优先使用 OpenAI-compatible streaming，并兼容 provider token payload；不支持 streaming 时提示并回退为非流式最终结果，弹窗支持取消当前请求，最终 JSON 字符串会转成可读小节展示。
 
+### Changed
+
+- AI 分析入口、弹窗和说明文档标注为“测试中”，提示当前能力仍处于验证阶段。
+
 ### Security
 
 - HTTP provider API key 改由 main process 凭据仓库处理；普通设置、renderer 响应、日志和本地备份不包含明文密钥、加密密文或 Authorization header，`safeStorage` 不可用时只保留本次会话临时 key。

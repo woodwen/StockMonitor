@@ -153,6 +153,7 @@
 - **WHEN** 用户在工作区查看顶部工具栏或更多菜单
 - **THEN** 系统 SHALL 提供 AI 入口
 - **AND** AI 设置入口与 AI 分析入口 SHALL 清晰分离
+- **AND** AI 分析入口和弹窗标题 SHALL 标注为测试中状态
 
 #### Scenario: 用户打开 AI 使用场景入口
 - **WHEN** 用户打开 AI 分析入口

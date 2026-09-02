@@ -34,7 +34,7 @@ export const AiAnalysisPanel = observer(({ stock }: AiAnalysisPanelProps) => {
       title={
         <Space size={8}>
           <BulbOutlined />
-          <span>AI 分析</span>
+          <span>AI 分析（测试中）</span>
         </Space>
       }
       open={stock.aiAnalysisOpen}

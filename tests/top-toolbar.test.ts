@@ -16,7 +16,7 @@ describe('TopToolbar', () => {
     expect(html).toContain('刷新')
     expect(html).toContain('指标')
     expect(html).toContain('做T')
-    expect(html).toContain('AI')
+    expect(html).toContain('AI（测试中）')
     expect(html).toContain('更多')
     expect(html).toContain('上证指数')
     expect(html).not.toContain('策略')

@@ -43,6 +43,25 @@ TypeScript、MobX、Ant Design、klinecharts、Vitest 和 electron-builder。
   `yarn test tests/release-version.test.mjs` 和
   `yarn test tests/changelog-release-notes.test.mjs`。
 
+## Agent skills
+
+### Issue tracker
+
+Issues are tracked in GitHub Issues for `woodwen/StockMonitor`; use `gh` and
+follow `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Use the default mattpocock/skills triage vocabulary: `needs-triage`,
+`needs-info`, `ready-for-agent`, `ready-for-human`, and `wontfix`. See
+`docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Use single-context domain docs: root `CONTEXT.md` and repo-level ADRs under
+`docs/adr/`, created lazily when terms or decisions are resolved. See
+`docs/agents/domain.md`.
+
 ## 文档规则
 
 - 用户可见功能、行为变更、release 行为变更或架构重要改动，应优先通过

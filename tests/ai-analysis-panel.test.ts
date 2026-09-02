@@ -121,6 +121,7 @@ describe('AiAnalysisPanel', () => {
 
     expect(source).toContain('<Modal')
     expect(source).toContain('className="ai-analysis-modal"')
+    expect(source).toContain('AI 分析（测试中）')
     expect(source).not.toContain('<Drawer')
   })
 
