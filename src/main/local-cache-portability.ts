@@ -19,8 +19,10 @@ import {
   type KlineCacheService,
   type KlineCacheSkippedEntry
 } from './kline-cache'
+import { clearAiApiKey } from './ai-credentials'
 import { getSettings, setSettings } from './store'
 import { logger } from './logger'
+import { normalizeAiConnectorSettingsForExport } from '../renderer/features/stock-workspace/models/ai-models'
 
 interface LocalCacheBackupFile {
   schemaVersion: 1
@@ -110,7 +112,7 @@ export class LocalCachePortabilityService {
 
   async exportBackupToPath(filePath: string): Promise<LocalCacheBackupExportResult> {
     try {
-      const settings = this.getSettingsSnapshot()
+      const settings = createSettingsForBackup(this.getSettingsSnapshot())
       const klineCache = await this.klineCacheService.exportEntries()
       const backup: LocalCacheBackupFile = {
         schemaVersion: BACKUP_SCHEMA_VERSION,
@@ -199,6 +201,7 @@ export class LocalCachePortabilityService {
       strategy = normalizeImportStrategy(request.strategy)
       klineCacheResult = await this.klineCacheService.importEntries(backup.klineCache.entries, strategy)
       const settings = this.persistSettings(this.createSettingsForImport(backup.settings, strategy))
+      await clearImportedHttpProviderCredential(settings, backup.settings)
       const resultSummary = createImportResultSummary(summary, strategy, klineCacheResult)
       return {
         status: 'success',
@@ -381,7 +384,27 @@ function getSettingsSections(settings: Partial<AppSettings>): string[] {
   if ('tradeProfit' in settings) {
     sections.push('tradeProfit')
   }
+  if ('aiConnector' in settings) {
+    sections.push('aiConnector')
+  }
   return sections
+}
+
+function createSettingsForBackup(settings: AppSettings): AppSettings {
+  return {
+    ...settings,
+    aiConnector: normalizeAiConnectorSettingsForExport(settings.aiConnector)
+  }
+}
+
+async function clearImportedHttpProviderCredential(
+  settings: AppSettings,
+  backupSettings: Partial<AppSettings>
+): Promise<void> {
+  if (!isObject(backupSettings.aiConnector) || settings.aiConnector?.kind !== 'http-provider') {
+    return
+  }
+  await clearAiApiKey(settings.aiConnector.connectorId)
 }
 
 function mapKlineCacheSkippedItems(entries: KlineCacheSkippedEntry[]): LocalCacheBackupSkippedItem[] {

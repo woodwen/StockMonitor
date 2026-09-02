@@ -4,6 +4,16 @@
 
 ## Unreleased / 0.1.11
 
+### Added
+
+- 新增 AI 模型接入入口，支持 OpenAI-compatible HTTP provider；内置 OpenAI-compatible、DeepSeek、MiniMax、智谱 GLM、通义千问/DashScope、Kimi/Moonshot、硅基流动/SiliconFlow、百川智能/Baichuan、火山方舟/Ark 和自定义 provider 预设，model 可通过可搜索下拉框选择或自定义输入，API key 支持直接粘贴和按钮粘贴。
+- 新增手动 AI 分析弹窗，覆盖自然语言生成策略、回测报告解读、策略诊断、参数优化助手、自然语言智能选股、策略多周期/多股票对比、市场环境识别、每日复盘、新闻/公告 + K 线联合分析和实验性涨跌预测；默认上下文只发送当前证券，不携带自选股列表或其它股票样本。
+- AI 分析新增实时内容反馈：HTTP provider 优先使用 OpenAI-compatible streaming，并兼容 provider token payload；不支持 streaming 时提示并回退为非流式最终结果，弹窗支持取消当前请求，最终 JSON 字符串会转成可读小节展示。
+
+### Security
+
+- HTTP provider API key 改由 main process 凭据仓库处理；普通设置、renderer 响应、日志和本地备份不包含明文密钥、加密密文或 Authorization header，`safeStorage` 不可用时只保留本次会话临时 key。
+
 ## v0.1.10 - 2026-08-19
 
 ### Changed

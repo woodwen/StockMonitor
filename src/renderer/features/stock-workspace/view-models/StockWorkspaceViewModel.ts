@@ -7,6 +7,33 @@ import type {
   NetworkProxySettings,
   WorkspaceSettings
 } from '../../../../preload/stock-api'
+import type {
+  AiAnalysisResult,
+  AiAnalysisStreamEvent,
+  AiAnalysisStreamStatus,
+  AiConnectorSettings,
+  AiConnectorSettingsSnapshot,
+  AiConnectorTestResult,
+  AiHttpProviderPresetId,
+  AiStrategyBacktestSummary,
+  AiUseCaseId,
+  AiUseCaseDefinition,
+  AiUseCaseWorkflow,
+  AiWorkspaceContext
+} from '../models/ai-models'
+import {
+  aiUseCaseDefinitions,
+  cloneAiConnectorSettings,
+  createAiConnectorIdForProvider,
+  createDefaultAiConnectorSettings,
+  createDefaultAiConnectorSettingsSnapshot,
+  createAiUseCaseWorkflow,
+  getAiHttpProviderPreset,
+  getAiUseCaseDefinition,
+  normalizeAiConnectorSettings,
+  parseAiNewsItems,
+  validateAiAnalysisRequest
+} from '../models/ai-models'
 import { enrichStockDataset, getLatestCandle } from '../models/indicator-engine'
 import { cloneIndicatorSettings } from '../models/indicator-definitions'
 import { cloneTimeshareIndicatorSettings } from '../models/timeshare-indicator-definitions'
@@ -117,6 +144,33 @@ const WORKSPACE_SAVE_DEBOUNCE_MS = 500
 const TIMESHARE_REFRESH_INTERVAL_MS = 15_000
 const KLINE_CACHE_JOB_POLL_INTERVAL_MS = 1_000
 
+function getDefaultAiQuestion(useCaseId: AiUseCaseId): string {
+  switch (useCaseId) {
+    case 'natural-language-strategy':
+      return '请把我的自然语言策略想法整理成可审查的策略草稿。'
+    case 'backtest-report':
+      return '请解读当前策略回测结果，区分事实、推断、风险和待核实问题。'
+    case 'strategy-diagnosis':
+      return '请诊断当前策略表现，指出可能失效原因、过拟合风险和数据缺口。'
+    case 'parameter-optimization':
+      return '请给出参数优化候选和验证计划，排序依据必须来自后续本地回测。'
+    case 'natural-language-stock-screening':
+      return '请把我的自然语言选股条件转换成可审查的本地筛选草稿。'
+    case 'strategy-comparison':
+      return '请基于统一指标解释当前策略在不同标的或周期上的差异。'
+    case 'market-regime':
+      return '请基于当前行情摘要识别市场环境，并列出依据、置信度和待关注项。'
+    case 'daily-review':
+      return '请基于当前工作区生成一次手动每日复盘。'
+    case 'news-kline-analysis':
+      return '请把我提供的新闻或公告摘要与当前 K 线现象做关联分析。'
+    case 'price-move-prediction':
+      return '请做实验性涨跌概率/风险假设，明确样本窗口、置信度和验证限制。'
+    default:
+      return '请基于当前工作区上下文回答我的问题。'
+  }
+}
+
 export class StockWorkspaceViewModel {
   readonly chart = new KLineChartViewModel()
   readonly timeshare = new TimeshareChartViewModel()
@@ -172,12 +226,36 @@ export class StockWorkspaceViewModel {
     createDefaultKlineStrategySettings().assumptions.slippageRate * 100
   strategyResults: KlineStrategyBacktestResult[] = []
   selectedStrategyResultId = ''
+  aiConnectorSnapshot: AiConnectorSettingsSnapshot = createDefaultAiConnectorSettingsSnapshot()
+  aiConnectorSettings: AiConnectorSettings = createDefaultAiConnectorSettings()
+  aiConnectorDraft: AiConnectorSettings = createDefaultAiConnectorSettings()
+  aiSettingsOpen = false
+  aiSettingsSaving = false
+  aiSettingsTesting = false
+  aiSettingsError = ''
+  aiApiKeyDraft = ''
+  aiConnectorTestResult: AiConnectorTestResult | null = null
+  aiAnalysisOpen = false
+  aiUseCaseId: AiUseCaseId = 'daily-review'
+  aiQuestion = getDefaultAiQuestion('daily-review')
+  aiNewsText = ''
+  aiAnalysisRunning = false
+  aiAnalysisStreamStatus: AiAnalysisStreamStatus = 'idle'
+  aiAnalysisStreamRequestId = ''
+  aiAnalysisPartialOutput = ''
+  aiAnalysisWarnings: string[] = []
+  aiAnalysisFallbackWarning = ''
+  aiAnalysisError = ''
+  aiAnalysisResult: AiAnalysisResult | null = null
+  aiConfirmedUseCaseIds: AiUseCaseId[] = []
   private workspaceSaveTimer?: ReturnType<typeof setTimeout>
   private timeshareRefreshTimer?: ReturnType<typeof setTimeout>
   private klineCacheJobTimer?: ReturnType<typeof setTimeout>
   private klineCacheStatusRequestId = 0
   private timeshareRequestId = 0
   private strategyRequestId = 0
+  private aiAnalysisRequestId = 0
+  private aiAnalysisStreamDisposer?: () => void
 
   constructor(
     private readonly dataAdapter: StockDataAdapter,
@@ -193,6 +271,8 @@ export class StockWorkspaceViewModel {
       | 'klineCacheStatusRequestId'
       | 'timeshareRequestId'
       | 'strategyRequestId'
+      | 'aiAnalysisRequestId'
+      | 'aiAnalysisStreamDisposer'
     >(
       this,
       {
@@ -203,10 +283,17 @@ export class StockWorkspaceViewModel {
         klineCacheJobTimer: false,
         klineCacheStatusRequestId: false,
         timeshareRequestId: false,
-        strategyRequestId: false
+        strategyRequestId: false,
+        aiAnalysisRequestId: false,
+        aiAnalysisStreamDisposer: false
       },
       { autoBind: true }
     )
+    this.aiAnalysisStreamDisposer = this.dataAdapter.onAiAnalysisStreamEvent((event) => {
+      runInAction(() => {
+        this.applyAiAnalysisStreamEvent(event)
+      })
+    })
   }
 
   async initialize(): Promise<void> {
@@ -216,12 +303,16 @@ export class StockWorkspaceViewModel {
     this.initialized = true
     await this.loadSources()
     await this.loadSettings({ refreshDateBaseline: true })
+    await this.loadAiConnectorSettings()
     this.addVisibilityListener()
     await this.refreshStock({ allowStartupFallback: true })
   }
 
   dispose(): void {
     this.cancelActiveStrategyRun()
+    this.cancelActiveAiAnalysis()
+    this.aiAnalysisStreamDisposer?.()
+    this.aiAnalysisStreamDisposer = undefined
     this.removeVisibilityListener()
     this.stopTimeshareAutoRefresh()
     this.stopKlineCacheJobPolling()
@@ -932,6 +1023,351 @@ export class StockWorkspaceViewModel {
     this.syncSelectedStrategySignals()
   }
 
+  openAiSettings(): void {
+    this.aiConnectorDraft = cloneAiConnectorSettings(this.aiConnectorSettings)
+    this.aiApiKeyDraft = ''
+    this.aiSettingsError = ''
+    this.aiSettingsOpen = true
+    void this.loadAiConnectorSettings()
+  }
+
+  closeAiSettings(): void {
+    this.aiSettingsOpen = false
+    this.aiConnectorDraft = cloneAiConnectorSettings(this.aiConnectorSettings)
+    this.aiApiKeyDraft = ''
+    this.aiSettingsError = ''
+  }
+
+  setAiConnectorEnabled(enabled: boolean): void {
+    this.aiConnectorDraft = {
+      ...this.aiConnectorDraft,
+      enabled
+    }
+  }
+
+  setAiConnectorDisplayName(displayName: string): void {
+    this.aiConnectorDraft = {
+      ...this.aiConnectorDraft,
+      displayName
+    }
+  }
+
+  setAiConnectorModel(model: string): void {
+    this.aiConnectorDraft = {
+      ...this.aiConnectorDraft,
+      model,
+      availability: 'unknown'
+    }
+    this.aiConnectorTestResult = null
+  }
+
+  setAiConnectorProfile(profile: string): void {
+    this.aiConnectorDraft = {
+      ...this.aiConnectorDraft,
+      profile
+    }
+  }
+
+  setAiConnectorTemperature(temperature: number | null): void {
+    this.aiConnectorDraft = normalizeAiConnectorSettings({
+      ...this.aiConnectorDraft,
+      temperature: temperature ?? this.aiConnectorDraft.temperature
+    })
+  }
+
+  setAiConnectorTimeoutSeconds(timeoutSeconds: number | null): void {
+    this.aiConnectorDraft = normalizeAiConnectorSettings({
+      ...this.aiConnectorDraft,
+      timeoutMs: timeoutSeconds === null ? this.aiConnectorDraft.timeoutMs : timeoutSeconds * 1000
+    })
+  }
+
+  setAiConnectorContextLimit(contextLimit: number | null): void {
+    this.aiConnectorDraft = normalizeAiConnectorSettings({
+      ...this.aiConnectorDraft,
+      contextLimit: contextLimit ?? this.aiConnectorDraft.contextLimit
+    })
+  }
+
+  setAiHttpProviderPreset(presetId: AiHttpProviderPresetId): void {
+    const preset = getAiHttpProviderPreset(presetId)
+    this.aiConnectorDraft = normalizeAiConnectorSettings({
+      ...this.aiConnectorDraft,
+      connectorId: createAiConnectorIdForProvider(presetId),
+      kind: 'http-provider',
+      displayName: preset.displayName,
+      model: preset.model,
+      availability: 'unknown',
+      httpProvider: {
+        ...this.aiConnectorDraft.httpProvider,
+        presetId,
+        baseUrl: preset.baseUrl || this.aiConnectorDraft.httpProvider.baseUrl
+      }
+    })
+    this.aiConnectorTestResult = null
+  }
+
+  setAiHttpProviderBaseUrl(baseUrl: string): void {
+    this.aiConnectorDraft = normalizeAiConnectorSettings({
+      ...this.aiConnectorDraft,
+      availability: 'unknown',
+      httpProvider: {
+        ...this.aiConnectorDraft.httpProvider,
+        baseUrl
+      }
+    })
+    this.aiConnectorTestResult = null
+  }
+
+  setAiApiKeyDraft(apiKey: string): void {
+    this.aiApiKeyDraft = apiKey
+    if (apiKey.trim()) {
+      this.aiConnectorDraft = {
+        ...this.aiConnectorDraft,
+        availability: 'unknown'
+      }
+      this.aiConnectorTestResult = null
+    }
+  }
+
+  setAiSettingsError(message: string): void {
+    this.aiSettingsError = message
+  }
+
+  async saveAiSettings(): Promise<void> {
+    this.aiSettingsSaving = true
+    this.aiSettingsError = ''
+    try {
+      const settings = this.createAiConnectorSettingsPayload()
+      if (settings.enabled && settings.availability !== 'available') {
+        throw new Error('请先测试连接成功后再启用 AI connector')
+      }
+      if (settings.enabled && !this.hasUsableAiCredential && !this.aiApiKeyDraft.trim()) {
+        throw new Error('请先保存或测试 HTTP provider API key')
+      }
+      let snapshot = await this.dataAdapter.setAiConnectorSettings(settings)
+      if (this.aiApiKeyDraft.trim()) {
+        snapshot = await this.dataAdapter.saveAiConnectorApiKey(
+          snapshot.settings.connectorId,
+          this.aiApiKeyDraft
+        )
+      }
+      runInAction(() => {
+        this.applyAiConnectorSnapshot(snapshot, { syncDraft: true })
+        this.aiApiKeyDraft = ''
+        this.aiSettingsSaving = false
+      })
+    } catch (error) {
+      runInAction(() => {
+        this.aiSettingsSaving = false
+        this.aiSettingsError = formatErrorMessage(error)
+      })
+    }
+  }
+
+  async testAiSettings(): Promise<void> {
+    this.aiSettingsTesting = true
+    this.aiSettingsError = ''
+    this.aiConnectorTestResult = null
+    try {
+      const settings = this.createAiConnectorSettingsPayload()
+      let snapshot = await this.dataAdapter.setAiConnectorSettings(settings)
+      if (this.aiApiKeyDraft.trim()) {
+        snapshot = await this.dataAdapter.saveAiConnectorApiKey(
+          snapshot.settings.connectorId,
+          this.aiApiKeyDraft
+        )
+      }
+      const result = await this.dataAdapter.testAiConnector()
+      runInAction(() => {
+        this.applyAiConnectorSnapshot(
+          {
+            ...snapshot,
+            settings: {
+              ...snapshot.settings,
+              availability: result.status
+            },
+            credentialStatus: result.credentialStatus
+          },
+          { syncDraft: true }
+        )
+        this.aiConnectorTestResult = result
+        this.aiApiKeyDraft = ''
+        this.aiSettingsTesting = false
+      })
+    } catch (error) {
+      runInAction(() => {
+        this.aiSettingsTesting = false
+        this.aiSettingsError = formatErrorMessage(error)
+      })
+    }
+  }
+
+  async clearAiApiKey(): Promise<void> {
+    this.aiSettingsSaving = true
+    this.aiSettingsError = ''
+    try {
+      const snapshot = await this.dataAdapter.clearAiConnectorApiKey(
+        this.aiConnectorDraft.connectorId
+      )
+      runInAction(() => {
+        this.applyAiConnectorSnapshot(snapshot, { syncDraft: true })
+        this.aiApiKeyDraft = ''
+        this.aiConnectorTestResult = null
+        this.aiSettingsSaving = false
+      })
+    } catch (error) {
+      runInAction(() => {
+        this.aiSettingsSaving = false
+        this.aiSettingsError = formatErrorMessage(error)
+      })
+    }
+  }
+
+  openAiAnalysisPanel(): void {
+    this.aiAnalysisOpen = true
+    this.aiAnalysisError = ''
+  }
+
+  closeAiAnalysisPanel(): void {
+    this.aiAnalysisOpen = false
+    this.aiAnalysisError = ''
+    this.cancelActiveAiAnalysis()
+  }
+
+  setAiUseCaseId(useCaseId: AiUseCaseId): void {
+    const previousDefault = getDefaultAiQuestion(this.aiUseCaseId)
+    this.cancelActiveAiAnalysis()
+    this.aiUseCaseId = useCaseId
+    this.setAiUseCaseConfirmed(false)
+    if (!this.aiQuestion.trim() || this.aiQuestion === previousDefault) {
+      this.aiQuestion = getDefaultAiQuestion(useCaseId)
+    }
+    this.resetAiAnalysisOutput()
+  }
+
+  setAiQuestion(question: string): void {
+    this.aiQuestion = question
+    this.setAiUseCaseConfirmed(false)
+  }
+
+  setAiNewsText(text: string): void {
+    this.aiNewsText = text
+    this.setAiUseCaseConfirmed(false)
+  }
+
+  setAiUseCaseConfirmed(confirmed: boolean): void {
+    const next = new Set(this.aiConfirmedUseCaseIds)
+    if (confirmed) {
+      next.add(this.aiUseCaseId)
+    } else {
+      next.delete(this.aiUseCaseId)
+    }
+    this.aiConfirmedUseCaseIds = [...next]
+  }
+
+  async runAiAnalysis(): Promise<void> {
+    this.cancelActiveAiAnalysis()
+    const request = this.createAiAnalysisRequest()
+    const localErrors = this.aiAnalysisValidationErrors
+    if (localErrors.length > 0) {
+      this.aiAnalysisError = localErrors.join('；')
+      return
+    }
+
+    const sequenceId = ++this.aiAnalysisRequestId
+    const requestId = `ai-analysis-${Date.now()}-${sequenceId}`
+    this.aiAnalysisStreamRequestId = requestId
+    this.aiAnalysisRunning = true
+    this.aiAnalysisStreamStatus = 'running'
+    this.aiAnalysisPartialOutput = ''
+    this.aiAnalysisWarnings = []
+    this.aiAnalysisFallbackWarning = ''
+    this.aiAnalysisError = ''
+    this.aiAnalysisResult = null
+    try {
+      await this.dataAdapter.startAiAnalysisStream({
+        requestId,
+        analysisRequest: request
+      })
+      runInAction(() => {
+        if (this.aiAnalysisRequestId !== sequenceId) {
+          return
+        }
+        this.aiAnalysisStreamRequestId = requestId
+      })
+    } catch (error) {
+      runInAction(() => {
+        if (this.aiAnalysisRequestId !== sequenceId) {
+          return
+        }
+        this.aiAnalysisRunning = false
+        this.aiAnalysisStreamStatus = 'error'
+        this.aiAnalysisStreamRequestId = ''
+        this.aiAnalysisError = formatErrorMessage(error)
+      })
+    }
+  }
+
+  cancelAiAnalysis(): void {
+    this.cancelActiveAiAnalysis()
+  }
+
+  createAiAnalysisRequest() {
+    const useCase = getAiUseCaseDefinition(this.aiUseCaseId)
+    const context = this.createAiWorkspaceContext()
+    const newsItems = useCase.requiresNews ? parseAiNewsItems(this.aiNewsText) : undefined
+    const baseRequest = {
+      useCaseId: this.aiUseCaseId,
+      question: this.aiQuestion.trim() || getDefaultAiQuestion(this.aiUseCaseId),
+      context,
+      newsItems
+    }
+    return {
+      ...baseRequest,
+      workflow: createAiUseCaseWorkflow(baseRequest, this.aiUseCaseConfirmed)
+    }
+  }
+
+  createAiWorkspaceContext(): AiWorkspaceContext {
+    const klineDataset = this.chart.dataset
+    const timeshareDataset = this.timeshare.dataset
+    const missingData: string[] = []
+    const dataDateRange =
+      this.viewMode === 'timeshare'
+        ? {
+            tradeDate:
+              timeshareDataset?.advanced?.tradeDate ??
+              timeshareDataset?.points.at(-1)?.timeKey.slice(0, 8) ??
+              undefined
+          }
+        : {
+            startDate: klineDataset?.candles[0]?.timeKey ?? this.query.startDate,
+            endDate: klineDataset?.candles.at(-1)?.timeKey ?? this.query.endDate
+          }
+    const recordCount = this.recordCount
+    if (recordCount === 0) {
+      missingData.push('当前没有已加载行情数据')
+    }
+    if (this.viewMode === 'kline' && !this.selectedStrategyResult) {
+      missingData.push('当前没有策略回测结果')
+    }
+
+    return {
+      generatedAt: new Date().toISOString(),
+      viewMode: this.viewMode,
+      symbol: this.aiCurrentSecuritySymbol,
+      stockName: this.currentStockName,
+      dataSourceName: this.activeSourceName,
+      dataDateRange,
+      recordCount,
+      latestSummary: this.latestSummary,
+      enabledIndicators: this.getEnabledIndicatorLabels(),
+      strategyBacktest: this.createAiStrategyBacktestSummary(this.selectedStrategyResult),
+      missingData
+    }
+  }
+
   toggleIndicator(name: IndicatorName, enabled: boolean): void {
     const previousRevision = this.chart.revision
     this.chart.setIndicator(name, enabled)
@@ -1497,10 +1933,160 @@ export class StockWorkspaceViewModel {
     return this.rankedStrategyResults.find((result) => result.rank === 1)
   }
 
+  get aiUseCaseOptions(): AiUseCaseDefinition[] {
+    return aiUseCaseDefinitions
+  }
+
+  get selectedAiUseCase(): AiUseCaseDefinition {
+    return getAiUseCaseDefinition(this.aiUseCaseId)
+  }
+
+  get aiUseCaseConfirmed(): boolean {
+    return this.aiConfirmedUseCaseIds.includes(this.aiUseCaseId)
+  }
+
+  get aiUseCaseConfirmationLabel(): string {
+    return this.selectedAiUseCase.confirmationLabel ?? ''
+  }
+
+  get aiUseCaseWorkflow(): AiUseCaseWorkflow {
+    return createAiUseCaseWorkflow(
+      {
+        useCaseId: this.aiUseCaseId,
+        question: this.aiQuestion.trim() || getDefaultAiQuestion(this.aiUseCaseId),
+        context: this.createAiWorkspaceContext(),
+        newsItems: this.selectedAiUseCase.requiresNews
+          ? parseAiNewsItems(this.aiNewsText)
+          : undefined
+      },
+      this.aiUseCaseConfirmed
+    )
+  }
+
+  get aiUseCaseWorkflowNotes(): string[] {
+    const workflow = this.aiUseCaseWorkflow
+    return [
+      `发送范围：${workflow.targetScope}`,
+      ...workflow.localValidationNotes,
+      ...workflow.localBacktestValidationNotes,
+      ...workflow.outputHandlingNotes
+    ]
+  }
+
+  get aiConnectorStatusLabel(): string {
+    if (!this.aiConnectorSettings.enabled) {
+      return '未启用'
+    }
+    if (this.aiConnectorSettings.availability === 'available') {
+      return '可用'
+    }
+    if (this.aiConnectorSettings.availability === 'unavailable') {
+      return '不可用'
+    }
+    return '未测试'
+  }
+
+  get aiSettingsCredentialLabel(): string {
+    switch (this.aiConnectorSnapshot.credentialStatus) {
+      case 'not-required':
+        return '不需要 API key'
+      case 'saved':
+        return '已保存'
+      case 'temporary':
+        return '本次会话临时可用'
+      case 'unsupported':
+        return '当前平台无法解密已保存密钥'
+      default:
+        return '未保存'
+    }
+  }
+
+  get aiConnectorModelOptions(): string[] {
+    const preset = getAiHttpProviderPreset(this.aiConnectorDraft.httpProvider.presetId)
+    return uniqueStrings([this.aiConnectorDraft.model, preset.model, ...preset.models])
+  }
+
+  get aiAnalysisValidationErrors(): string[] {
+    const errors: string[] = []
+    if (!this.aiConnectorSettings.enabled) {
+      errors.push('AI connector 未启用，请先打开 AI 设置完成配置')
+    } else if (this.aiConnectorSettings.availability !== 'available') {
+      errors.push('AI connector 未测试或不可用，请先在 AI 设置中测试连接')
+    } else if (!this.hasUsableAiCredential) {
+      errors.push('HTTP provider 缺少可用 API key，请先在 AI 设置中保存 API key')
+    }
+    errors.push(...validateAiAnalysisRequest(this.createAiAnalysisRequest()))
+    return uniqueStrings(errors)
+  }
+
+  get canRunAiAnalysis(): boolean {
+    return !this.aiAnalysisRunning && this.aiAnalysisValidationErrors.length === 0
+  }
+
+  get aiAnalysisStatusLabel(): string {
+    switch (this.aiAnalysisStreamStatus) {
+      case 'running':
+        return '生成中'
+      case 'cancelling':
+        return '取消中'
+      case 'cancelled':
+        return '已取消'
+      case 'success':
+        return '已完成'
+      case 'error':
+        return '失败'
+      default:
+        return '未开始'
+    }
+  }
+
+  get aiVisibleAnalysisOutput(): string {
+    return this.aiAnalysisResult?.outputText || this.aiAnalysisPartialOutput
+  }
+
+  get aiCurrentAnalysisScope(): string {
+    const context = this.createAiWorkspaceContext()
+    const range =
+      context.viewMode === 'timeshare'
+        ? context.dataDateRange.tradeDate ?? '未加载交易日'
+        : `${context.dataDateRange.startDate ?? '-'} 至 ${context.dataDateRange.endDate ?? '-'}`
+    return `${context.stockName}(${context.symbol}) · ${context.dataSourceName} · ${range}`
+  }
+
+  get aiContextSummary(): string {
+    const context = this.createAiWorkspaceContext()
+    const range =
+      context.viewMode === 'timeshare'
+        ? context.dataDateRange.tradeDate ?? '未加载交易日'
+        : `${context.dataDateRange.startDate ?? '-'} 至 ${context.dataDateRange.endDate ?? '-'}`
+    return [
+      `${context.stockName}(${context.symbol})`,
+      context.viewMode === 'timeshare' ? '分时' : 'K 线',
+      context.dataSourceName,
+      range,
+      `${context.recordCount} 条`,
+      context.latestSummary
+    ].join(' · ')
+  }
+
   get currentStockName(): string {
     const dataset = this.viewMode === 'timeshare' ? this.timeshare.dataset : this.chart.dataset
     const name = normalizeWatchlistName(dataset?.meta.name)
-    return name || this.normalizedCurrentSymbol
+    return name || this.aiCurrentSecuritySymbol
+  }
+
+  private get aiCurrentSecuritySymbol(): string {
+    const dataset = this.viewMode === 'timeshare' ? this.timeshare.dataset : this.chart.dataset
+    const datasetSymbol = normalizeWatchlistSymbol(dataset?.meta.symbol ?? '')
+    return datasetSymbol ?? this.normalizedCurrentSymbol
+  }
+
+  private get hasUsableAiCredential(): boolean {
+    return (
+      this.aiConnectorSnapshot.credentialStatus === 'saved' ||
+      this.aiConnectorSnapshot.credentialStatus === 'temporary' ||
+      this.aiConnectorSnapshot.credentialStatus === 'not-required'
+    )
   }
 
   canUseSourceForCurrentMode(sourceId: StockSourceId): boolean {
@@ -1607,9 +2193,40 @@ export class StockWorkspaceViewModel {
     }
   }
 
+  private async loadAiConnectorSettings(): Promise<void> {
+    try {
+      const snapshot = await this.dataAdapter.getAiConnectorSettings()
+      runInAction(() => {
+        this.applyAiConnectorSnapshot(snapshot, { syncDraft: !this.aiSettingsOpen })
+      })
+    } catch (error) {
+      console.warn('Failed to load AI connector settings', error)
+    }
+  }
+
+  private applyAiConnectorSnapshot(
+    snapshot: AiConnectorSettingsSnapshot,
+    options: { syncDraft: boolean }
+  ): void {
+    const settings = normalizeAiConnectorSettings(snapshot.settings)
+    this.aiConnectorSnapshot = {
+      ...snapshot,
+      settings
+    }
+    this.aiConnectorSettings = cloneAiConnectorSettings(settings)
+    if (options.syncDraft) {
+      this.aiConnectorDraft = cloneAiConnectorSettings(settings)
+    }
+  }
+
+  private createAiConnectorSettingsPayload(): AiConnectorSettings {
+    return cloneAiConnectorSettings(normalizeAiConnectorSettings(this.aiConnectorDraft))
+  }
+
   private async reloadAfterLocalCacheImport(): Promise<void> {
     this.cancelPendingWorkspaceSettingsSave()
     await this.loadSettings()
+    await this.loadAiConnectorSettings()
     await this.options.onLocalCacheImported?.()
     if (this.klineCacheDialogOpen) {
       await this.loadKlineCacheStatus()
@@ -2014,6 +2631,268 @@ export class StockWorkspaceViewModel {
     this.strategyStatusMessage = ''
   }
 
+  private enrichAiAnalysisOutput(useCaseId: AiUseCaseId, outputText: string): string {
+    if (useCaseId === 'parameter-optimization') {
+      return appendSection(
+        outputText,
+        '本地批量回测验证',
+        this.createAiParameterOptimizationValidationNotes(outputText)
+      )
+    }
+    if (useCaseId === 'natural-language-stock-screening') {
+      return appendSection(outputText, '本地筛选边界', this.createAiStockScreeningBoundaryNotes())
+    }
+    if (useCaseId === 'strategy-comparison') {
+      return appendSection(outputText, '本地对比事实', this.createAiStrategyComparisonFactNotes())
+    }
+    if (useCaseId === 'price-move-prediction') {
+      return appendSection(outputText, '实验边界', [
+        '预测结果未写入策略信号、回测收益、智能选股推荐或自动交易动作'
+      ])
+    }
+    return outputText
+  }
+
+  private createAiParameterOptimizationValidationNotes(outputText: string): string[] {
+    const dataset = this.chart.dataset
+    const baseResult = this.selectedStrategyResult
+    if (this.viewMode !== 'kline' || !dataset || !baseResult?.metrics) {
+      return ['当前缺少可验证的 K 线回测结果，候选参数不可排序']
+    }
+    const candidates = extractAiParameterCandidates(outputText, baseResult.templateId)
+    if (candidates.length === 0) {
+      return ['未检测到可解析候选参数，无法进入本地批量回测验证']
+    }
+
+    const ranked = candidates.map((candidate, index) => {
+      if (candidate.templateId !== baseResult.templateId) {
+        return {
+          label: candidate.label || `候选 ${index + 1}`,
+          status: 'unavailable' as const,
+          reason: `候选模板 ${candidate.templateId} 与当前策略 ${baseResult.templateId} 不一致`
+        }
+      }
+      const normalized = normalizeKlineStrategyParams(baseResult.templateId, {
+        ...baseResult.params,
+        ...candidate.params
+      })
+      if (normalized.errors.length > 0) {
+        return {
+          label: candidate.label || `候选 ${index + 1}`,
+          status: 'unavailable' as const,
+          reason: normalized.errors.join('；')
+        }
+      }
+      const comparison = runKlineStrategyBacktests({
+        dataset,
+        query: baseResult.query,
+        settings: {
+          selectedTemplateIds: [baseResult.templateId],
+          paramsByTemplate: {
+            [baseResult.templateId]: normalized.params
+          },
+          assumptions: baseResult.assumptions
+        }
+      })
+      const result = comparison.results[0]
+      if (!result || result.status !== 'success' || !result.metrics) {
+        return {
+          label: candidate.label || `候选 ${index + 1}`,
+          status: 'unavailable' as const,
+          reason: result?.unavailableReason ?? '本地回测未生成有效结果'
+        }
+      }
+      return {
+        label: candidate.label || `候选 ${index + 1}`,
+        status: 'success' as const,
+        score: result.score ?? 0,
+        metrics: result.metrics,
+        params: normalized.params
+      }
+    })
+
+    return ranked
+      .sort((left, right) => {
+        if (left.status === 'success' && right.status === 'success') {
+          return right.score - left.score
+        }
+        if (left.status === 'success') {
+          return -1
+        }
+        if (right.status === 'success') {
+          return 1
+        }
+        return left.label.localeCompare(right.label, 'zh-CN')
+      })
+      .map((candidate, index) => {
+        if (candidate.status === 'unavailable') {
+          return `${index + 1}. ${candidate.label}：不可用，${candidate.reason}`
+        }
+        return `${index + 1}. ${candidate.label}：收益 ${formatPercent(candidate.metrics.totalReturn)}，回撤 ${formatPercent(candidate.metrics.maxDrawdown)}，胜率 ${formatPercent(candidate.metrics.winRate)}，交易 ${candidate.metrics.tradeCount}，参数 ${formatStrategyParams(candidate.params)}`
+      })
+  }
+
+  private createAiStockScreeningBoundaryNotes(): string[] {
+    const context = this.createAiWorkspaceContext()
+    const scope =
+      this.watchlist.length > 0
+        ? `已确认自选股范围 ${this.watchlist.length} 只：${this.watchlist
+            .slice(0, 20)
+            .map((item) => `${item.name}(${item.symbol})`)
+            .join('、')}`
+        : `未配置自选股范围，仅保留当前证券 ${context.stockName}(${context.symbol}) 作为示例上下文`
+    return [
+      scope,
+      `数据新鲜度：${this.aiContextSummary}`,
+      context.missingData.length > 0 ? `缺失项：${context.missingData.join('；')}` : '缺失项：无'
+    ]
+  }
+
+  private createAiStrategyComparisonFactNotes(): string[] {
+    if (this.rankedStrategyResults.length === 0) {
+      return ['当前没有可对比的本地策略回测结果']
+    }
+    return [
+      `统一指标：总收益、最大回撤、胜率、盈亏比、交易次数；可比日期范围：${this.strategyBacktestDateRangeLabel}`,
+      ...this.rankedStrategyResults.slice(0, 8).map((result) => {
+        if (result.status !== 'success' || !result.metrics) {
+          return `${result.templateName}：不可用，${result.unavailableReason ?? '缺少回测指标'}`
+        }
+        return `${result.templateName}：收益 ${formatPercent(result.metrics.totalReturn)}，回撤 ${formatPercent(result.metrics.maxDrawdown)}，胜率 ${formatPercent(result.metrics.winRate)}，交易 ${result.metrics.tradeCount}`
+      })
+    ]
+  }
+
+  private cancelActiveAiAnalysis(): void {
+    const requestId = this.aiAnalysisStreamRequestId
+    this.aiAnalysisRequestId += 1
+    if (requestId) {
+      void this.dataAdapter.cancelAiAnalysis(requestId)
+    }
+    this.aiAnalysisStreamRequestId = ''
+    this.aiAnalysisRunning = false
+    if (this.aiAnalysisStreamStatus === 'running' || this.aiAnalysisStreamStatus === 'cancelling') {
+      this.aiAnalysisStreamStatus = 'cancelled'
+    }
+  }
+
+  private applyAiAnalysisStreamEvent(event: AiAnalysisStreamEvent): void {
+    if (!this.aiAnalysisStreamRequestId || event.requestId !== this.aiAnalysisStreamRequestId) {
+      return
+    }
+    if (event.type === 'started') {
+      this.aiAnalysisStreamStatus = 'running'
+      this.aiAnalysisRunning = true
+      this.aiAnalysisError = ''
+      return
+    }
+    if (event.type === 'chunk') {
+      this.aiAnalysisPartialOutput += event.chunkText
+      return
+    }
+    if (event.type === 'completed') {
+      const outputText = this.enrichAiAnalysisOutput(
+        event.useCaseId,
+        event.outputText || this.aiAnalysisPartialOutput
+      )
+      this.aiAnalysisRunning = false
+      this.aiAnalysisStreamStatus = 'success'
+      this.aiAnalysisPartialOutput = outputText
+      this.aiAnalysisWarnings = event.warnings
+      this.aiAnalysisFallbackWarning = event.streamingFallback
+        ? event.warnings.find((warning) => warning.includes('不支持流式内容')) ?? ''
+        : ''
+      this.aiAnalysisResult = {
+        status: 'success',
+        useCaseId: event.useCaseId,
+        connector: event.connector,
+        outputText,
+        warnings: event.warnings,
+        streamingFallback: event.streamingFallback,
+        elapsedMs: event.elapsedMs,
+        completedAt: event.completedAt
+      }
+      this.aiAnalysisStreamRequestId = ''
+      return
+    }
+    if (event.type === 'failed') {
+      const outputText = this.enrichAiAnalysisOutput(
+        event.useCaseId,
+        event.outputText || this.aiAnalysisPartialOutput
+      )
+      this.aiAnalysisRunning = false
+      this.aiAnalysisStreamStatus = 'error'
+      this.aiAnalysisPartialOutput = outputText
+      this.aiAnalysisWarnings = event.warnings
+      this.aiAnalysisError = event.errorMessage || 'AI 分析失败'
+      this.aiAnalysisResult = {
+        status: 'error',
+        useCaseId: event.useCaseId,
+        connector: event.connector,
+        outputText,
+        warnings: event.warnings,
+        errorMessage: this.aiAnalysisError,
+        elapsedMs: event.elapsedMs,
+        completedAt: event.completedAt
+      }
+      this.aiAnalysisStreamRequestId = ''
+      return
+    }
+    if (event.type === 'cancelled') {
+      this.aiAnalysisRunning = false
+      this.aiAnalysisStreamStatus = 'cancelled'
+      this.aiAnalysisPartialOutput = event.outputText || this.aiAnalysisPartialOutput
+      this.aiAnalysisWarnings = event.warnings
+      this.aiAnalysisStreamRequestId = ''
+    }
+  }
+
+  private resetAiAnalysisOutput(): void {
+    this.aiAnalysisStreamStatus = 'idle'
+    this.aiAnalysisPartialOutput = ''
+    this.aiAnalysisWarnings = []
+    this.aiAnalysisFallbackWarning = ''
+    this.aiAnalysisError = ''
+    this.aiAnalysisResult = null
+  }
+
+  private getEnabledIndicatorLabels(): string[] {
+    if (this.viewMode === 'timeshare') {
+      return Object.entries(this.timeshare.indicatorSettings)
+        .filter(([, setting]) => setting.enabled)
+        .map(([name]) => name)
+    }
+    return Object.entries(this.chart.indicatorSettings)
+      .filter(([, setting]) => setting.enabled)
+      .map(([name]) => name)
+  }
+
+  private createAiStrategyBacktestSummary(
+    result: KlineStrategyBacktestResult | undefined
+  ): AiStrategyBacktestSummary | undefined {
+    if (!result || result.status !== 'success' || !result.metrics) {
+      return undefined
+    }
+    return {
+      templateName: result.templateName,
+      period: result.query.period,
+      adjust: result.query.adjust,
+      startDate: result.dataStartDate ?? result.query.startDate,
+      endDate: result.dataEndDate ?? result.query.endDate,
+      sampleSize: result.equityCurve.length,
+      totalReturnPercent: result.metrics.totalReturn * 100,
+      maxDrawdownPercent: result.metrics.maxDrawdown * 100,
+      winRatePercent: (result.metrics.winRate ?? 0) * 100,
+      profitFactor: result.metrics.profitLossRatio ?? 0,
+      tradeCount: result.metrics.tradeCount,
+      assumptions: [
+        `initialCapital=${result.assumptions.initialCapital}`,
+        `feeRate=${result.assumptions.feeRate}`,
+        `slippageRate=${result.assumptions.slippageRate}`
+      ]
+    }
+  }
+
   private syncSelectedStrategySignals(): void {
     const result = this.selectedStrategyResult
     const strategySignalEnabled =
@@ -2150,6 +3029,123 @@ export const adjustOptions: Array<{ value: StockAdjust; label: string }> = [
   { value: 'qfq', label: '前复权' },
   { value: 'hfq', label: '后复权' }
 ]
+
+interface AiParameterCandidate {
+  label: string
+  templateId: KlineStrategyTemplateId
+  params: KlineStrategyParams
+}
+
+function appendSection(outputText: string, title: string, notes: string[]): string {
+  if (notes.length === 0) {
+    return outputText
+  }
+  const section = `${title}\n${notes.map((note) => `- ${note}`).join('\n')}`
+  const trimmed = outputText.trim()
+  return trimmed ? `${trimmed}\n\n${section}` : section
+}
+
+function extractAiParameterCandidates(
+  outputText: string,
+  fallbackTemplateId: KlineStrategyTemplateId
+): AiParameterCandidate[] {
+  const parsed = parseFirstJsonObject(outputText)
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return []
+  }
+  const record = parsed as Record<string, unknown>
+  const rawCandidates = Array.isArray(record.candidateParameters)
+    ? record.candidateParameters
+    : []
+  return rawCandidates
+    .map((candidate, index) => normalizeAiParameterCandidate(candidate, index, fallbackTemplateId))
+    .filter((candidate): candidate is AiParameterCandidate => Boolean(candidate))
+    .slice(0, 12)
+}
+
+function normalizeAiParameterCandidate(
+  value: unknown,
+  index: number,
+  fallbackTemplateId: KlineStrategyTemplateId
+): AiParameterCandidate | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null
+  }
+  const record = value as Record<string, unknown>
+  const templateId = isKlineStrategyTemplateId(record.templateId)
+    ? record.templateId
+    : fallbackTemplateId
+  const paramsSource =
+    readRecord(record.params) ??
+    readRecord(record.parameters) ??
+    readRecord(record.parameterDrafts) ??
+    record
+  const params = readNumericParams(paramsSource)
+  if (Object.keys(params).length === 0) {
+    return null
+  }
+  return {
+    label: readCandidateLabel(record, index),
+    templateId,
+    params
+  }
+}
+
+function parseFirstJsonObject(text: string): unknown {
+  const trimmed = text.trim()
+  if (!trimmed) {
+    return null
+  }
+  const fencedJson = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1]?.trim()
+  for (const candidate of [fencedJson, trimmed, extractJsonObject(trimmed)].filter(Boolean) as string[]) {
+    try {
+      return JSON.parse(candidate)
+    } catch {
+      // Keep the model output as plain text when it is not structured JSON.
+    }
+  }
+  return null
+}
+
+function extractJsonObject(text: string): string | undefined {
+  const start = text.indexOf('{')
+  const end = text.lastIndexOf('}')
+  return start >= 0 && end > start ? text.slice(start, end + 1) : undefined
+}
+
+function readRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null
+}
+
+function readNumericParams(record: Record<string, unknown>): KlineStrategyParams {
+  return Object.fromEntries(
+    Object.entries(record)
+      .map(([key, value]) => [key, Number(value)] as const)
+      .filter(([, value]) => Number.isFinite(value))
+  )
+}
+
+function readCandidateLabel(record: Record<string, unknown>, index: number): string {
+  const label = [record.name, record.label, record.title]
+    .find((value) => typeof value === 'string' && value.trim())
+  return typeof label === 'string' ? label.trim().slice(0, 60) : `候选 ${index + 1}`
+}
+
+function isKlineStrategyTemplateId(value: unknown): value is KlineStrategyTemplateId {
+  return klineStrategyTemplates.some((template) => template.id === value)
+}
+
+function formatPercent(value: number | undefined): string {
+  return Number.isFinite(value) ? `${formatNumber((value ?? 0) * 100)}%` : '缺失'
+}
+
+function formatStrategyParams(params: KlineStrategyParams): string {
+  return Object.entries(params)
+    .map(([key, value]) => `${key}=${formatNumber(value)}`)
+    .join(', ')
+}
 
 function formatNumber(value: number, digits = 2): string {
   return value.toLocaleString('zh-CN', {

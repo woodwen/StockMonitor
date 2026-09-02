@@ -7,6 +7,11 @@ import type {
 } from '../preload/stock-api'
 import type { TradeProfitSettings } from '../renderer/features/trade-profit-calculator/models/trade-profit'
 import type {
+  AiAnalysisRequest,
+  AiAnalysisStreamStartRequest,
+  AiConnectorSettings
+} from '../renderer/features/stock-workspace/models/ai-models'
+import type {
   StockQuery,
   StockTimeshareQuery,
   KlineCacheStatusRequest,
@@ -46,6 +51,16 @@ import {
   importLocalCacheBackup,
   inspectLocalCacheBackup
 } from './local-cache-portability'
+import {
+  clearAiConnectorApiKey,
+  cancelAiAnalysis,
+  getAiConnectorSettingsSnapshot,
+  runAiAnalysis,
+  saveAiConnectorApiKey,
+  saveAiConnectorSettingsSnapshot,
+  startAiAnalysisStream,
+  testAiConnector
+} from './ai-connector'
 
 type IpcMainHandler = Parameters<typeof ipcMain.handle>[1]
 
@@ -108,6 +123,29 @@ export function registerIpcHandlers(): void {
       return setTradeProfitSettings(settings)
     }
   )
+  registerIpcHandler('ai:getConnectorSettings', () => getAiConnectorSettingsSnapshot())
+  registerIpcHandler('ai:setConnectorSettings', (_event, settings: AiConnectorSettings) => {
+    return saveAiConnectorSettingsSnapshot(settings)
+  })
+  registerIpcHandler(
+    'ai:saveConnectorApiKey',
+    (_event, connectorId: string, apiKey: string) => saveAiConnectorApiKey(connectorId, apiKey)
+  )
+  registerIpcHandler('ai:clearConnectorApiKey', (_event, connectorId: string) => {
+    return clearAiConnectorApiKey(connectorId)
+  })
+  registerIpcHandler('ai:testConnector', () => testAiConnector())
+  registerIpcHandler('ai:runAnalysis', (_event, request: AiAnalysisRequest) => {
+    return runAiAnalysis(request)
+  })
+  registerIpcHandler('ai:startAnalysisStream', (event, request: AiAnalysisStreamStartRequest) => {
+    return startAiAnalysisStream(request, (payload) => {
+      event.sender.send('ai:analysisStreamEvent', payload)
+    })
+  })
+  registerIpcHandler('ai:cancelAnalysis', (_event, requestId: string) => {
+    return cancelAiAnalysis(requestId)
+  })
   registerIpcHandler('update:check', () => checkForUpdates())
   registerIpcHandler('update:download', () => downloadUpdate())
   registerIpcHandler('update:cancelDownload', () => cancelUpdateDownload())

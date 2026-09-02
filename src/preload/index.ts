@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { AppUpdateEvent } from '../renderer/features/app-update/models/update-types'
+import type { AiAnalysisStreamEvent } from '../renderer/features/stock-workspace/models/ai-models'
 import type { StockApi, MenuCommand } from './stock-api'
 
 const stockApi: StockApi = {
@@ -23,6 +24,23 @@ const stockApi: StockApi = {
   setWorkspaceSettings: (workspace) => ipcRenderer.invoke('settings:setWorkspaceSettings', workspace),
   setTradeProfitSettings: (settings) =>
     ipcRenderer.invoke('settings:setTradeProfitSettings', settings),
+  getAiConnectorSettings: () => ipcRenderer.invoke('ai:getConnectorSettings'),
+  setAiConnectorSettings: (settings) => ipcRenderer.invoke('ai:setConnectorSettings', settings),
+  saveAiConnectorApiKey: (connectorId, apiKey) =>
+    ipcRenderer.invoke('ai:saveConnectorApiKey', connectorId, apiKey),
+  clearAiConnectorApiKey: (connectorId) =>
+    ipcRenderer.invoke('ai:clearConnectorApiKey', connectorId),
+  testAiConnector: () => ipcRenderer.invoke('ai:testConnector'),
+  runAiAnalysis: (request) => ipcRenderer.invoke('ai:runAnalysis', request),
+  startAiAnalysisStream: (request) => ipcRenderer.invoke('ai:startAnalysisStream', request),
+  cancelAiAnalysis: (requestId) => ipcRenderer.invoke('ai:cancelAnalysis', requestId),
+  onAiAnalysisStreamEvent: (callback) => {
+    const listener = (_event: Electron.IpcRendererEvent, payload: AiAnalysisStreamEvent): void => {
+      callback(payload)
+    }
+    ipcRenderer.on('ai:analysisStreamEvent', listener)
+    return () => ipcRenderer.removeListener('ai:analysisStreamEvent', listener)
+  },
   checkForUpdates: () => ipcRenderer.invoke('update:check'),
   downloadUpdate: () => ipcRenderer.invoke('update:download'),
   cancelUpdateDownload: () => ipcRenderer.invoke('update:cancelDownload'),

@@ -1,5 +1,6 @@
 import Store from 'electron-store'
 import type { AppSettings, NetworkProxySettings, WorkspaceSettings } from '../preload/stock-api'
+import type { AiConnectorSettings } from '../renderer/features/stock-workspace/models/ai-models'
 import type {
   StockAdjust,
   StockPeriod,
@@ -25,10 +26,20 @@ import {
   normalizeTradeProfitSettings,
   type TradeProfitSettings
 } from '../renderer/features/trade-profit-calculator/models/trade-profit'
+import {
+  createDefaultAiConnectorSettings,
+  normalizeAiConnectorSettings
+} from '../renderer/features/stock-workspace/models/ai-models'
 import { logger } from './logger'
+
+export interface StoredAiCredential {
+  encryptedApiKey: string
+  updatedAt: string
+}
 
 interface AppStoreSchema {
   settings: AppSettings
+  aiCredentials?: Record<string, StoredAiCredential>
   windowBounds?: {
     width: number
     height: number
@@ -44,7 +55,8 @@ export const appStore = new Store<AppStoreSchema>({
       checkUpdatesOnStartup: true,
       networkProxy: getDefaultNetworkProxy(),
       workspace: getDefaultWorkspaceSettings(),
-      tradeProfit: createDefaultTradeProfitSettings()
+      tradeProfit: createDefaultTradeProfitSettings(),
+      aiConnector: createDefaultAiConnectorSettings()
     }
   }
 })
@@ -100,12 +112,22 @@ export function setTradeProfitSettings(tradeProfit: TradeProfitSettings): AppSet
   return settings
 }
 
+export function setAiConnectorSettings(aiConnector: AiConnectorSettings): AppSettings {
+  const settings = {
+    ...getSettings(),
+    aiConnector: normalizeAiConnectorSettings(aiConnector)
+  }
+  persistSettings(settings)
+  return settings
+}
+
 function normalizeSettings(settings: Partial<AppSettings> | undefined): AppSettings {
   return {
     checkUpdatesOnStartup: settings?.checkUpdatesOnStartup ?? true,
     networkProxy: normalizeNetworkProxy(settings?.networkProxy),
     workspace: normalizeWorkspaceSettings(settings?.workspace),
-    tradeProfit: normalizeTradeProfitSettings(settings?.tradeProfit)
+    tradeProfit: normalizeTradeProfitSettings(settings?.tradeProfit),
+    aiConnector: normalizeAiConnectorSettings(settings?.aiConnector)
   }
 }
 

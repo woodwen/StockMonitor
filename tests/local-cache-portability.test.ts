@@ -8,6 +8,11 @@ import type {
   StockQuery
 } from '../src/renderer/features/stock-workspace/models/stock-types'
 import { createDefaultTradeProfitSettings } from '../src/renderer/features/trade-profit-calculator/models/trade-profit'
+import { createDefaultAiConnectorSettings } from '../src/renderer/features/stock-workspace/models/ai-models'
+
+const aiCredentialMocks = vi.hoisted(() => ({
+  clearAiApiKey: vi.fn(async () => 'missing')
+}))
 
 vi.mock('electron', () => ({
   app: {
@@ -53,6 +58,10 @@ vi.mock('electron-log/main', () => ({
   }
 }))
 
+vi.mock('../src/main/ai-credentials', () => ({
+  clearAiApiKey: aiCredentialMocks.clearAiApiKey
+}))
+
 import { createKlineCacheService, type KlineCacheFile } from '../src/main/kline-cache'
 import { createLocalCachePortabilityService } from '../src/main/local-cache-portability'
 
@@ -60,6 +69,7 @@ const tempDirs: string[] = []
 
 afterEach(async () => {
   await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })))
+  aiCredentialMocks.clearAiApiKey.mockClear()
 })
 
 describe('LocalCachePortabilityService', () => {
@@ -84,7 +94,13 @@ describe('LocalCachePortabilityService', () => {
 
     expect(result.status).toBe('success')
     expect(result.summary).toMatchObject({
-      settingsSections: ['checkUpdatesOnStartup', 'networkProxy', 'workspace', 'tradeProfit'],
+      settingsSections: [
+        'checkUpdatesOnStartup',
+        'networkProxy',
+        'workspace',
+        'tradeProfit',
+        'aiConnector'
+      ],
       includesNetworkProxy: true,
       klineCacheEntryCount: 1,
       skippedCount: 1
@@ -231,6 +247,35 @@ describe('LocalCachePortabilityService', () => {
     expect(savedSettings?.workspace.query.symbol).toBe('sz000001')
     expect(savedSettings?.networkProxy).toEqual(localSettings.networkProxy)
     expect(savedSettings?.checkUpdatesOnStartup).toBe(false)
+  })
+
+  it('clears imported HTTP provider credential state so the API key must be re-entered', async () => {
+    const targetCacheRoot = await createTempRoot()
+    const backupPath = join(await createTempRoot(), 'ai-http-settings.stock-monitor-backup.json')
+    await writeBackup(backupPath, [], {
+      ...createDefaultSettings(),
+      aiConnector: {
+        ...createDefaultAiConnectorSettings(),
+        enabled: true,
+        kind: 'http-provider',
+        displayName: 'DeepSeek',
+        model: 'deepseek-chat',
+        httpProvider: {
+          presetId: 'deepseek',
+          baseUrl: 'https://api.deepseek.com',
+          customHeaders: []
+        }
+      }
+    })
+    const service = createTestService(targetCacheRoot)
+
+    const inspected = await service.inspectBackupFile(backupPath)
+    await service.importBackup({
+      importToken: inspected.importToken ?? '',
+      strategy: 'replace'
+    })
+
+    expect(aiCredentialMocks.clearAiApiKey).toHaveBeenCalledWith('default-ai-connector:deepseek')
   })
 
   it('imports with replace strategy, removes missing local series, and reports skipped entries', async () => {
@@ -390,7 +435,8 @@ function createDefaultSettings(): AppSettings {
       query: stockQuery('sh600519'),
       watchlist: [{ symbol: 'sh600519', name: '贵州茅台', createdAt: 1 }]
     },
-    tradeProfit: createDefaultTradeProfitSettings()
+    tradeProfit: createDefaultTradeProfitSettings(),
+    aiConnector: createDefaultAiConnectorSettings()
   }
 }
 

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createDefaultKlineStrategySettings } from '../src/renderer/features/stock-workspace/models/kline-strategy-backtesting'
 import { createDefaultTradeProfitInput } from '../src/renderer/features/trade-profit-calculator/models/trade-profit'
+import { createDefaultAiConnectorSettings } from '../src/renderer/features/stock-workspace/models/ai-models'
 
 const mocks = vi.hoisted(() => {
   const stores: Array<Map<string, unknown>> = []
@@ -44,7 +45,13 @@ vi.mock('electron-log/main', () => ({
   }
 }))
 
-import { getSettings, setNetworkProxy, setTradeProfitSettings, setWorkspaceSettings } from '../src/main/store'
+import {
+  getSettings,
+  setAiConnectorSettings,
+  setNetworkProxy,
+  setTradeProfitSettings,
+  setWorkspaceSettings
+} from '../src/main/store'
 
 describe('app store', () => {
   beforeEach(() => {
@@ -58,6 +65,7 @@ describe('app store', () => {
       draft: createDefaultTradeProfitInput(),
       records: []
     })
+    setAiConnectorSettings(createDefaultAiConnectorSettings())
     vi.clearAllMocks()
   })
 
@@ -69,6 +77,21 @@ describe('app store', () => {
     expect(settings.tradeProfit).toEqual({
       draft: createDefaultTradeProfitInput(),
       records: []
+    })
+  })
+
+  it('provides default disabled AI connector settings', () => {
+    const settings = getSettings()
+
+    expect(settings.aiConnector).toMatchObject({
+      enabled: false,
+      kind: 'http-provider',
+      displayName: 'DeepSeek',
+      model: 'deepseek-v4-pro',
+      httpProvider: {
+        presetId: 'deepseek',
+        baseUrl: 'https://api.deepseek.com'
+      }
     })
   })
 
@@ -109,6 +132,40 @@ describe('app store', () => {
     expect(next.workspace.klineStrategySettings).toMatchObject({
       selectedTemplateIds: defaults.selectedTemplateIds,
       assumptions: defaults.assumptions
+    })
+  })
+
+  it('saves non-sensitive AI connector settings without replacing other settings', () => {
+    setNetworkProxy({
+      enabled: true,
+      protocol: 'http',
+      host: 'localhost',
+      port: 8080
+    })
+
+    const next = setAiConnectorSettings({
+      ...createDefaultAiConnectorSettings(),
+      enabled: true,
+      kind: 'http-provider',
+      displayName: 'DeepSeek',
+      model: 'deepseek-chat',
+      httpProvider: {
+        presetId: 'deepseek',
+        baseUrl: 'https://api.deepseek.com',
+        customHeaders: [{ name: 'X-Test', value: 'ok' }]
+      }
+    })
+
+    expect(next.networkProxy.enabled).toBe(true)
+    expect(next.aiConnector).toMatchObject({
+      enabled: true,
+      kind: 'http-provider',
+      model: 'deepseek-chat',
+      httpProvider: {
+        presetId: 'deepseek',
+        baseUrl: 'https://api.deepseek.com',
+        customHeaders: [{ name: 'X-Test', value: 'ok' }]
+      }
     })
   })
 })

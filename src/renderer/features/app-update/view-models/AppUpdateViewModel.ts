@@ -1,5 +1,6 @@
 import { makeAutoObservable, runInAction } from 'mobx'
 import type { AppSettings, StockApi } from '../../../../preload/stock-api'
+import { createDefaultAiConnectorSettings } from '../../stock-workspace/models/ai-models'
 import { createDefaultIndicatorSettings } from '../../stock-workspace/models/indicator-definitions'
 import { createDefaultTimeshareIndicatorSettings } from '../../stock-workspace/models/timeshare-indicator-definitions'
 import { createDefaultTradeProfitSettings } from '../../trade-profit-calculator/models/trade-profit'
@@ -200,7 +201,8 @@ function createDefaultAppSettings(): AppSettings {
       indicatorSettings: createDefaultIndicatorSettings(),
       timeshareIndicatorSettings: createDefaultTimeshareIndicatorSettings()
     },
-    tradeProfit: createDefaultTradeProfitSettings()
+    tradeProfit: createDefaultTradeProfitSettings(),
+    aiConnector: createDefaultAiConnectorSettings()
   }
 }
 

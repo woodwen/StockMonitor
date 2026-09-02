@@ -7,6 +7,7 @@ import {
   createTradeProfitRecord,
   type TradeProfitSettings
 } from '../src/renderer/features/trade-profit-calculator/models/trade-profit'
+import { createDefaultAiConnectorSettings } from '../src/renderer/features/stock-workspace/models/ai-models'
 import { TradeProfitCalculatorViewModel } from '../src/renderer/features/trade-profit-calculator/view-models/TradeProfitCalculatorViewModel'
 
 class FakeTradeProfitSettingsAdapter implements TradeProfitSettingsAdapter {
@@ -199,6 +200,7 @@ function createDefaultSettings(): AppSettings {
       },
       watchlist: []
     },
-    tradeProfit: createDefaultTradeProfitSettings()
+    tradeProfit: createDefaultTradeProfitSettings(),
+    aiConnector: createDefaultAiConnectorSettings()
   }
 }

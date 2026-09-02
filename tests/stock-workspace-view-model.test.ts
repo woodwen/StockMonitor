@@ -10,6 +10,21 @@ import type {
   WorkspaceSettings
 } from '../src/preload/stock-api'
 import type { StockDataAdapter } from '../src/renderer/features/stock-workspace/adapters/ElectronStockDataAdapter'
+import type {
+  AiAnalysisCancelResult,
+  AiAnalysisRequest,
+  AiAnalysisResult,
+  AiAnalysisStreamEvent,
+  AiAnalysisStreamStartRequest,
+  AiAnalysisStreamStartResult,
+  AiConnectorSettings,
+  AiConnectorSettingsSnapshot
+} from '../src/renderer/features/stock-workspace/models/ai-models'
+import {
+  AI_STREAMING_FALLBACK_NOTICE,
+  createDefaultAiConnectorSettings,
+  createDefaultAiConnectorSettingsSnapshot
+} from '../src/renderer/features/stock-workspace/models/ai-models'
 import { createDefaultIndicatorSettings } from '../src/renderer/features/stock-workspace/models/indicator-definitions'
 import { createDefaultTimeshareIndicatorSettings } from '../src/renderer/features/stock-workspace/models/timeshare-indicator-definitions'
 import type {
@@ -56,10 +71,20 @@ class FakeDataAdapter implements StockDataAdapter {
   localCacheExportCount = 0
   localCacheInspectCount = 0
   localCacheImportRequests: LocalCacheBackupImportRequest[] = []
+  aiConnectorSnapshot: AiConnectorSettingsSnapshot = createDefaultAiConnectorSettingsSnapshot()
+  aiAnalysisRequests: AiAnalysisRequest[] = []
+  aiAnalysisResults: AiAnalysisResult[] = []
+  aiTestCount = 0
+  private readonly aiAnalysisStreamListeners = new Set<(event: AiAnalysisStreamEvent) => void>()
 
   constructor(private readonly failingSourceIds: string[] = [], settings?: AppSettings) {
     if (settings) {
       this.settings = settings
+      this.aiConnectorSnapshot = {
+        ...this.aiConnectorSnapshot,
+        settings: settings.aiConnector,
+        credentialStatus: settings.aiConnector.enabled ? 'saved' : this.aiConnectorSnapshot.credentialStatus
+      }
     }
   }
 
@@ -255,6 +280,161 @@ class FakeDataAdapter implements StockDataAdapter {
     return this.settings
   }
 
+  async getAiConnectorSettings(): Promise<AiConnectorSettingsSnapshot> {
+    return this.aiConnectorSnapshot
+  }
+
+  async setAiConnectorSettings(settings: AiConnectorSettings): Promise<AiConnectorSettingsSnapshot> {
+    this.settings = {
+      ...this.settings,
+      aiConnector: settings
+    }
+    this.aiConnectorSnapshot = {
+      ...this.aiConnectorSnapshot,
+      settings
+    }
+    return this.aiConnectorSnapshot
+  }
+
+  async saveAiConnectorApiKey(
+    connectorId: string,
+    _apiKey: string
+  ): Promise<AiConnectorSettingsSnapshot> {
+    this.aiConnectorSnapshot = {
+      ...this.aiConnectorSnapshot,
+      settings: {
+        ...this.aiConnectorSnapshot.settings,
+        connectorId
+      },
+      credentialStatus: 'saved'
+    }
+    return this.aiConnectorSnapshot
+  }
+
+  async clearAiConnectorApiKey(connectorId: string): Promise<AiConnectorSettingsSnapshot> {
+    this.aiConnectorSnapshot = {
+      ...this.aiConnectorSnapshot,
+      settings: {
+        ...this.aiConnectorSnapshot.settings,
+        connectorId
+      },
+      credentialStatus: 'missing'
+    }
+    return this.aiConnectorSnapshot
+  }
+
+  async testAiConnector() {
+    this.aiTestCount += 1
+    return {
+      status: 'available' as const,
+      connectorId: this.aiConnectorSnapshot.settings.connectorId,
+      displayName: this.aiConnectorSnapshot.settings.displayName,
+      kind: this.aiConnectorSnapshot.settings.kind,
+      message: '可用',
+      credentialStatus: this.aiConnectorSnapshot.credentialStatus
+    }
+  }
+
+  async runAiAnalysis(request: AiAnalysisRequest): Promise<AiAnalysisResult> {
+    this.aiAnalysisRequests.push(request)
+    return (
+      this.aiAnalysisResults.shift() ?? {
+        status: 'success' as const,
+        useCaseId: request.useCaseId,
+        connector: {
+          connectorId: this.aiConnectorSnapshot.settings.connectorId,
+          displayName: this.aiConnectorSnapshot.settings.displayName,
+          kind: this.aiConnectorSnapshot.settings.kind,
+          model: this.aiConnectorSnapshot.settings.model,
+          profile: this.aiConnectorSnapshot.settings.profile
+        },
+        outputText: 'AI 分析结果',
+        warnings: ['仅供信息整理和历史数据解释，不构成投资建议'],
+        elapsedMs: 12,
+        completedAt: '2026-08-25T00:00:00.000Z'
+      }
+    )
+  }
+
+  async startAiAnalysisStream(
+    request: AiAnalysisStreamStartRequest
+  ): Promise<AiAnalysisStreamStartResult> {
+    this.aiAnalysisRequests.push(request.analysisRequest)
+    const result = this.aiAnalysisResults.shift() ?? this.createDefaultAiAnalysisResult(request.analysisRequest)
+    const connector = result.connector
+    this.emitAiAnalysisStreamEvent({
+      type: 'started',
+      requestId: request.requestId,
+      useCaseId: request.analysisRequest.useCaseId,
+      connector,
+      startedAt: '2026-08-25T00:00:00.000Z'
+    })
+    if (result.status === 'success') {
+      if (result.outputText) {
+        this.emitAiAnalysisStreamEvent({
+          type: 'chunk',
+          requestId: request.requestId,
+          useCaseId: request.analysisRequest.useCaseId,
+          connector,
+          chunkText: result.outputText,
+          elapsedMs: result.elapsedMs
+        })
+      }
+      this.emitAiAnalysisStreamEvent({
+        type: 'completed',
+        requestId: request.requestId,
+        useCaseId: request.analysisRequest.useCaseId,
+        connector,
+        outputText: result.outputText,
+        warnings: result.warnings,
+        streamingFallback: result.streamingFallback,
+        elapsedMs: result.elapsedMs,
+        completedAt: result.completedAt
+      })
+    } else {
+      this.emitAiAnalysisStreamEvent({
+        type: 'failed',
+        requestId: request.requestId,
+        useCaseId: request.analysisRequest.useCaseId,
+        connector,
+        outputText: result.outputText,
+        warnings: result.warnings,
+        errorMessage: result.errorMessage ?? 'AI 分析失败',
+        elapsedMs: result.elapsedMs,
+        completedAt: result.completedAt
+      })
+    }
+    return {
+      requestId: request.requestId,
+      useCaseId: request.analysisRequest.useCaseId,
+      connector
+    }
+  }
+
+  async cancelAiAnalysis(requestId: string): Promise<AiAnalysisCancelResult> {
+    this.emitAiAnalysisStreamEvent({
+      type: 'cancelled',
+      requestId,
+      useCaseId: 'daily-review',
+      connector: this.createAiConnectorRunInfo(),
+      outputText: '',
+      warnings: ['仅供信息整理和历史数据解释，不构成投资建议'],
+      elapsedMs: 0,
+      completedAt: '2026-08-25T00:00:00.000Z'
+    })
+    return {
+      requestId,
+      status: 'cancelled'
+    }
+  }
+
+  onAiAnalysisStreamEvent(callback: (event: AiAnalysisStreamEvent) => void): () => void {
+    this.aiAnalysisStreamListeners.add(callback)
+    return () => {
+      this.aiAnalysisStreamListeners.delete(callback)
+    }
+  }
+
   async setNetworkProxy(proxy: NetworkProxySettings): Promise<AppSettings> {
     this.settings = {
       ...this.settings,
@@ -274,6 +454,32 @@ class FakeDataAdapter implements StockDataAdapter {
     }
     return this.settings
   }
+
+  protected emitAiAnalysisStreamEvent(event: AiAnalysisStreamEvent): void {
+    this.aiAnalysisStreamListeners.forEach((listener) => listener(event))
+  }
+
+  protected createDefaultAiAnalysisResult(request: AiAnalysisRequest): AiAnalysisResult {
+    return {
+      status: 'success' as const,
+      useCaseId: request.useCaseId,
+      connector: this.createAiConnectorRunInfo(),
+      outputText: 'AI 分析结果',
+      warnings: ['仅供信息整理和历史数据解释，不构成投资建议'],
+      elapsedMs: 12,
+      completedAt: '2026-08-25T00:00:00.000Z'
+    }
+  }
+
+  protected createAiConnectorRunInfo(): AiAnalysisResult['connector'] {
+    return {
+      connectorId: this.aiConnectorSnapshot.settings.connectorId,
+      displayName: this.aiConnectorSnapshot.settings.displayName,
+      kind: this.aiConnectorSnapshot.settings.kind,
+      model: this.aiConnectorSnapshot.settings.model,
+      profile: this.aiConnectorSnapshot.settings.profile
+    }
+  }
 }
 
 class StructuredCloneCacheAdapter extends FakeDataAdapter {
@@ -290,6 +496,15 @@ class StructuredCloneCacheAdapter extends FakeDataAdapter {
   override async clearKlineCache(request: KlineCacheClearRequest): Promise<KlineCacheStatusRow[]> {
     structuredClone(request)
     return super.clearKlineCache(request)
+  }
+}
+
+class StructuredCloneAiSettingsAdapter extends FakeDataAdapter {
+  override async setAiConnectorSettings(
+    settings: AiConnectorSettings
+  ): Promise<AiConnectorSettingsSnapshot> {
+    structuredClone(settings)
+    return super.setAiConnectorSettings(settings)
   }
 }
 
@@ -311,6 +526,88 @@ class DeferredKlineCacheStatusAdapter extends FakeDataAdapter {
       throw new Error('没有待处理的 K 线缓存状态请求')
     }
     resolve()
+  }
+}
+
+class DeferredAiAnalysisAdapter extends FakeDataAdapter {
+  private readonly pendingAiResponses: Array<{
+    requestId: string
+    request: AiAnalysisRequest
+  }> = []
+
+  override async startAiAnalysisStream(
+    request: AiAnalysisStreamStartRequest
+  ): Promise<AiAnalysisStreamStartResult> {
+    this.aiAnalysisRequests.push(request.analysisRequest)
+    const connector = this.createAiConnectorRunInfo()
+    this.pendingAiResponses.push({
+      requestId: request.requestId,
+      request: request.analysisRequest
+    })
+    this.emitAiAnalysisStreamEvent({
+      type: 'started',
+      requestId: request.requestId,
+      useCaseId: request.analysisRequest.useCaseId,
+      connector,
+      startedAt: '2026-08-25T00:00:00.000Z'
+    })
+    return {
+      requestId: request.requestId,
+      useCaseId: request.analysisRequest.useCaseId,
+      connector
+    }
+  }
+
+  resolveNextAiAnalysis(outputText: string): void {
+    const pending = this.pendingAiResponses.shift()
+    if (!pending) {
+      throw new Error('没有待处理的 AI 分析请求')
+    }
+    const connector = this.createAiConnectorRunInfo()
+    this.emitAiAnalysisStreamEvent({
+      type: 'chunk',
+      requestId: pending.requestId,
+      useCaseId: pending.request.useCaseId,
+      connector,
+      chunkText: outputText,
+      elapsedMs: 1
+    })
+    this.emitAiAnalysisStreamEvent({
+      type: 'completed',
+      requestId: pending.requestId,
+      useCaseId: pending.request.useCaseId,
+      connector,
+      outputText,
+      warnings: [],
+      elapsedMs: 1,
+      completedAt: '2026-08-25T00:00:00.000Z'
+    })
+  }
+
+  emitNextAiChunk(chunkText: string): void {
+    const pending = this.pendingAiResponses[0]
+    if (!pending) {
+      throw new Error('没有待处理的 AI 分析请求')
+    }
+    this.emitAiAnalysisStreamEvent({
+      type: 'chunk',
+      requestId: pending.requestId,
+      useCaseId: pending.request.useCaseId,
+      connector: this.createAiConnectorRunInfo(),
+      chunkText,
+      elapsedMs: 1
+    })
+  }
+
+  emitStaleAiChunk(requestId: string, chunkText: string): void {
+    this.emitAiAnalysisStreamEvent({
+      type: 'chunk',
+      requestId,
+      useCaseId: 'daily-review',
+      connector: this.createAiConnectorRunInfo(),
+      chunkText,
+      elapsedMs: 1
+    })
   }
 }
 
@@ -2586,6 +2883,416 @@ describe('StockWorkspaceViewModel', () => {
     })
   })
 
+  it('loads AI connector settings on startup without triggering AI requests', async () => {
+    const adapter = new FakeDataAdapter()
+    const viewModel = createStockWorkspaceViewModel(adapter)
+
+    await viewModel.initialize()
+
+    expect(viewModel.aiConnectorSettings.enabled).toBe(false)
+    expect(adapter.aiAnalysisRequests).toHaveLength(0)
+    expect(adapter.aiTestCount).toBe(0)
+  })
+
+  it('saves and tests AI connector settings from the separated settings modal', async () => {
+    const adapter = new FakeDataAdapter()
+    const viewModel = createStockWorkspaceViewModel(adapter)
+
+    await viewModel.initialize()
+    viewModel.openAiSettings()
+    viewModel.setAiHttpProviderPreset('deepseek')
+    viewModel.setAiConnectorModel('deepseek-chat')
+    viewModel.setAiConnectorEnabled(true)
+    viewModel.setAiApiKeyDraft('sk-test')
+    await viewModel.testAiSettings()
+
+    expect(adapter.aiTestCount).toBe(1)
+    expect(viewModel.aiConnectorSettings).toMatchObject({
+      enabled: true,
+      kind: 'http-provider',
+      model: 'deepseek-chat',
+      availability: 'available'
+    })
+    expect(viewModel.aiConnectorSnapshot.credentialStatus).toBe('saved')
+    expect(viewModel.aiApiKeyDraft).toBe('')
+  })
+
+  it('keeps pasted AI API keys in the settings draft before save or test', async () => {
+    const adapter = new FakeDataAdapter()
+    const viewModel = createStockWorkspaceViewModel(adapter)
+
+    await viewModel.initialize()
+    viewModel.openAiSettings()
+    viewModel.setAiApiKeyDraft(' sk-pasted ')
+    viewModel.setAiSettingsError('读取剪切板失败，请使用 Cmd/Ctrl+V 粘贴')
+
+    expect(viewModel.aiApiKeyDraft).toBe(' sk-pasted ')
+    expect(viewModel.aiSettingsError).toBe('读取剪切板失败，请使用 Cmd/Ctrl+V 粘贴')
+    expect(adapter.aiTestCount).toBe(0)
+  })
+
+  it('sends plain AI connector settings through the adapter boundary', async () => {
+    const adapter = new StructuredCloneAiSettingsAdapter()
+    const viewModel = createStockWorkspaceViewModel(adapter)
+
+    await viewModel.initialize()
+    viewModel.openAiSettings()
+    viewModel.setAiConnectorDisplayName('DeepSeek Local')
+    await viewModel.saveAiSettings()
+
+    expect(viewModel.aiSettingsError).toBe('')
+    expect(adapter.aiConnectorSnapshot.settings.displayName).toBe('DeepSeek Local')
+  })
+
+  it('requires a successful test before saving enabled AI connector changes', async () => {
+    const adapter = new FakeDataAdapter([], createAiEnabledSettings())
+    const viewModel = createStockWorkspaceViewModel(adapter)
+
+    await viewModel.initialize()
+    viewModel.openAiSettings()
+    viewModel.setAiConnectorModel('deepseek-v4-flash')
+    await viewModel.saveAiSettings()
+
+    expect(viewModel.aiConnectorDraft.availability).toBe('unknown')
+    expect(viewModel.aiSettingsError).toBe('请先测试连接成功后再启用 AI connector')
+    expect(adapter.aiConnectorSnapshot.settings.model).toBe('deepseek-v4-pro')
+  })
+
+  it('blocks AI analysis when the enabled connector has not been tested successfully', async () => {
+    const settings = createAiEnabledSettings()
+    settings.aiConnector.availability = 'unknown'
+    const adapter = new FakeDataAdapter([], settings)
+    const viewModel = createStockWorkspaceViewModel(adapter)
+
+    await viewModel.initialize()
+    await viewModel.runAiAnalysis()
+
+    expect(viewModel.canRunAiAnalysis).toBe(false)
+    expect(viewModel.aiAnalysisError).toContain('AI connector 未测试或不可用')
+    expect(adapter.aiAnalysisRequests).toHaveLength(0)
+  })
+
+  it('blocks AI analysis when the enabled connector is missing an API key', async () => {
+    const adapter = new FakeDataAdapter([], createAiEnabledSettings())
+    adapter.aiConnectorSnapshot = {
+      ...adapter.aiConnectorSnapshot,
+      credentialStatus: 'missing'
+    }
+    const viewModel = createStockWorkspaceViewModel(adapter)
+
+    await viewModel.initialize()
+    await viewModel.runAiAnalysis()
+
+    expect(viewModel.canRunAiAnalysis).toBe(false)
+    expect(viewModel.aiAnalysisError).toContain('HTTP provider 缺少可用 API key')
+    expect(adapter.aiAnalysisRequests).toHaveLength(0)
+  })
+
+  it('runs AI analysis only after manual trigger and sends a limited workspace context', async () => {
+    const adapter = new FakeDataAdapter([], createAiEnabledSettings())
+    const viewModel = createStockWorkspaceViewModel(adapter)
+
+    await viewModel.initialize()
+    const requestCount = adapter.aiAnalysisRequests.length
+    viewModel.openAiAnalysisPanel()
+    await viewModel.runAiAnalysis()
+
+    expect(adapter.aiAnalysisRequests).toHaveLength(requestCount + 1)
+    expect(adapter.aiAnalysisRequests[0]).toMatchObject({
+      useCaseId: 'daily-review',
+      context: {
+        symbol: 'sh000001',
+        stockName: '上证指数',
+        viewMode: 'timeshare',
+        recordCount: 2,
+        dataSourceName: '东方财富'
+      }
+    })
+    expect(viewModel.aiAnalysisResult?.outputText).toBe('AI 分析结果')
+  })
+
+  it('defaults AI analysis to the current stock without sending watchlist samples', async () => {
+    const adapter = new FakeDataAdapter([], {
+      ...createAiEnabledSettings(),
+      workspace: {
+        ...createAiEnabledSettings().workspace,
+        watchlist: [
+          { symbol: 'sh600519', name: '贵州茅台', createdAt: 1 },
+          { symbol: 'sz000001', name: '平安银行', createdAt: 2 }
+        ]
+      }
+    })
+    const viewModel = createStockWorkspaceViewModel(adapter)
+
+    await viewModel.initialize()
+    await viewModel.runAiAnalysis()
+
+    expect(adapter.aiAnalysisRequests[0].context).toMatchObject({
+      symbol: 'sh000001',
+      stockName: '上证指数'
+    })
+    expect('watchlist' in adapter.aiAnalysisRequests[0].context).toBe(false)
+  })
+
+  it('requires explicit confirmation before sending stock screening scope', async () => {
+    const adapter = new FakeDataAdapter([], createAiEnabledSettings())
+    const viewModel = createStockWorkspaceViewModel(adapter)
+
+    await viewModel.initialize()
+    viewModel.setAiUseCaseId('natural-language-stock-screening')
+    await viewModel.runAiAnalysis()
+
+    expect(viewModel.aiAnalysisError).toContain('请先确认')
+    expect(adapter.aiAnalysisRequests).toHaveLength(0)
+
+    viewModel.setAiUseCaseConfirmed(true)
+    await viewModel.runAiAnalysis()
+
+    expect(adapter.aiAnalysisRequests).toHaveLength(1)
+    expect(adapter.aiAnalysisRequests[0]).toMatchObject({
+      useCaseId: 'natural-language-stock-screening',
+      workflow: {
+        confirmedByUser: true,
+        confirmationRequired: true
+      }
+    })
+    expect(adapter.aiAnalysisRequests[0].workflow?.targetScope).toContain('用户确认后的标的范围')
+  })
+
+  it('blocks default strategy draft text until the user enters a concrete strategy idea', async () => {
+    const adapter = new FakeDataAdapter([], createAiEnabledSettings())
+    const viewModel = createStockWorkspaceViewModel(adapter)
+
+    await viewModel.initialize()
+    viewModel.setAiUseCaseId('natural-language-strategy')
+    await viewModel.runAiAnalysis()
+
+    expect(viewModel.aiAnalysisError).toContain('请输入具体自然语言策略描述')
+    expect(adapter.aiAnalysisRequests).toHaveLength(0)
+
+    viewModel.setAiQuestion('当短期均线上穿长期均线，且成交量高于 5 日均量时生成趋势策略草稿。')
+    await viewModel.runAiAnalysis()
+
+    expect(adapter.aiAnalysisRequests).toHaveLength(1)
+    expect(adapter.aiAnalysisRequests[0].workflow?.localValidationNotes.join('；')).toContain(
+      '策略名称'
+    )
+    expect(adapter.aiAnalysisRequests[0].workflow?.outputHandlingNotes.join('；')).toContain(
+      '用户确认前不得保存'
+    )
+  })
+
+  it('keeps experimental prediction output outside strategy results and signals', async () => {
+    const settings = {
+      ...createAiEnabledSettings(),
+      workspace: {
+        ...createAiEnabledSettings().workspace,
+        viewMode: 'kline' as const
+      }
+    }
+    const adapter = new FakeDataAdapter([], settings)
+    const viewModel = createStockWorkspaceViewModel(adapter)
+
+    await viewModel.initialize()
+    viewModel.setAiUseCaseId('price-move-prediction')
+    await viewModel.runAiAnalysis()
+
+    expect(adapter.aiAnalysisRequests).toHaveLength(1)
+    expect(adapter.aiAnalysisRequests[0].workflow?.outputHandlingNotes.join('；')).toContain(
+      '不得写入策略信号'
+    )
+    expect(viewModel.strategyResults).toEqual([])
+  })
+
+  it('validates AI parameter candidates with local backtests before displaying ranking', async () => {
+    const settings = {
+      ...createAiEnabledSettings(),
+      workspace: {
+        ...createAiEnabledSettings().workspace,
+        viewMode: 'kline' as const
+      }
+    }
+    const adapter = new FakeDataAdapter([], settings)
+    adapter.nextStockDataset = createCrossingStockDataset()
+    adapter.nextCachedKlineDatasetResult = createCompleteCachedKlineDatasetResult(settings.workspace.query)
+    adapter.aiAnalysisResults.push({
+      status: 'success',
+      useCaseId: 'parameter-optimization',
+      connector: {
+        connectorId: 'default-ai-connector:deepseek',
+        displayName: 'DeepSeek',
+        kind: 'http-provider',
+        model: 'deepseek-v4-pro',
+        profile: ''
+      },
+      outputText: JSON.stringify({
+        candidateParameters: [
+          {
+            name: '短长均线候选',
+            templateId: 'ma-cross',
+            params: { shortPeriod: 3, longPeriod: 8 }
+          },
+          {
+            name: '越界候选',
+            templateId: 'ma-cross',
+            params: { shortPeriod: 300, longPeriod: 1 }
+          }
+        ],
+        optimizationGoal: '控制回撤',
+        riskNotes: ['样本窗口有限'],
+        localBacktestRequired: true
+      }),
+      warnings: [],
+      elapsedMs: 12,
+      completedAt: '2026-08-25T00:00:00.000Z'
+    })
+    const viewModel = createStockWorkspaceViewModel(adapter)
+
+    await viewModel.initialize()
+    viewModel.openStrategyPanel()
+    viewModel.setStrategySelectedTemplateIds(['ma-cross'])
+    viewModel.setStrategyDraftParam('ma-cross', 'shortPeriod', 3)
+    viewModel.setStrategyDraftParam('ma-cross', 'longPeriod', 8)
+    await viewModel.runStrategyBacktest()
+    viewModel.setAiUseCaseId('parameter-optimization')
+    viewModel.setAiUseCaseConfirmed(true)
+    await viewModel.runAiAnalysis()
+
+    expect(viewModel.aiAnalysisResult?.outputText).toContain('本地批量回测验证')
+    expect(viewModel.aiAnalysisResult?.outputText).toContain('短长均线候选')
+    expect(viewModel.aiAnalysisResult?.outputText).toContain('不可用')
+
+    adapter.aiAnalysisResults.push({
+      status: 'success',
+      useCaseId: 'strategy-comparison',
+      connector: {
+        connectorId: 'default-ai-connector:deepseek',
+        displayName: 'DeepSeek',
+        kind: 'http-provider',
+        model: 'deepseek-v4-pro',
+        profile: ''
+      },
+      outputText: '模型对比摘要',
+      warnings: [],
+      elapsedMs: 12,
+      completedAt: '2026-08-25T00:00:00.000Z'
+    })
+    viewModel.setAiUseCaseId('strategy-comparison')
+    viewModel.setAiUseCaseConfirmed(true)
+    await viewModel.runAiAnalysis()
+
+    expect(viewModel.aiAnalysisResult?.outputText).toContain('本地对比事实')
+    expect(viewModel.aiAnalysisResult?.outputText).toContain('统一指标')
+    expect(viewModel.aiAnalysisResult?.outputText).toContain('可比日期范围')
+  })
+
+  it('uses the currently displayed chart security as the default AI analysis scope', async () => {
+    const adapter = new FakeDataAdapter([], createAiEnabledSettings())
+    const viewModel = createStockWorkspaceViewModel(adapter)
+
+    await viewModel.initialize()
+    viewModel.setSymbol('sz000001')
+    await viewModel.runAiAnalysis()
+
+    expect(adapter.aiAnalysisRequests[0].context).toMatchObject({
+      symbol: 'sh000001',
+      stockName: '上证指数'
+    })
+    expect(viewModel.aiCurrentAnalysisScope).toContain('上证指数(sh000001)')
+  })
+
+  it('shows AI stream chunks before the final result completes', async () => {
+    const adapter = new DeferredAiAnalysisAdapter([], createAiEnabledSettings())
+    const viewModel = createStockWorkspaceViewModel(adapter)
+
+    await viewModel.initialize()
+    await viewModel.runAiAnalysis()
+    adapter.emitNextAiChunk('第一段')
+
+    expect(viewModel.aiAnalysisRunning).toBe(true)
+    expect(viewModel.aiAnalysisStreamStatus).toBe('running')
+    expect(viewModel.aiAnalysisPartialOutput).toBe('第一段')
+    expect(viewModel.aiVisibleAnalysisOutput).toBe('第一段')
+    expect(viewModel.aiAnalysisResult).toBeNull()
+
+    adapter.resolveNextAiAnalysis('第一段第二段')
+
+    expect(viewModel.aiAnalysisRunning).toBe(false)
+    expect(viewModel.aiAnalysisStreamStatus).toBe('success')
+    expect(viewModel.aiAnalysisResult?.outputText).toBe('第一段第二段')
+  })
+
+  it('cancels an active AI stream and ignores later chunks from that request', async () => {
+    const adapter = new DeferredAiAnalysisAdapter([], createAiEnabledSettings())
+    const viewModel = createStockWorkspaceViewModel(adapter)
+
+    await viewModel.initialize()
+    await viewModel.runAiAnalysis()
+    const requestId = viewModel.aiAnalysisStreamRequestId
+
+    viewModel.cancelAiAnalysis()
+    adapter.emitStaleAiChunk(requestId, '不应显示')
+
+    expect(viewModel.aiAnalysisRunning).toBe(false)
+    expect(viewModel.aiAnalysisStreamStatus).toBe('cancelled')
+    expect(viewModel.aiAnalysisPartialOutput).not.toContain('不应显示')
+    expect(viewModel.aiAnalysisStreamRequestId).toBe('')
+  })
+
+  it('surfaces unsupported streaming fallback warnings in the final AI result', async () => {
+    const adapter = new FakeDataAdapter([], createAiEnabledSettings())
+    adapter.aiAnalysisResults.push({
+      status: 'success',
+      useCaseId: 'daily-review',
+      connector: {
+        connectorId: 'default-ai-connector:deepseek',
+        displayName: 'DeepSeek',
+        kind: 'http-provider',
+        model: 'deepseek-v4-pro',
+        profile: ''
+      },
+      outputText: '非流式结果',
+      warnings: [AI_STREAMING_FALLBACK_NOTICE],
+      streamingFallback: true,
+      elapsedMs: 12,
+      completedAt: '2026-08-25T00:00:00.000Z'
+    })
+    const viewModel = createStockWorkspaceViewModel(adapter)
+
+    await viewModel.initialize()
+    await viewModel.runAiAnalysis()
+
+    expect(viewModel.aiAnalysisResult).toMatchObject({
+      status: 'success',
+      outputText: '非流式结果',
+      streamingFallback: true
+    })
+    expect(viewModel.aiAnalysisFallbackWarning).toBe(AI_STREAMING_FALLBACK_NOTICE)
+  })
+
+  it('keeps stale AI analysis responses from replacing the latest result', async () => {
+    const adapter = new DeferredAiAnalysisAdapter([], createAiEnabledSettings())
+    const viewModel = createStockWorkspaceViewModel(adapter)
+
+    await viewModel.initialize()
+    const firstRun = viewModel.runAiAnalysis()
+    viewModel.setAiQuestion('第二次复盘')
+    const secondRun = viewModel.runAiAnalysis()
+
+    adapter.resolveNextAiAnalysis('旧结果')
+    await waitForMicrotasks()
+
+    expect(viewModel.aiAnalysisResult).toBeNull()
+    expect(viewModel.aiAnalysisRunning).toBe(true)
+
+    adapter.resolveNextAiAnalysis('新结果')
+    await firstRun
+    await secondRun
+
+    expect(viewModel.aiAnalysisResult?.outputText).toBe('新结果')
+    expect(adapter.aiAnalysisRequests).toHaveLength(2)
+  })
+
   it('prevents enabling more than three sub indicators in the draft', () => {
     const viewModel = createStockWorkspaceViewModel(new FakeDataAdapter())
 
@@ -2623,7 +3330,8 @@ function createDefaultSettings(): AppSettings {
       timeshareIndicatorSettings: createDefaultTimeshareIndicatorSettings(),
       watchlist: []
     },
-    tradeProfit: createDefaultTradeProfitSettings()
+    tradeProfit: createDefaultTradeProfitSettings(),
+    aiConnector: createDefaultAiConnectorSettings()
   }
 }
 
@@ -2637,9 +3345,26 @@ function createKlineSettings(): AppSettings {
   }
 }
 
+function createAiEnabledSettings(): AppSettings {
+  return {
+    ...createDefaultSettings(),
+    aiConnector: {
+      ...createDefaultAiConnectorSettings(),
+      enabled: true,
+      availability: 'available'
+    }
+  }
+}
+
 function createLocalCacheBackupSummary(): LocalCacheBackupSummary {
   return {
-    settingsSections: ['checkUpdatesOnStartup', 'networkProxy', 'workspace', 'tradeProfit'],
+    settingsSections: [
+      'checkUpdatesOnStartup',
+      'networkProxy',
+      'workspace',
+      'tradeProfit',
+      'aiConnector'
+    ],
     includesNetworkProxy: true,
     klineCacheEntryCount: 1,
     klineCacheBytes: 1024,

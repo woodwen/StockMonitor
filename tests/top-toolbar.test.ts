@@ -16,6 +16,7 @@ describe('TopToolbar', () => {
     expect(html).toContain('刷新')
     expect(html).toContain('指标')
     expect(html).toContain('做T')
+    expect(html).toContain('AI')
     expect(html).toContain('更多')
     expect(html).toContain('上证指数')
     expect(html).not.toContain('策略')
@@ -41,12 +42,14 @@ describe('TopToolbar', () => {
       localCacheImporting: false,
       checkUpdatesOnStartup: true,
       isCheckingForUpdates: false,
+      aiConnectorStatusLabel: '未启用',
       ...callbacks
     })
 
     expect(menuKeys(items)).toEqual([
       'data-source',
       'network-proxy',
+      'ai-settings',
       'cache-divider',
       'export-cache',
       'import-cache',
@@ -56,6 +59,7 @@ describe('TopToolbar', () => {
     ])
     expect(menuLabel(items, 'data-source')).toBe('数据源：东方财富')
     expect(menuLabel(items, 'network-proxy')).toBe('代理：直连')
+    expect(menuLabel(items, 'ai-settings')).toBe('AI 设置：未启用')
     expect(menuLabel(items, 'export-cache')).toBe('导出缓存')
     expect(menuLabel(items, 'import-cache')).toBe('导入缓存')
     expect(menuLabel(items, 'check-updates')).toBe('检查更新')
@@ -63,6 +67,7 @@ describe('TopToolbar', () => {
 
     menuItem(items, 'data-source').onClick?.({} as never)
     menuItem(items, 'network-proxy').onClick?.({} as never)
+    menuItem(items, 'ai-settings').onClick?.({} as never)
     menuItem(items, 'export-cache').onClick?.({} as never)
     menuItem(items, 'import-cache').onClick?.({} as never)
     menuItem(items, 'check-updates').onClick?.({} as never)
@@ -70,6 +75,7 @@ describe('TopToolbar', () => {
 
     expect(callbacks.onOpenSourceTestDialog).toHaveBeenCalledTimes(1)
     expect(callbacks.onOpenProxyDialog).toHaveBeenCalledTimes(1)
+    expect(callbacks.onOpenAiSettings).toHaveBeenCalledTimes(1)
     expect(callbacks.onExportLocalCacheBackup).toHaveBeenCalledTimes(1)
     expect(callbacks.onInspectLocalCacheBackup).toHaveBeenCalledTimes(1)
     expect(callbacks.onCheckForUpdates).toHaveBeenCalledTimes(1)
@@ -85,6 +91,7 @@ describe('TopToolbar', () => {
       localCacheImporting: false,
       checkUpdatesOnStartup: false,
       isCheckingForUpdates: true,
+      aiConnectorStatusLabel: '可用',
       ...createMenuCallbacks()
     })
 
@@ -143,6 +150,9 @@ function createToolbarStockViewModel(patch: { viewMode?: 'timeshare' | 'kline' }
     openSourceTestDialog: () => undefined,
     networkProxy: { enabled: false },
     openProxyDialog: () => undefined,
+    aiConnectorStatusLabel: '未启用',
+    openAiAnalysisPanel: () => undefined,
+    openAiSettings: () => undefined,
     localCacheExporting: false,
     exportLocalCacheBackup: () => undefined,
     localCacheImportInspecting: false,
@@ -158,6 +168,7 @@ function createMenuCallbacks() {
   return {
     onOpenSourceTestDialog: vi.fn(),
     onOpenProxyDialog: vi.fn(),
+    onOpenAiSettings: vi.fn(),
     onExportLocalCacheBackup: vi.fn(),
     onInspectLocalCacheBackup: vi.fn(),
     onCheckForUpdates: vi.fn(),

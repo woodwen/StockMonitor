@@ -1,5 +1,16 @@
 import type { AppUpdateEvent } from '../renderer/features/app-update/models/update-types'
 import type {
+  AiAnalysisRequest,
+  AiAnalysisResult,
+  AiAnalysisCancelResult,
+  AiAnalysisStreamEvent,
+  AiAnalysisStreamStartRequest,
+  AiAnalysisStreamStartResult,
+  AiConnectorSettings,
+  AiConnectorSettingsSnapshot,
+  AiConnectorTestResult
+} from '../renderer/features/stock-workspace/models/ai-models'
+import type {
   IndicatorName,
   IndicatorSettingsMap,
   LegacyIndicatorName,
@@ -26,6 +37,7 @@ export interface AppSettings {
   networkProxy: NetworkProxySettings
   workspace: WorkspaceSettings
   tradeProfit: TradeProfitSettings
+  aiConnector: AiConnectorSettings
 }
 
 export type NetworkProxyProtocol = 'http' | 'socks5'
@@ -128,6 +140,15 @@ export interface StockApi {
   setNetworkProxy(proxy: NetworkProxySettings): Promise<AppSettings>
   setWorkspaceSettings(workspace: WorkspaceSettings): Promise<AppSettings>
   setTradeProfitSettings(settings: TradeProfitSettings): Promise<AppSettings>
+  getAiConnectorSettings(): Promise<AiConnectorSettingsSnapshot>
+  setAiConnectorSettings(settings: AiConnectorSettings): Promise<AiConnectorSettingsSnapshot>
+  saveAiConnectorApiKey(connectorId: string, apiKey: string): Promise<AiConnectorSettingsSnapshot>
+  clearAiConnectorApiKey(connectorId: string): Promise<AiConnectorSettingsSnapshot>
+  testAiConnector(): Promise<AiConnectorTestResult>
+  runAiAnalysis(request: AiAnalysisRequest): Promise<AiAnalysisResult>
+  startAiAnalysisStream(request: AiAnalysisStreamStartRequest): Promise<AiAnalysisStreamStartResult>
+  cancelAiAnalysis(requestId: string): Promise<AiAnalysisCancelResult>
+  onAiAnalysisStreamEvent(callback: (event: AiAnalysisStreamEvent) => void): () => void
   checkForUpdates(): Promise<void>
   downloadUpdate(): Promise<void>
   cancelUpdateDownload(): Promise<void>

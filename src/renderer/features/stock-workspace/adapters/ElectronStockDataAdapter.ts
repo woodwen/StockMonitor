@@ -8,6 +8,17 @@ import type {
   WorkspaceSettings
 } from '../../../../preload/stock-api'
 import type {
+  AiAnalysisRequest,
+  AiAnalysisResult,
+  AiAnalysisCancelResult,
+  AiAnalysisStreamEvent,
+  AiAnalysisStreamStartRequest,
+  AiAnalysisStreamStartResult,
+  AiConnectorSettings,
+  AiConnectorSettingsSnapshot,
+  AiConnectorTestResult
+} from '../models/ai-models'
+import type {
   StockDataSourceMeta,
   StockDataset,
   StockQuery,
@@ -37,6 +48,15 @@ export interface StockDataAdapter {
   getSettings(): Promise<AppSettings>
   setNetworkProxy(proxy: NetworkProxySettings): Promise<AppSettings>
   setWorkspaceSettings(workspace: WorkspaceSettings): Promise<AppSettings>
+  getAiConnectorSettings(): Promise<AiConnectorSettingsSnapshot>
+  setAiConnectorSettings(settings: AiConnectorSettings): Promise<AiConnectorSettingsSnapshot>
+  saveAiConnectorApiKey(connectorId: string, apiKey: string): Promise<AiConnectorSettingsSnapshot>
+  clearAiConnectorApiKey(connectorId: string): Promise<AiConnectorSettingsSnapshot>
+  testAiConnector(): Promise<AiConnectorTestResult>
+  runAiAnalysis(request: AiAnalysisRequest): Promise<AiAnalysisResult>
+  startAiAnalysisStream(request: AiAnalysisStreamStartRequest): Promise<AiAnalysisStreamStartResult>
+  cancelAiAnalysis(requestId: string): Promise<AiAnalysisCancelResult>
+  onAiAnalysisStreamEvent(callback: (event: AiAnalysisStreamEvent) => void): () => void
 }
 
 export class ElectronStockDataAdapter implements StockDataAdapter {
@@ -100,5 +120,46 @@ export class ElectronStockDataAdapter implements StockDataAdapter {
 
   setWorkspaceSettings(workspace: WorkspaceSettings): Promise<AppSettings> {
     return window.stockApi.setWorkspaceSettings(workspace)
+  }
+
+  getAiConnectorSettings(): Promise<AiConnectorSettingsSnapshot> {
+    return window.stockApi.getAiConnectorSettings()
+  }
+
+  setAiConnectorSettings(settings: AiConnectorSettings): Promise<AiConnectorSettingsSnapshot> {
+    return window.stockApi.setAiConnectorSettings(settings)
+  }
+
+  saveAiConnectorApiKey(
+    connectorId: string,
+    apiKey: string
+  ): Promise<AiConnectorSettingsSnapshot> {
+    return window.stockApi.saveAiConnectorApiKey(connectorId, apiKey)
+  }
+
+  clearAiConnectorApiKey(connectorId: string): Promise<AiConnectorSettingsSnapshot> {
+    return window.stockApi.clearAiConnectorApiKey(connectorId)
+  }
+
+  testAiConnector(): Promise<AiConnectorTestResult> {
+    return window.stockApi.testAiConnector()
+  }
+
+  runAiAnalysis(request: AiAnalysisRequest): Promise<AiAnalysisResult> {
+    return window.stockApi.runAiAnalysis(request)
+  }
+
+  startAiAnalysisStream(
+    request: AiAnalysisStreamStartRequest
+  ): Promise<AiAnalysisStreamStartResult> {
+    return window.stockApi.startAiAnalysisStream(request)
+  }
+
+  cancelAiAnalysis(requestId: string): Promise<AiAnalysisCancelResult> {
+    return window.stockApi.cancelAiAnalysis(requestId)
+  }
+
+  onAiAnalysisStreamEvent(callback: (event: AiAnalysisStreamEvent) => void): () => void {
+    return window.stockApi.onAiAnalysisStreamEvent(callback)
   }
 }

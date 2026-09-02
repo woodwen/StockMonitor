@@ -5,6 +5,8 @@ import { UpdateStatusView } from '../../app-update/views/UpdateStatusView'
 import { UserManualModal } from '../../help/views/UserManualModal'
 import { VersionUpdatesModal } from '../../help/views/VersionUpdatesModal'
 import { TradeProfitCalculatorDrawer } from '../../trade-profit-calculator/views/TradeProfitCalculatorDrawer'
+import { AiAnalysisPanel } from './AiAnalysisPanel'
+import { AiConnectorSettingsModal } from './AiConnectorSettingsModal'
 import { DataSourceStatusModal } from './DataSourceStatusModal'
 import { IndicatorSettingsModal } from './IndicatorSettingsModal'
 import { KlineCacheManagementModal } from './KlineCacheManagementModal'
@@ -52,6 +54,8 @@ export const WorkspacePage = observer(({ root }: WorkspacePageProps) => {
         <StatusBar stock={stock} updates={root.appUpdate} />
       </Layout.Footer>
       <IndicatorSettingsModal stock={stock} />
+      <AiConnectorSettingsModal stock={stock} />
+      <AiAnalysisPanel stock={stock} />
       <KlineCacheManagementModal stock={stock} />
       <KlineStrategyPanel stock={stock} />
       <DataSourceStatusModal stock={stock} />

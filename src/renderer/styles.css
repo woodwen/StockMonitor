@@ -943,6 +943,68 @@ body {
   width: 100%;
 }
 
+.ai-settings-shell {
+  width: 100%;
+}
+
+.ai-settings-grid {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+}
+
+.ai-settings-grid .ant-input-number,
+.ai-settings-grid .ant-select,
+.ai-api-key-row {
+  width: 100%;
+}
+
+.ai-analysis-modal .ant-modal-body {
+  max-height: min(72vh, 760px);
+  overflow: auto;
+  padding-top: 14px;
+}
+
+.ai-analysis-shell {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.ai-analysis-section {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ai-analysis-section-title {
+  color: #d7e0ea;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.ai-use-case-select {
+  width: 100%;
+}
+
+.ai-context-summary,
+.ai-analysis-output {
+  padding: 10px 12px;
+  border: 1px solid #263241;
+  border-radius: 6px;
+  background: #111a26;
+  color: #d7e0ea;
+  white-space: pre-wrap;
+}
+
+.ai-analysis-error,
+.ai-analysis-warning {
+  margin-top: 4px;
+}
+
 .indicator-settings {
   display: flex;
   flex-direction: column;

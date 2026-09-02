@@ -18,6 +18,7 @@ const manualSections = [
   { id: 'manual-kline-cache', label: 'K 线缓存' },
   { id: 'manual-strategy', label: '策略回测' },
   { id: 'manual-trade-profit', label: '做T测算' },
+  { id: 'manual-ai', label: 'AI 分析' },
   { id: 'manual-sources', label: '数据源' },
   { id: 'manual-proxy', label: '网络代理' },
   { id: 'manual-updates', label: '应用更新' },
@@ -75,6 +76,7 @@ export function UserManualModal({ open, onClose }: UserManualModalProps): React.
               <li>按 Enter 或点击“刷新”，加载当前视图对应的远端行情。</li>
               <li>使用“分时 / K线”切换视图；分时和 K 线会分别保存数据源选择。</li>
               <li>K 线模式下可以使用“缓存”准备自选股历史 K 线，也可以使用顶部“策略”查看候选策略历史回测。</li>
+              <li>点击顶部“AI”手动生成当前工作区摘要分析；AI connector 默认禁用，需要先在“更多 -&gt; AI 设置”中配置。</li>
               <li>顶部“更多”菜单聚合数据源、代理、缓存导入导出和更新检查等低频操作。</li>
               <li>通过底部状态栏查看当前数据源、证券代码、记录数、加载状态和更新状态。</li>
             </ul>
@@ -230,6 +232,26 @@ export function UserManualModal({ open, onClose }: UserManualModalProps): React.
               <li>点击“新增记录”可把当前测算结果加入历史记录，并按全部记录汇总总盈亏。</li>
               <li>草稿输入和最近 200 条测算记录会保存到本地设置，应用重启后恢复。</li>
               <li>测算结果仅基于输入参数计算，不代表真实成交结果，也不构成投资建议或收益承诺。</li>
+            </ul>
+          </section>
+
+          <section className="manual-section" id="manual-ai">
+            <Title level={4}>AI 分析</Title>
+            <Paragraph>
+              AI connector 默认禁用。启用前需要在 <Text code>更多 -&gt; AI 设置</Text> 中配置 HTTP provider，并手动测试当前 connector。HTTP API key 只在 main process 凭据仓库处理；普通设置、renderer 响应、日志和本地备份不会包含明文密钥、加密密文或 Authorization header。当前平台不支持 Electron <Text code>safeStorage</Text> 时，API key 只在本次会话临时可用。
+            </Paragraph>
+            <ul>
+              <li>Provider 预设包含 OpenAI-compatible、DeepSeek、MiniMax、智谱 GLM、通义千问/DashScope、Kimi/Moonshot、硅基流动/SiliconFlow、百川智能/Baichuan、火山方舟/Ark 和自定义 provider；预设会填入常用 base URL，并为 model 提供可搜索下拉选项和自定义输入；API key 支持输入框直接粘贴，也支持通过粘贴按钮读取剪贴板。</li>
+              <li>HTTP provider 使用 OpenAI-compatible <Text code>chat/completions</Text> 请求，优先发送 <Text code>stream: true</Text> 并实时显示 SSE delta 或 provider token payload；provider 明确不支持 streaming 时回退为非流式最终结果，鉴权、网络、超时和响应格式错误不会静默重试。</li>
+              <li>应用启动、行情刷新、日期切换、缓存任务完成和打开 AI 分析弹窗不会自动发送上下文；只有点击测试连接或分析按钮才会请求 AI。</li>
+              <li>分析过程中会持续追加生成内容，并可取消当前请求；取消、新请求或切换分析场景后，旧请求的后续事件不会覆盖当前弹窗状态。</li>
+              <li>AI 输出默认使用简体中文可读小节，不要求 JSON；如果 provider 仍返回 JSON 字符串，弹窗会转成可读小节展示。</li>
+              <li>AI 分析弹窗默认只发送当前证券、视图模式、数据源、日期范围、最新行情摘要、启用指标、策略回测摘要和用户问题；不会默认发送自选股列表、其它股票样本或完整 K 线/分时数组。</li>
+              <li>流式 partial output 只存在于当前弹窗状态，不写入本地备份、跨会话历史或请求历史。</li>
+              <li>场景包括自然语言生成策略、AI 解读回测报告、AI 策略诊断、AI 参数优化助手、自然语言智能选股、策略多周期/多股票对比、市场环境识别、AI 每日复盘、新闻/公告 + K 线联合分析和实验性 AI/ML 涨跌预测。</li>
+              <li>新闻/公告 + K 线联合分析第一版只使用用户提供的标题、日期、来源和摘要，不自动抓取或伪造新闻公告。</li>
+              <li>自然语言策略、参数优化和智能选股只生成可审查草稿或验证计划；实验性涨跌预测不会进入策略信号、回测收益或交易动作。</li>
+              <li>所有 AI 输出都可能错误，需要自行核验数据来源和时效；输出仅供信息整理和历史数据解释，不构成投资建议。</li>
             </ul>
           </section>
 

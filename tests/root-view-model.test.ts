@@ -8,6 +8,10 @@ import type {
   StockTimeshareQuery
 } from '../src/renderer/features/stock-workspace/models/stock-types'
 import { createDefaultTradeProfitSettings } from '../src/renderer/features/trade-profit-calculator/models/trade-profit'
+import {
+  createDefaultAiConnectorSettings,
+  createDefaultAiConnectorSettingsSnapshot
+} from '../src/renderer/features/stock-workspace/models/ai-models'
 import { RootViewModel } from '../src/renderer/app/RootViewModel'
 
 describe('RootViewModel', () => {
@@ -87,6 +91,50 @@ function createFakeStockApi(): StockApi & {
     inspectLocalCacheBackup: vi.fn(async () => ({ status: 'cancelled' as const })),
     importLocalCacheBackup: vi.fn(async () => ({ status: 'error' as const })),
     getSettings: vi.fn(async () => settings),
+    getAiConnectorSettings: vi.fn(async () => createDefaultAiConnectorSettingsSnapshot()),
+    setAiConnectorSettings: vi.fn(async () => createDefaultAiConnectorSettingsSnapshot()),
+    saveAiConnectorApiKey: vi.fn(async () => createDefaultAiConnectorSettingsSnapshot()),
+    clearAiConnectorApiKey: vi.fn(async () => createDefaultAiConnectorSettingsSnapshot()),
+    testAiConnector: vi.fn(async () => ({
+      status: 'unavailable' as const,
+      connectorId: settings.aiConnector.connectorId,
+      displayName: settings.aiConnector.displayName,
+      kind: settings.aiConnector.kind,
+      message: '未配置',
+      credentialStatus: 'not-required' as const
+    })),
+    runAiAnalysis: vi.fn(async (request) => ({
+      status: 'error' as const,
+      useCaseId: request.useCaseId,
+      connector: {
+        connectorId: settings.aiConnector.connectorId,
+        displayName: settings.aiConnector.displayName,
+        kind: settings.aiConnector.kind,
+        model: settings.aiConnector.model,
+        profile: settings.aiConnector.profile
+      },
+      outputText: '',
+      warnings: [],
+      errorMessage: '未配置',
+      elapsedMs: 0,
+      completedAt: '2026-08-25T00:00:00.000Z'
+    })),
+    startAiAnalysisStream: vi.fn(async (request) => ({
+      requestId: request.requestId,
+      useCaseId: request.analysisRequest.useCaseId,
+      connector: {
+        connectorId: settings.aiConnector.connectorId,
+        displayName: settings.aiConnector.displayName,
+        kind: settings.aiConnector.kind,
+        model: settings.aiConnector.model,
+        profile: settings.aiConnector.profile
+      }
+    })),
+    cancelAiAnalysis: vi.fn(async (requestId) => ({
+      requestId,
+      status: 'cancelled' as const
+    })),
+    onAiAnalysisStreamEvent: vi.fn(() => () => undefined),
     getStockDataSources: vi.fn(async () => createDataSources()),
     onMenuCommand: vi.fn((callback: (command: MenuCommand) => void) => {
       menuListener = callback
@@ -143,7 +191,8 @@ function createDefaultSettings(): AppSettings {
         endDate: '20260811'
       }
     },
-    tradeProfit: createDefaultTradeProfitSettings()
+    tradeProfit: createDefaultTradeProfitSettings(),
+    aiConnector: createDefaultAiConnectorSettings()
   }
 }
 

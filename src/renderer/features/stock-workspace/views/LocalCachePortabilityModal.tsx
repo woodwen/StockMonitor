@@ -164,7 +164,8 @@ function formatSettingsSection(section: string): string {
     checkUpdatesOnStartup: '启动检查更新',
     networkProxy: '网络代理',
     workspace: '工作区',
-    tradeProfit: '做T测算'
+    tradeProfit: '做T测算',
+    aiConnector: 'AI 设置'
   }
   return labels[section] ?? section
 }

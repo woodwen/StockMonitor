@@ -18,8 +18,10 @@ describe('LocalCachePortabilityModal', () => {
       localCacheImporting: false,
       checkUpdatesOnStartup: true,
       isCheckingForUpdates: false,
+      aiConnectorStatusLabel: '未启用',
       onOpenSourceTestDialog: () => undefined,
       onOpenProxyDialog: () => undefined,
+      onOpenAiSettings: () => undefined,
       onExportLocalCacheBackup: () => undefined,
       onInspectLocalCacheBackup: () => undefined,
       onCheckForUpdates: () => undefined,
@@ -49,9 +51,10 @@ describe('LocalCachePortabilityModal', () => {
         'checkUpdatesOnStartup',
         'networkProxy',
         'workspace',
-        'tradeProfit'
+        'tradeProfit',
+        'aiConnector'
       ])
-    ).toBe('启动检查更新、网络代理、工作区、做T测算')
+    ).toBe('启动检查更新、网络代理、工作区、做T测算、AI 设置')
     expect(formatLocalCacheBackupSettingsSections([])).toBe('无')
   })
 

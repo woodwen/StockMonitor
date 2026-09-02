@@ -4,6 +4,7 @@ import type { MenuProps } from 'antd'
 import {
   ApiOutlined,
   BarChartOutlined,
+  BulbOutlined,
   CalculatorOutlined,
   CloudDownloadOutlined,
   DownloadOutlined,
@@ -36,8 +37,10 @@ interface TopToolbarMoreMenuOptions {
   localCacheImporting: boolean
   checkUpdatesOnStartup: boolean
   isCheckingForUpdates: boolean
+  aiConnectorStatusLabel: string
   onOpenSourceTestDialog: () => void
   onOpenProxyDialog: () => void
+  onOpenAiSettings: () => void
   onExportLocalCacheBackup: () => void | Promise<void>
   onInspectLocalCacheBackup: () => void | Promise<void>
   onCheckForUpdates: () => void | Promise<void>
@@ -61,6 +64,12 @@ export function createTopToolbarMoreMenuItems(
       icon: <GlobalOutlined />,
       label: options.networkProxyEnabled ? '代理：已启用' : '代理：直连',
       onClick: options.onOpenProxyDialog
+    },
+    {
+      key: 'ai-settings',
+      icon: <BulbOutlined />,
+      label: `AI 设置：${options.aiConnectorStatusLabel}`,
+      onClick: options.onOpenAiSettings
     },
     {
       key: 'cache-divider',
@@ -121,8 +130,10 @@ export const TopToolbar = observer(({ stock, updates, tradeProfit }: TopToolbarP
     localCacheImporting: stock.localCacheImporting,
     checkUpdatesOnStartup: updates.settings.checkUpdatesOnStartup,
     isCheckingForUpdates: updates.state.status === 'checking',
+    aiConnectorStatusLabel: stock.aiConnectorStatusLabel,
     onOpenSourceTestDialog: stock.openSourceTestDialog,
     onOpenProxyDialog: stock.openProxyDialog,
+    onOpenAiSettings: stock.openAiSettings,
     onExportLocalCacheBackup: stock.exportLocalCacheBackup,
     onInspectLocalCacheBackup: stock.inspectLocalCacheBackup,
     onCheckForUpdates: updates.checkForUpdates,
@@ -213,6 +224,11 @@ export const TopToolbar = observer(({ stock, updates, tradeProfit }: TopToolbarP
         <Tooltip title="测算买入卖出费用和盈亏">
           <Button icon={<CalculatorOutlined />} onClick={tradeProfit.openCalculator} aria-label="做T">
             <span className="toolbar-button-text">做T</span>
+          </Button>
+        </Tooltip>
+        <Tooltip title="手动发送当前工作区摘要给 AI">
+          <Button icon={<BulbOutlined />} onClick={stock.openAiAnalysisPanel} aria-label="AI">
+            <span className="toolbar-button-text">AI</span>
           </Button>
         </Tooltip>
         {stock.viewMode === 'kline' ? (

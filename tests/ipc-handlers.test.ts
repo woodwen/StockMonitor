@@ -31,6 +31,19 @@ const mocks = vi.hoisted(() => {
       request
     }))
   }
+  const aiConnectorMock = {
+    getAiConnectorSettingsSnapshot: vi.fn(async () => ({ settings: { connectorId: 'ai-1' } })),
+    saveAiConnectorSettingsSnapshot: vi.fn(async (settings: unknown) => ({ settings })),
+    saveAiConnectorApiKey: vi.fn(async (connectorId: string) => ({ connectorId })),
+    clearAiConnectorApiKey: vi.fn(async (connectorId: string) => ({ connectorId })),
+    testAiConnector: vi.fn(async () => ({ status: 'available' })),
+    runAiAnalysis: vi.fn(async (request: unknown) => ({ status: 'success', request })),
+    startAiAnalysisStream: vi.fn((request: unknown, emit: (payload: unknown) => void) => {
+      emit({ type: 'started', requestId: 'stream-1' })
+      return { requestId: 'stream-1', request }
+    }),
+    cancelAiAnalysis: vi.fn((requestId: string) => ({ requestId, status: 'cancelled' }))
+  }
   const ipcMainMock = {
     handle: vi.fn((channel: string, handler: (...args: unknown[]) => unknown) => {
       if (registeredHandlers.has(channel)) {
@@ -43,7 +56,7 @@ const mocks = vi.hoisted(() => {
     })
   }
 
-  return { ipcMainMock, klineCacheMock, localCacheMock, registeredHandlers }
+  return { aiConnectorMock, ipcMainMock, klineCacheMock, localCacheMock, registeredHandlers }
 })
 
 vi.mock('electron', () => ({
@@ -123,6 +136,17 @@ vi.mock('../src/main/local-cache-portability', () => ({
   inspectLocalCacheBackup: mocks.localCacheMock.inspectLocalCacheBackup
 }))
 
+vi.mock('../src/main/ai-connector', () => ({
+  clearAiConnectorApiKey: mocks.aiConnectorMock.clearAiConnectorApiKey,
+  cancelAiAnalysis: mocks.aiConnectorMock.cancelAiAnalysis,
+  getAiConnectorSettingsSnapshot: mocks.aiConnectorMock.getAiConnectorSettingsSnapshot,
+  runAiAnalysis: mocks.aiConnectorMock.runAiAnalysis,
+  saveAiConnectorApiKey: mocks.aiConnectorMock.saveAiConnectorApiKey,
+  saveAiConnectorSettingsSnapshot: mocks.aiConnectorMock.saveAiConnectorSettingsSnapshot,
+  startAiAnalysisStream: mocks.aiConnectorMock.startAiAnalysisStream,
+  testAiConnector: mocks.aiConnectorMock.testAiConnector
+}))
+
 import { registerIpcHandlers } from '../src/main/ipc'
 
 describe('IPC handlers', () => {
@@ -132,6 +156,7 @@ describe('IPC handlers', () => {
     mocks.ipcMainMock.removeHandler.mockClear()
     Object.values(mocks.klineCacheMock).forEach((mock) => mock.mockClear())
     Object.values(mocks.localCacheMock).forEach((mock) => mock.mockClear())
+    Object.values(mocks.aiConnectorMock).forEach((mock) => mock.mockClear())
   })
 
   it('can be registered more than once without duplicate-handler startup errors', () => {
@@ -149,6 +174,14 @@ describe('IPC handlers', () => {
     expect(mocks.registeredHandlers.has('localCache:inspectBackup')).toBe(true)
     expect(mocks.registeredHandlers.has('localCache:importBackup')).toBe(true)
     expect(mocks.registeredHandlers.has('settings:setTradeProfitSettings')).toBe(true)
+    expect(mocks.registeredHandlers.has('ai:getConnectorSettings')).toBe(true)
+    expect(mocks.registeredHandlers.has('ai:setConnectorSettings')).toBe(true)
+    expect(mocks.registeredHandlers.has('ai:saveConnectorApiKey')).toBe(true)
+    expect(mocks.registeredHandlers.has('ai:clearConnectorApiKey')).toBe(true)
+    expect(mocks.registeredHandlers.has('ai:testConnector')).toBe(true)
+    expect(mocks.registeredHandlers.has('ai:runAnalysis')).toBe(true)
+    expect(mocks.registeredHandlers.has('ai:startAnalysisStream')).toBe(true)
+    expect(mocks.registeredHandlers.has('ai:cancelAnalysis')).toBe(true)
     expect(mocks.registeredHandlers.has('update:openDownloadPage')).toBe(true)
   })
 
@@ -199,6 +232,43 @@ describe('IPC handlers', () => {
     }
     await getHandler('localCache:importBackup')({}, request)
     expect(mocks.localCacheMock.importLocalCacheBackup).toHaveBeenCalledWith(request)
+  })
+
+  it('delegates AI connector IPC handlers to the coordinator', async () => {
+    registerIpcHandlers()
+
+    const settings = { connectorId: 'ai-1' }
+    const request = { useCaseId: 'daily-review' }
+    const streamRequest = {
+      requestId: 'stream-1',
+      analysisRequest: request
+    }
+    const send = vi.fn()
+
+    await getHandler('ai:getConnectorSettings')({})
+    await getHandler('ai:setConnectorSettings')({}, settings)
+    await getHandler('ai:saveConnectorApiKey')({}, 'ai-1', 'secret-key')
+    await getHandler('ai:clearConnectorApiKey')({}, 'ai-1')
+    await getHandler('ai:testConnector')({})
+    await getHandler('ai:runAnalysis')({}, request)
+    await getHandler('ai:startAnalysisStream')({ sender: { send } }, streamRequest)
+    await getHandler('ai:cancelAnalysis')({}, 'stream-1')
+
+    expect(mocks.aiConnectorMock.getAiConnectorSettingsSnapshot).toHaveBeenCalledTimes(1)
+    expect(mocks.aiConnectorMock.saveAiConnectorSettingsSnapshot).toHaveBeenCalledWith(settings)
+    expect(mocks.aiConnectorMock.saveAiConnectorApiKey).toHaveBeenCalledWith('ai-1', 'secret-key')
+    expect(mocks.aiConnectorMock.clearAiConnectorApiKey).toHaveBeenCalledWith('ai-1')
+    expect(mocks.aiConnectorMock.testAiConnector).toHaveBeenCalledTimes(1)
+    expect(mocks.aiConnectorMock.runAiAnalysis).toHaveBeenCalledWith(request)
+    expect(mocks.aiConnectorMock.startAiAnalysisStream).toHaveBeenCalledWith(
+      streamRequest,
+      expect.any(Function)
+    )
+    expect(send).toHaveBeenCalledWith('ai:analysisStreamEvent', {
+      type: 'started',
+      requestId: 'stream-1'
+    })
+    expect(mocks.aiConnectorMock.cancelAiAnalysis).toHaveBeenCalledWith('stream-1')
   })
 })
 
